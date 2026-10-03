@@ -422,3 +422,70 @@ by one line to accept either (WP-9's file — flagged for the integrator).
 Added `Policy.hour_kernel_tolerance_bps` (default 300) and the matching `policy/default.toml` key;
 `engine.KERNEL_TOLERANCE_P95_BPS` stays as the library default. D-WP3-7 (WP-9 test accepting
 SKIPPED as well as PENDING) is accepted as is.
+
+## D-WP5-1 (2026-10-03, WP-5) — attestation walk: segments of constant status + sparse points
+
+**Decision.** `attest.simulate` walks each path through segments between status events
+(registration, maturity, EQV-1, bond spend, REV-1); seating for a whole segment is one numpy
+argsort (or constant when every ELIGIBLE seq fits in `nSlots`), and a per-path Python loop visits
+only demand, PIN-2-trigger and dormancy-check heights. A dormancy that fires cuts the segment.
+**Reason.** Exact node semantics (block order: transactions, BundleLog[H], SNAP) at ≈ 0.1 s per
+mainnet path-month; attestation events are sparse.
+**Consequence.** Exactness is shown by replaying the golden chain and by a reference harness that
+drives `YellowbackModel`'s own SNAP/selection code with synthetic transactions (8 randomised
+scenarios); seated/selected/pinned sets are uint64 bitmasks, so ≤ 64 registered attestors per path.
+
+## D-WP5-2 (2026-10-03, WP-5) — attestor behaviour and bundle assembly model
+
+**Decision.** An online attestor signs every `k` blocks at its phase (`attestInterval`); a bundle for
+`(R, selector)` contains every selected seq whose newest attestation is cited in
+`(R − attestMaxAge, R]` (BuildBundle, index.cpp:1174) and verifies iff `mSelect ≤ |C| ≤ bundleMax`.
+Attestations cited at or after a seq's ejection / bond spend are not usable (the pool refuses
+EJECTED/WITHDRAWN, index.cpp:1132). Availability: iid or two-state Markov per attestor plus an
+optional common outage; prices `true·(1 + bias + noise)`, optional stuck feed. REV-1 is sent at the
+first height ≥ dormancy + `revive_delay` with an own attestation cited in `(H − attestMaxAge, H − 1]`.
+Default demand: Poisson(1/48) bundles per block with `ref = H − DEFAULT_REF_LAG` (WP-4 replaces it).
+Bond spends are clamped to `registerHeight + bondMinLock + 1` (the earliest CLTV spend); an EQV-1 at
+the spend height is ordered first.
+**Reason.** Agent policy is not consensus; these are the simplest models consistent with the node's
+wallet path and the G8 questions (liveness, dormancy, capture).
+
+## D-WP5-3 (2026-10-03, WP-5) — PIN coupling with the oracle engine
+
+**Decision.** `attest.simulate` reads the engine's xMint (`series.p_mint`) for PIN-2 and emits the
+PIN-1 trigger (`pin1_triggered`, from the BundleLog rows) for the engine to apply the key exclusion.
+The exact coupled result is the fixed point of oracle → attest → re-median at PIN-1 heights → attest.
+**Reason.** PIN-1 at H reads rows < H and PIN-2 at H reads pMint < H, so only the rare pinned heights
+couple the two layers; a block-interleaved engine would be much slower for no gain elsewhere.
+**Consequence.** Recorded as a contract note for WP-3 (architecture.md, "Activation & attestation
+simulator").
+
+## D-WP5-4 (2026-10-03, WP-5) — mid-chain starts and height frames
+
+**Decision.** Activation needs `ActivationInit` (incl. the last `W − 1` signal bits) when
+`height0 > start_height`; attestation applies pre-series events at `height0` and accepts
+`initial_trigger_height` / `initial_seated_since`. The sunset is re-based:
+`enforce_until = start_height + (P.enforceUntilHeight − P.startHeight)` (0 stays "none").
+**Reason.** The engine may run relative heights or a window of a longer chain; the rules depend only
+on distances from the start.
+
+## D-WP5-5 (2026-10-03, WP-5) — G5 analytic estimators
+
+**Decision.** For iid Bernoulli(p) signals the exact per-block downcrossing probability
+`P(Bin(W − 1, p) = floor − 1)·p·(1 − p)` is the expected rate of entering `count < floor`; it bounds
+the halt-episode rate from above (an episode starts only at a downcrossing while not halted). The
+halted fraction is bracketed by `P(count < floor)` and `P(count < resume)`; `P(any per year)` uses
+`1 − exp(−rate)`. Share drift uses the exact Poisson-binomial; detection delay is Monte Carlo with a
+fluid approximation; the ACT-7 valve uses the gambler's-ruin `(q/(1 − q))^(valveBlocks − 1)`.
+**Reason.** Overlapping windows make per-window binomials double-count; crossings are exact and
+cheap. All estimators are checked against simulation in `tests/sim/test_activation_analytic.py`.
+
+## D-WP5-6 (2026-10-03, WP-5) — G8 analytic estimators
+
+**Decision.** Liveness: binomial in the per-attestor freshness `1 − (1 − u)^⌈maxAge/k⌉` (Markov:
+`1 − (1 − u)(1 − 1/L)^((s − 1)k)`), beta-binomial with intra-class correlation ρ for correlated
+outages. False dormancy: closed form for iid availability, an exact forward recursion over the
+window for Markov outages; per-year figures are a union bound over checks. Capture: bundle-level
+thresholds (qLow / 1 − qLow) plus Monte Carlo over W9 selections with the exact kernels.
+**Reason.** Matches PLAN §5.8; each helper is validated against Monte Carlo and the liveness formula
+against the simulator's own bundle success rate.

@@ -549,3 +549,103 @@ rows (masked medians on the scalar path). HALT-2 is checked against the scalar k
 `SECONDS_PER_PATH_DAY = 0.0045` (measured 0.0039 + headroom) drives `paths_for_budget`; the
 `quick` budget (64 paths × 30 days) costs ≈ 8 core-seconds per candidate. Memory: `run_paths`
 holds `chunk_paths` (16) paths per worker (≈ 0.3 GB at 90 days).
+
+## Activation & attestation simulator (WP-5)
+
+`src/ybcal/sim/activation.py` and `src/ybcal/sim/attest.py` are the block-mode components for ACT-1..7
+and the v3 attestation layer. Both are pure functions over `(paths, n_blocks)` arrays; column `j` is
+height `height0 + j`. Consensus arithmetic is never re-implemented: counts and halts go through
+`vkernels.signal_counts`/`hysteresis` semantics, W19 through `kernels.param_set_start_admissible`,
+selection through `kernels.select_attestors` (W9), the bundle statistic through `kernels.bundle_stat`,
+PIN-2 through `kernels.pin2_pinned_seqs`, bond weight through `kernels.bond_weight` semantics.
+
+### Activation API (`ybcal.sim.activation`)
+
+| Function | Meaning |
+|---|---|
+| `simulate(params, signal_bit, start_height, height0=0, *, enforce_until=None, initial=None, chunk_paths=64) -> ActivationSeries` | ACT-1..6 exactly (window clipped at the start, lock-in at the first `H ≥ start + W − 1` with `count ≥ threshold`, same-SNAP ACTIVE at delay 0, both hysteresis halts, ACT-5 from snapshot H − 1 and the sunset) |
+| `ActivationSeries` | `status` int8 (`SIGNALING/LOCKED_IN/ACTIVE` = node enum), `signal_count` int32, `participation_halt`, `enforcement_halt`, `enforcement_on` (bool), `lock_in_height`/`activate_height` per path (−1 = never), `enforce_until`; `.halt_bits` (NOT_ACTIVE / PARTICIPATION / ENFORCEMENT for the engine's haltMask), `.abandoned(abandon_blocks)` |
+| `ActivationInit(status, lock_in_height, activate_height, participation_halt, enforcement_halt, prior_signals)` | carried state when `height0 > start_height` (the last `W − 1` signal bits before `height0`) |
+| `effective_enforce_until(params, start_height)` | the sunset re-based onto the series' start (absolute and relative height frames read the same rule) |
+| `sunset_signal_mask(n, height0, enforce_until)` | miners signal only while `H ≤ enforceUntil` (index.cpp:727); the engine ANDs it into its signal draws |
+| `abandoned(enforcement_halt, abandon_blocks)` | L10/L12 (index.cpp:732): ENFORCEMENT at every snapshot of `[tip − abandonBlocks + 1, tip]` |
+| `start_admissible(enf, start, signal_window, *, height0, previous_enforce_until)`, `earliest_fix_start(enf, signal_window, *, height0)` | ACT-5 / W19 freeze-then-fix (kernel delegate; vectorised earliest start) |
+| G5 analytics | `p_count_below`, `poisson_binomial_pmf`, `p_count_below_poisson_binomial`, `downcrossing_rate`, `false_halt_rate(...) -> FalseHaltEstimate`, `simulate_halts`, `flapping_rate`, `detection_delay` (MC), `detection_delay_approx` (fluid), `p_lock_in_first_window`, `time_to_activation`, `valve_trip_probability` (ACT-7, gambler's ruin), `natural_fork_trip_rate` |
+
+### Attestation API (`ybcal.sim.attest`)
+
+`simulate(params, inputs, series=None) -> AttestSeries`. `inputs` carries an `attest` dict (key or
+attribute); `series` (mapping, object or `ActivationSeries`) may provide `p_mint` (the engine's
+cross-section xMint, ≤ 0 = undefined; needed for PIN-2), `height0`, `start_height`.
+
+**`attest` schema** (full text in the module docstring):
+
+| Key | Meaning |
+|---|---|
+| `roster` | list of attestor dicts (shared) or `callable(path, rng) -> list`. Per attestor: `bond_zat`, `register_height` (required); `uptime`, `mean_outage_blocks` (Markov outages; None = iid), `outages` [(start, end)), `common` (member of the common outage), `bias_bps`, `noise_bps`, `phase` (signing phase mod k), `frozen_from` (stuck feed), `equivocate_at`, `withdraw_height` (clamped to `register + bondMinLock + 1`), `revive`, `revive_delay`, `revive_at`; replay: `sign_heights` / `sign_prices` |
+| `true_price` | µUSD `(paths, n)` or `(n,)`; ≤ 0 = no source |
+| `attest_interval` | k (default `params["attestInterval"]`); an online attestor signs heights `≡ phase (mod k)` |
+| `uptime`, `mean_outage_blocks`, `noise_bps`, `common_noise_bps`, `common_outage {uptime, mean_outage_blocks}`, `revive`, `revive_delay` | defaults / shared processes |
+| `demands` (explicit `{height, ref_height, kind, selector}`), `demand_counts` (`(paths, n)` bundles per block — WP-4 supplies this), `demand_heights`, else Poisson(`demand_rate`, 1/48) | blocks whose MINT / NOT-1 / claim needs a bundle; `kind` mint (empty selector, MINT-9) / notice / claim (36-byte outpoint selector); `claim_fraction`; `ref_lag` (default `DEFAULT_REF_LAG`) |
+| `block_hashes` | `callable(path, h) -> hex` or `{h: hex}`; default synthetic `SHA256(path key ‖ h)` |
+| `seed` / `rng` | path `i` uses `default_rng([seed, i])` (independent of the number of paths) |
+| `height0`, `start_height`, `initial_trigger_height`, `initial_seated_since`, `record_status`, `paths`, `n_blocks` | frame, mid-chain start, diagnostics |
+
+**`AttestSeries`**: `status` (UNARMED/TRIGGERED/ARMED per block), `trigger_height`/`arm_height`
+(per path, −1 = never), `eligible_count`, `seated` / `pinned_seqs` (uint64 bitmasks by seq; at most
+64 registered attestors per path), `pin2_triggered`, `bundle_row`, `row_a_mint`/`row_a_claim`
+(BundleLog[H]; −1 = none/undefined), `pin1_triggered` (state.cpp:1130 trigger from the rows — the
+engine applies PIN-1's key exclusion), `demands` (`DEMAND_DTYPE`: path, height, ref_height, kind,
+armed, reason ok/unarmed/no-snapshot/insufficient/count, success, n_selected, n_fresh, selected and
+signed bitmasks, aMint, aClaim), `transitions` (`TRANSITION_DTYPE`: REGISTER, MATURE, DORMANT, REVIVE,
+EJECT, WITHDRAW), `bundle_log` (per path `{h: BundleLogRow}`), `attestors` (final records incl.
+`seated_since`), `seq_of_roster`, optional `attestor_status` `(paths, A, n)`. Helpers:
+`seated_at`, `pinned_at`, `bundle_success_rate`, `seqs_of`, `mask_of`, `pin1_trigger_series`,
+`markov_online`.
+
+**How the walk works.** Per path, a heap of status events (registration, maturity, EQV-1, bond spend,
+REV-1) splits time into segments of constant statuses. For each segment the seating is computed
+with numpy (weights `bond · clamp(H − ageOrigin, 0, ageCap)`, stable argsort by weight then seq; O(1)
+when every ELIGIBLE seq fits in `nSlots`), and a Python loop visits only demand heights, PIN-2
+trigger heights and dormancy-check heights in node order (transactions, BundleLog[H], SNAP). A
+dormancy that fires ends the segment at H. Weights are int64 unless `bond · ageCap ≥ 2^62`
+(object arithmetic, exact but slower).
+
+**G8 analytics**: `liveness_probability(m, k, uptime, rho_correlation=0)` (binomial / beta-binomial),
+`fresh_probability(uptime, k, attest_max_age, mean_outage_blocks=None)` (the per-attestor input to
+liveness), `capture_threshold_shares`, `capture_probability` (MC with the exact kernels),
+`capture_share_needed(q_low_bps, weights_distribution=None, ...)`, `false_dormancy_probability(uptime,
+dormancy_blocks, min_bundles, demand_rate, selected_prob, *, mean_outage_blocks=None)` (closed form
+iid / exact forward recursion for Markov outages), `false_dormancy_per_year` (union bound),
+`griefing_cost_usd(bond_min, price_paths, ...)`.
+
+### Exactness coverage (`tests/sim/`)
+
+| Test | Against |
+|---|---|
+| `test_activation.py` | the golden chain's 440 snapshots (status, count, both halts, haltMask bits, ACT-5 per block, lock-in/activate); synthetic tag streams fed through `YellowbackModel` at regtest params (share drops through floors, recoveries inside the hysteresis bands, untagged blocks, `is_abandoned` at every tip, a sunset with miners dropping the bit, a later start); 4 mainnet-parameter paths × 9,000 blocks vs the scalar ACT kernels iterated; mid-chain start = tail of the full run; `abandoned` / W19 vs brute force |
+| `test_attest_reference.py` | the golden chain's 440 snapshots (attest status, seated, pinnedSeqs, every BundleLog row, final attestor records incl. seatedSince and bondSpentHeight, trigger/arm, PIN-1 trigger vs the kernel); 8 randomised 360-block scenarios through a reference harness (`tests/sim/_harness.py`: the model's own SNAP/selection/weight code with synthetic REG-A1/EQV-1/bond-spend/REV-1/bundle transactions) with ranking beyond `nSlots`, founding window and ageCap, PIN-2 pins, dormancy, dynamic and explicit REV-1, EQV-1, withdrawals, a sub-minimum bond, failed bundles |
+| `test_attest_units.py` | founding-window boundary and ageCap re-ranking without a status event, ties by seq, dormancy timing and revival, PIN-2 exclusion from selection, `pin1_trigger_series` vs kernel, determinism and path independence, dead-attestor detection, bias, Markov outage statistics, edge inputs |
+| `test_*_analytic.py` | binomial/Poisson-binomial tails, the exact downcrossing expectation, halt-fraction brackets, detection delay, valve walk, liveness (incl. vs the simulator's bundle success rate), freshness, dormancy (iid and Markov), capture thresholds, griefing — each vs Monte Carlo |
+
+### Runtime (this sandbox, one core)
+
+| Workload | Time |
+|---|---|
+| `attest.simulate`, mainnet, 100 paths × 30 days (34,560 blocks), 9–15 attestors, u = 0.95, 48-block outages, 1 bundle demand/hour | 7–10 s (≈ 0.1 s per path) |
+| same at 0.2 demands/block (≈ 230/day, 690k bundles) | ≈ 37 s (≈ 50 µs per bundle: W9 SHA-256 draws + statistic) |
+| `activation.simulate`, mainnet, 100 paths × 30 days / 1,000 paths × 90 days | 0.16 s / 11 s (chunks of 64 paths) |
+
+### Contract notes for the engine (WP-3) and WP-4
+
+1. The engine passes `signal_bit & sunset_signal_mask(...)` (miners stop signalling after the sunset).
+2. `attest.simulate` reads the engine's xMint as `series.p_mint`; PIN-2 at H needs pMint at H − 1 and
+   H − 1 − pinWindow. PIN-1 at H needs the BundleLog rows before H. The two layers are mutually
+   dependent only through pinned heights: run oracle → attest → recompute the medians at the
+   `pin1_triggered` heights with the scalar path (PIN-1 key exclusion) → if any pMint changed, run
+   attest again (a fixed point; usually one pass, since triggers are rare).
+3. WP-4 supplies bundle demand as `demand_counts` (or explicit `demands` with adversarial
+   `ref_height`s); a demand is counted only if the transaction would be mined (the node logs a
+   verified bundle even when the MINT later fails another check).
+4. Heights in the outputs use −1 for "never"; run the series at heights ≥ 0 (relative heights are
+   fine: `effective_enforce_until` and `start_height` re-base the rules).
