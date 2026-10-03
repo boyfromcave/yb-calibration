@@ -10,4 +10,14 @@ The tool (`ybcal`) will:
 - optionally check the results on a regtest devnet;
 - write a report with a recommended value and an explanation for every parameter.
 
-**Status:** planning. See [docs/PLAN.md](docs/PLAN.md) for the implementation plan.
+**Status:** WP-0 (scaffold and contracts) landed: `ybcal params show | extract | check | doc` work;
+other commands report which work package will implement them. See [docs/PLAN.md](docs/PLAN.md) for
+the plan, [docs/architecture.md](docs/architecture.md) for the module map and contracts, and
+[docs/parameters.md](docs/parameters.md) for every parameter.
+
+```bash
+make setup                                   # .venv + pip install -e '.[dev]'
+make test lint
+.venv/bin/ybcal params show --group G3
+.venv/bin/ybcal params check --ycash6 ../ycash6   # drift vs registry + invariants (snapshot if omitted)
+```

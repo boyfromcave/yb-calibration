@@ -1,0 +1,112 @@
+# ybcal risk policy — the owner's risk appetite (PLAN §2.4, §5, §12).
+#
+# Copy this file, edit it, and pass it with `--policy FILE`. Every value is a STARTING TOLERANCE for
+# the owner to confirm, not a decision. Section headers only group keys: every key below is a field
+# of `ybcal.config.Policy`, and keys are unique across sections. A table whose name is itself a
+# Policy field (e.g. [risk.max_bad_debt_prob]) is that field's value.
+#
+# Units are in the comment on each line. Probabilities are fractions (0.01 = 1 %). Shares are
+# fractions of hashrate or attestor weight. Money in policy is in USD (floats are fine here: the
+# policy is a tolerance, never a consensus quantity).
+
+[general]
+materiality = 0.20                 # min relative improvement of a param's primary metric to move off its current value (§2.3, §12.2)
+seed = 20261003                    # default RNG seed for every run (overridden by --seed)
+require_real_data_for_lock = true  # lock-readiness needs real-data provenance for every locked param (§7)
+
+[risk]
+class_heterogeneity_max = 0.50     # max relative spread of P(bad debt) within one class before a split/merge is suggested (§5.3)
+term_distribution = "uniform"      # lock-term distribution within each class: "uniform" | "short-heavy" | "long-heavy" (§5.3)
+sigma_mult_at = "median"           # σ multiplier assumed when sizing base ratios: "median" | "p90" (§5.3)
+
+[risk.max_bad_debt_prob]           # max P(collateral < debt when the claim path opens), per term class (§5.3, §12.1)
+A = 0.005
+B = 0.01
+C = 0.02
+
+[claims]
+claimant_min_profit_bps = 200      # bps of vault value a claimant must net after fees to show up (§5.3)
+claimant_slippage_pctl = 90        # percentile of liquidation slippage used for claimant profit (§5.3)
+
+[oracle]
+attack_share_min = 0.34            # smallest colluding hash share that may be able to move a median (§5.1, §12.1)
+max_no_price_hours = 6.0           # max expected hours/year with NO_PRICE set (§5.1)
+pump_overpricing_lambda = 0.5      # weight of pump overpricing vs crash-lag CVaR in the G1 objective (§5.1)
+crash_lag_cvar_alpha = 0.95        # CVaR level for crash tracking lag (§5.1)
+max_sigma_lag_blocks = 4032        # max blocks for σ multiplier to reach 90 % of a new regime (§5.2)
+sigma_ref_round_bps = 500          # sigmaRefBps rounding step (§5.2)
+sigma_mult_cap_pctl = 99           # percentile of the turbulent multiplier the cap must cover (§5.2)
+sigma_accept_band = [1.0, 1.5]     # M14 acceptance band for the median multiplier at realised volatility (§5.2)
+
+[activation]
+max_false_halt_hours_per_year = 24.0  # max expected hours/year of false PARTICIPATION/ENFORCEMENT halts (§5.5, §12.1)
+expected_enforcing_share = 0.80    # hash share expected to run enforcing nodes (§5.5, §12.1)
+detection_drop_share = 0.45        # a real drop to this share must be detected… (§5.5)
+max_detection_blocks = 4032        # …within this many blocks (§5.5)
+max_flaps_per_year = 2.0           # max halt/clear cycles per year at the expected share (§5.5)
+operator_upgrade_window_blocks = 2016  # activationDelay must be >= this (time for operators to upgrade, §5.5)
+orphan_rate = 0.005                # orphan rate used for valve false-trip estimates (§5.5)
+max_valve_false_trips_per_year = 1.0   # excluded param valveBlocks: tolerated false trips/year (§5.5)
+
+[abandonment]
+max_false_abandon_prob = 0.001     # max P(ENFORCEMENT set for abandonBlocks without a real abandonment) per year (§5.4)
+runbook_operator_buffer_blocks = 4608  # operator buffer in the freeze-then-fix runbook (§5.4), 4 days
+release_lead_blocks = 16128        # M14 release lead (two weeks of blocks); a protocol fact, mirrored here for the runbook
+renewal_lead_blocks = 210240       # W18 renewal deadline: this many blocks before the sunset (~6 months, §5.11)
+
+[owner_absence]                    # honest-owner absence model for grace (§5.4): log-normal absence spells
+owner_absence_median_days = 7.0    # median absence spell, days
+owner_absence_sigma = 1.0          # log-normal shape (σ of ln days)
+owner_absence_rate_per_year = 1.0  # expected absence spells per owner per year
+max_owner_miss_prob = 0.01         # max P(an honest owner misses the window between lock and claim) (§5.4)
+w_owner = 1.0                      # weight of P(miss) in the grace objective (§5.4)
+w_debt = 1.0                       # weight of ΔP(bad debt) in the grace objective (§5.4)
+
+[judgement]
+k_dev = 1.5                        # deviationBps >= k_dev × p99 honest deviation (§5.6)
+max_not_evaluated_prob = 0.05      # max P(fewer than peerMin peers) at the expected pool count (§5.6)
+expected_pool_count = 6            # tagging pools expected on mainnet (§5.6)
+max_false_penalty_rate = 0.01      # max fraction of honest pool-blocks judged bad (§5.6)
+
+[fees]
+max_fee_share_small = 0.02         # max total fee as a share of a minMint vault's value (§5.6, §5.9)
+pool_min_monthly_revenue_usd = 50.0       # min fee revenue/month per enforcing pool under adoption_low (§5.6)
+attestor_min_monthly_revenue_usd = 50.0   # min fee revenue/month per seated attestor under adoption_low (§5.6)
+pool_operating_cost_usd_month = 20.0      # pool's marginal cost of running enforcement (§5.6)
+bond_opportunity_cost_apr = 0.05          # annual opportunity cost of a locked bond (§5.6, G8 coupling)
+
+[adoption]
+adoption_case = "low"              # adoption scenario fee decisions must clear: "low" | "mid" | "high" (§5.6)
+
+[adoption.adoption_scenarios]      # YED outstanding (USD) and mints/redeems per day per scenario (§5.6)
+low = { yed_supply_usd = 50000.0, mints_per_day = 2.0, redeems_per_day = 1.0 }
+mid = { yed_supply_usd = 500000.0, mints_per_day = 10.0, redeems_per_day = 6.0 }
+high = { yed_supply_usd = 5000000.0, mints_per_day = 50.0, redeems_per_day = 30.0 }
+
+[supply]
+max_depth_fraction = 0.10          # max liquidation volume as a share of p10 daily YEC volume (§5.7, §5.9)
+max_class_closed_days = 90.0       # max days classes B/C stay closed by the early supply cap before a design note (§5.7)
+halt_recall_floor = 0.90           # min recall of HALT-3 on crash scenarios when picking divergenceBps (§5.7)
+
+[attestation]
+attestor_uptime = 0.95             # per-attestor uptime assumed for liveness (§5.8, §12.1)
+attestor_outage_correlation = 0.10 # pairwise correlation of attestor outages (§5.8)
+max_attest_unavailability = 0.01   # max P(minting refuses for want of a bundle) (§5.8)
+max_single_entity_weight_share = 0.25   # largest attestor weight share one entity is assumed to hold; qLowBps must exceed it (§1.4, §5.8)
+diverge_spread_multiplier = 3.0    # divergeBpsAttest = this × worst-pair p95 spread (§5.8, proposal §16)
+pin_low_move_fraction = 0.05       # if fewer windows than this have a pinDelta move, lower pinDeltaBps (§5.8)
+max_false_pin_prob = 0.01          # max P(an honest pool/attestor is marked pinned) per day (§5.8)
+max_false_ejection_prob = 0.01     # max P(honest attestor ejected for dormancy) per year (§5.8)
+max_dead_detection_blocks = 32256  # max blocks to eject a dead attestor (§5.8), 28 days
+attest_relay_budget_per_block = 2.0  # attestations relayed per attestor per block the network tolerates (§5.8, k choice)
+
+[amounts]
+worst_price_usd = 100.0            # highest YEC price the policy covers; 4·feeMin must fit a minMint vault there (§1.4, §5.9)
+dust_zat = 546                     # dust threshold used for residual / output checks, zat (§5.9)
+reorg_attacker_share = 0.30        # hash share of a reorging adversary for walletConfirmations / REF_LAG (§5.9)
+max_reorg_prob = 0.001             # max P(a reorg deeper than the wallet's wait) (§5.9)
+max_void_prob = 0.01               # max P(a mint is VOIDed by a reorg past REF_LAG) (§5.9)
+
+[optimizer]
+max_rounds_joint = 3               # coordinate-descent rounds in the joint pass (§5.10)
+insensitive_total_order = 0.01     # Sobol total-order index below which a param is "insensitive" (§5.10)
