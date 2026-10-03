@@ -1,0 +1,27 @@
+# A tripling over 10 days, two days near the top, then a 2-day dump back to the start.
+name = "pump-dump-3x"
+description = "+200 % over 10 days from day 15, then -66.7 % over 2 days from day 27 (back to the start price)"
+stresses = "mint-at-the-top risk (pMint = min of medians), divergence asymmetry (HALT-3 fires on falls only)"
+tags = ["core", "price"]
+horizon_days = 60
+resolution = "block"
+p0_usd = 0.40
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.70 }
+
+[[segments]]
+kind = "ramp"
+start_days = 15
+duration_days = 10
+pct = 200
+
+[[segments]]
+kind = "ramp"
+start_days = 27
+duration_days = 2
+pct = -66.6667
+
+[schedules.enforcing_share]
+default = 0.80

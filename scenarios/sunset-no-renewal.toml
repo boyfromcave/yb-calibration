@@ -1,0 +1,28 @@
+# The parameter set reaches enforceUntilHeight (start + 420,480 blocks = 365 days) with no renewal
+# released. Miners drop the signal bit after the sunset (index.cpp:713) and ACT-4 trips within
+# about one signal window.
+name = "sunset-no-renewal"
+description = "no renewal set before the sunset at day 365: the signal share falls to zero after it"
+stresses = "post-sunset minting halt and continuity, renewal deadline (W18)"
+tags = ["governance", "long"]
+horizon_days = 450
+resolution = "hour"
+p0_usd = 0.40
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 1.0 }
+
+[schedules.signal_share]
+default = 0.80
+changes = [{ at_days = 365, value = 0.0 }]
+
+[schedules.enforcing_share]
+default = 0.80
+
+[schedules.renewal]
+default = 0
+
+[constants]
+sunset_day = 365
+renewal = false

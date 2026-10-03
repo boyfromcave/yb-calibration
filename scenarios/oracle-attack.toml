@@ -1,0 +1,59 @@
+# A colluding pool coalition with hash share p biases its quotes by +/-10 % from day 5 for 20 days.
+# The share is the family parameter; the bias sign alternates by study (constants.attacker_direction).
+name = "oracle-attack"
+description = "coalition of hash share p biases its quotes by 10 % for 20 days from day 5"
+stresses = "median manipulation resistance (V16 fill rule), REG-4 detection, MINT-10"
+tags = ["oracle", "adversarial"]
+horizon_days = 30
+resolution = "block"
+p0_usd = 0.40
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.60 }
+
+[schedules.attacker_share]
+default = 0.0
+changes = [{ at_days = 5, value = 0.34 }, { at_days = 25, value = 0.0 }]
+
+[schedules.attacker_bias_bps]
+default = 0
+changes = [{ at_days = 5, value = 1000 }, { at_days = 25, value = 0 }]
+
+[schedules.tagging_share]
+default = 0.80
+
+[constants]
+attacker_bias_bps = 1000
+attacker_direction = "both"   # studies run +bias and -bias
+
+[[variants]]
+name = "oracle-attack-10"
+description = "coalition with 10 % of hash share biases its quotes by 10 % for 20 days"
+set = { "schedules.attacker_share.changes.0.value" = 0.10, "constants.attacker_share" = 0.10 }
+
+[[variants]]
+name = "oracle-attack-20"
+description = "coalition with 20 % of hash share biases its quotes by 10 % for 20 days"
+set = { "schedules.attacker_share.changes.0.value" = 0.20, "constants.attacker_share" = 0.20 }
+
+[[variants]]
+name = "oracle-attack-25"
+description = "coalition with 25 % of hash share biases its quotes by 10 % for 20 days"
+set = { "schedules.attacker_share.changes.0.value" = 0.25, "constants.attacker_share" = 0.25 }
+
+[[variants]]
+name = "oracle-attack-34"
+description = "coalition with 34 % of hash share (the policy's attack_share_min) biases its quotes by 10 % for 20 days"
+tags = ["core", "oracle", "adversarial"]
+set = { "schedules.attacker_share.changes.0.value" = 0.34, "constants.attacker_share" = 0.34 }
+
+[[variants]]
+name = "oracle-attack-40"
+description = "coalition with 40 % of hash share biases its quotes by 10 % for 20 days"
+set = { "schedules.attacker_share.changes.0.value" = 0.40, "constants.attacker_share" = 0.40 }
+
+[[variants]]
+name = "oracle-attack-51"
+description = "coalition with 51 % of hash share (majority) biases its quotes by 10 % for 20 days"
+set = { "schedules.attacker_share.changes.0.value" = 0.51, "constants.attacker_share" = 0.51 }

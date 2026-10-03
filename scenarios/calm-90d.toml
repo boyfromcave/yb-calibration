@@ -1,0 +1,24 @@
+# Calm market: no program, moderate volatility. The baseline every false-alarm metric is read on.
+name = "calm-90d"
+description = "90 days of a calm market (GBM, 60 % annualised volatility, no drift)"
+stresses = "false halts, false pins, false penalties, fee drag"
+tags = ["core", "price", "baseline"]
+horizon_days = 90
+resolution = "block"
+p0_usd = 0.40
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.60 }
+
+[schedules.enforcing_share]
+default = 0.80
+
+[schedules.tagging_share]
+default = 0.80
+
+[schedules.feed_up]
+default = 1
+
+[schedules.attestor_uptime]
+default = 0.95

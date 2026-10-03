@@ -1,0 +1,101 @@
+{
+ "name": "Ycash",
+ "tickers": [
+  {
+   "base": "YEC",
+   "target": "USDT",
+   "market": {
+    "name": "SafeTrade",
+    "identifier": "safe_trade",
+    "has_trading_incentive": false
+   },
+   "last": 0.4301,
+   "volume": 21544.7,
+   "converted_last": {
+    "btc": 4.1e-06,
+    "eth": 0.000172,
+    "usd": 0.43002
+   },
+   "converted_volume": {
+    "btc": 0.0883,
+    "eth": 3.7,
+    "usd": 9264.3
+   },
+   "trust_score": "green",
+   "bid_ask_spread_percentage": 1.204,
+   "timestamp": "2026-09-05T05:51:12+00:00",
+   "last_traded_at": "2026-09-05T05:51:12+00:00",
+   "last_fetch_at": "2026-09-05T05:53:01+00:00",
+   "is_anomaly": false,
+   "is_stale": false,
+   "trade_url": "https://safe.trade/trading/yecusdt",
+   "token_info_url": null,
+   "coin_id": "ycash",
+   "target_coin_id": "tether"
+  },
+  {
+   "base": "YEC",
+   "target": "BTC",
+   "market": {
+    "name": "SafeTrade",
+    "identifier": "safe_trade",
+    "has_trading_incentive": false
+   },
+   "last": 4.12e-06,
+   "volume": 3120.0,
+   "converted_last": {
+    "btc": 4.12e-06,
+    "eth": 0.000173,
+    "usd": 0.4319
+   },
+   "converted_volume": {
+    "btc": 0.0128,
+    "eth": 0.54,
+    "usd": 1347.6
+   },
+   "trust_score": "yellow",
+   "bid_ask_spread_percentage": 3.81,
+   "timestamp": "2026-09-05T04:10:00+00:00",
+   "last_traded_at": "2026-09-05T04:10:00+00:00",
+   "last_fetch_at": "2026-09-05T05:53:01+00:00",
+   "is_anomaly": false,
+   "is_stale": true,
+   "trade_url": null,
+   "token_info_url": null,
+   "coin_id": "ycash",
+   "target_coin_id": "bitcoin"
+  },
+  {
+   "base": "YEC",
+   "target": "USDT",
+   "market": {
+    "name": "NonKYC",
+    "identifier": "nonkyc_io",
+    "has_trading_incentive": false
+   },
+   "last": 0.4275,
+   "volume": 15870.2,
+   "converted_last": {
+    "btc": 4.08e-06,
+    "eth": 0.000171,
+    "usd": 0.42741
+   },
+   "converted_volume": {
+    "btc": 0.0647,
+    "eth": 2.71,
+    "usd": 6783.0
+   },
+   "trust_score": "green",
+   "bid_ask_spread_percentage": 0.95,
+   "timestamp": "2026-09-05T05:49:40+00:00",
+   "last_traded_at": "2026-09-05T05:49:40+00:00",
+   "last_fetch_at": "2026-09-05T05:53:01+00:00",
+   "is_anomaly": false,
+   "is_stale": false,
+   "trade_url": "https://nonkyc.io/market/YEC_USDT",
+   "token_info_url": null,
+   "coin_id": "ycash",
+   "target_coin_id": "tether"
+  }
+ ]
+}

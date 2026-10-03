@@ -171,3 +171,65 @@ driver lands with WP-8.
 - **Tests**: `pytest -m "not devnet"` must pass without a ycash6 clone (tests fall back to the
   snapshot); set `YBCAL_YCASH6` to run the live-source tests; `YBCAL_NO_YCASH6=1` forces the
   CI path locally.
+
+## Data (WP-2)
+
+Package `ybcal.data` (docs: [data.md](data.md), [scenarios.md](scenarios.md),
+[data/README.md](../data/README.md)). `PricePath` is the frozen WP-0 type; nothing in the
+contracts changed. Public API:
+
+```python
+# ybcal.data.pricepath — helpers around ybcal.types.PricePath
+DT_BLOCK = 1/420_480; DT_HOUR = 1/8_760; STEP_SECONDS = {"block": 75, "hour": 3600}
+steps_per_year(res) / resolution_for_dt(dt)
+usd_to_micro(usd, *, clamp=True) -> int64; micro_to_usd(micro); clamp_prices(prices, *, keep_gaps=True)
+make_path(t0, res, prices, provenance, meta=None) / from_usd(t0, res, usd, provenance, meta=None)
+timestamps(pp); slice_steps(pp, start, stop=None); select_paths(pp, idx); with_meta(pp, **meta)
+resample(pp, "block"|"hour", *, method="hold"|"loglinear"); log_returns(pp) -> (paths, n-1), NaN at gaps
+to_csv / from_csv / to_npz / from_npz / save / load      # CSV + .meta.json sidecar, or .npz
+
+# ybcal.data.loaders
+parse_ts(value) -> unix s; gap_report(ts, expected_step=None, factor=1.5) -> GapReport
+load_price_csv(src) -> PriceSeries(ts, price_usd, …, duplicates, conflicting_duplicates, volume_usd)
+resample_to_grid(series, res="hour", *, t0=None, n_steps=None, max_ffill_seconds=None)
+    -> Resampled(path, filled, gaps)          # path.meta["filled"] = the forward-fill mask
+load_spreads_csv(src) -> SpreadsLog(ts, prices (n, 3) µUSD 0=missing, names, errors)   # spreads.py columns
+    .pair_spreads_bps(), .missing(), .gaps(300, 3.0); write_spreads_csv(log, file)
+load_pool_shares_csv(src) -> PoolShareLog(heights, pool, keys) .shares() .rolling_shares(w)
+load_depth_csv(src) -> DepthSeries(ts, depth_2pct_usd, volume_24h_usd, bid_depth_2pct_usd, form)
+import_file(path, kind)                         # kind: price | spreads | hashrate | depth
+
+# ybcal.data.fetch (network; tests patch fetch.urlopen)
+HttpClient(timeout, retries, backoff, min_interval, max_body, sleep, clock).get_json(url, headers)
+fetch_coingecko_market_chart(days, *, coin, vs, granularity="auto"|"hourly"|"daily", api_key, client, now)
+fetch_coingecko_tickers(*, coin, exchanges, api_key, client, now); fetch_nonkyc_market(*, symbol, client, now)
+fetch_to_csv(source, out, …) -> FetchResult     # + <out>.provenance.json (source, urls, fetched_at, sha256)
+FetchError, NetworkBlockedError
+
+# ybcal.data.synthetic
+GBM, Merton, Garch, RegimeSwitch, BlockBootstrap  (PriceModel):
+    .simulate(n_paths, n_steps, dt, rng, p0=DEFAULT_P0) -> PricePath("synthetic")
+    .log_returns(n_paths, n_steps, dt, rng); .expected_log_drift(); .params()
+    cls.fit(pp, path=0); cls.fit_returns(r, dt); cls.preset()
+MODELS; preset(name, **overrides); fit(name, pp); preset_table(); simulate_years(model, n, years, res, rng)
+SpreadModel(...).generate(true, rng) -> SourceQuotes; SpreadModel.fit(SpreadsLog)
+PoolModel(...).assign(n_paths, n_blocks, rng, shares=None, shares_step_blocks=1)
+          .generate(true_blocks, rng, *, shares=None) -> PoolBlocks(miner, tagged, quote); PoolModel.fit(PoolShareLog)
+HashrateDrift(...).simulate(shares0, n_steps, rng, *, n_paths, step_blocks=48); HashrateDrift.fit(PoolShareLog)
+renewal_outages(n_paths, n_units, n_steps, step_seconds, rate_per_day, mean_hours, rng)
+
+# ybcal.data.scenarios
+SCENARIO_DIR; SCHEDULES; load_library(dir=None) -> {name: Scenario}; scenario_set("core"|"all"); get(name)
+Scenario.generate(rng, n_paths=1, *, data=None, base_path=None, resolution=None, horizon_days=None, p0=None)
+    -> ScenarioRun(scenario, paths: PricePath("scenario"), schedules: {name: (n,) | (n_paths, n)}, constants)
+Scenario.n_steps(res=None, horizon_days=None); .apply_program(base_r, res, rng); .core
+
+# ybcal.data.describe
+describe(pp) -> dict; format_description(d); realised_vol(pp); rolling_vol(pp, w); max_drawdown(prices)
+drawdown_distribution(pp, horizons_days); hill_tail_index(r, tail, k); autocorrelation(x, lags); gap_stats(pp)
+```
+
+`Env.scenarios` is expected to hold `Scenario` objects (from `scenario_set(budget.scenario_set)`);
+`Env.data["price"]` a real `PricePath` from `loaders.resample_to_grid(...).path` (with
+`meta["filled"]`). CLI: `ybcal.data.cli.cli_{fetch,import,synth,describe}` with
+`configure_{fetch,import,synth,describe}` extras; `data fetch` exits 3 when the network is blocked.

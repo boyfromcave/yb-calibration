@@ -85,3 +85,65 @@ The runbook buffer defaults to 4,608 blocks (4 days) and `operator_upgrade_windo
 **Decision.** The `ybcal study` driver (`ybcal.studies.cli.cli_study`) is assigned to WP-8 with
 `recommend`, so the three parallel WP-7 agents do not collide on one file; WP-7 agents test their
 studies through the library API.
+
+## D-WP2-1 (2026-10-03, WP-2) — `PricePath` stays in `ybcal.types`; helpers in `ybcal.data.pricepath`
+
+**Decision.** The frozen `PricePath` (WP-0, `types.py`) is used unchanged; `ybcal.data.pricepath`
+re-exports it and adds units/clamp, block ↔ hour resampling (hour → block holds each price for
+its 48 blocks; block → hour samples blocks 0, 48, …, so a round trip is exact), slicing, log
+returns and CSV/NPZ persistence. Per-step masks travel in `meta` (notably `meta["filled"]`).
+**Consequence.** No contract change was needed.
+
+## D-WP2-2 (2026-10-03, WP-2) — loaders: last duplicate wins, as-of resampling with a filled mask
+
+**Decision.** Every loader sorts by time and keeps the **last** row of a repeated timestamp
+(`pinrate.py`'s rule; `spreads.py read_log` keeps both, ybcal dedupes so a log is a function of
+time), counting dropped and conflicting duplicates. Grid resampling is an as-of join (last
+observation at or before the grid point) and flags points with no observation in their cell;
+fitting and `describe` use observed points only.
+**Reason.** Forward-filled hourly prices on a block grid would otherwise read as 47 zero returns
+and one large one, biasing every volatility and tail estimate.
+
+## D-WP2-3 (2026-10-03, WP-2) — fetch: chunked hourly history, explicit network-blocked error
+
+**Decision.** `ybcal data fetch --source coingecko --granularity hourly` fetches more than 90 days
+of hourly data through consecutive `market_chart/range` calls of ≤ 89 days; `auto` keeps
+CoinGecko's own granularity (hourly ≤ 90 days, daily beyond). Unreachable hosts raise
+`NetworkBlockedError` (exit 3) pointing to `docs/data.md`; every fetch writes a provenance sidecar
+with the CSV's sha256. `tickers` and `nonkyc` are snapshots appended per call (cron-driven logs).
+**Reason.** The owner needs ≥ 1 year of hourly YEC/USD (PLAN §12.3) and a plain `days=365` call
+returns daily points. The sandbox cannot reach the APIs, so fetchers are tested on recorded
+fixtures with `urlopen` mocked.
+
+## D-WP2-4 (2026-10-03, WP-2) — synthetic presets are placeholders; fitting methods
+
+**Decision.** Presets (all ≈ 115–120 % annualised vol, $0.40 start): GBM σ 1.20; Merton σ 0.95,
+λ 12/yr, jumps N(−2 %, 20 %); GARCH(1,1)-t hourly α 0.06, β 0.93, ν 4; regime switch calm σ 0.80 /
+turbulent σ 2.00 (mean spells 120 d / 30 d, turbulent drift −150 %/yr); bootstrap has no preset.
+Fitting: GBM moments; Merton threshold moments (4 robust sds) polished by a one-jump-per-step
+mixture MLE; GARCH-t MLE (L-BFGS-B, three starts); regime switch Baum–Welch EM; bootstrap stores
+returns (mean block one week). Discrete-time models (GARCH, bootstrap) refine to finer grids with
+a variance-matched Brownian bridge.
+**Reason.** PLAN §4.2 asks for moment matching for non-GARCH models; the Merton threshold
+estimator alone undercounts small jumps (≈ 25 % low on a test with λ = 50/yr), so the MLE polish
+is added and documented. Presets are labelled in every path's `meta` and stay `synthetic`.
+
+## D-WP2-5 (2026-10-03, WP-2) — scenario bases are centred; families via `[[variants]]`
+
+**Decision.** A scenario's base process has its expected log drift removed by default
+(`[base] center = true`), so the price program alone sets the trend. Parameterised families
+(`oracle-attack-{p}`, `attestor-outage-{n}`, `attestor-capture-{w}`, `hashrate-drop-{to}`,
+`dev-absence-{days}`) are one file each with `[[variants]]` and dotted-path `set` overrides.
+Behaviour schedules use a fixed, documented name list (unknown names are rejected); a schedule is
+`(n,)` when deterministic and `(n_paths, n)` when it has stochastic outages. The `core` tag defines
+`Budget.scenario_set = "core"` (11 scenarios).
+**Reason.** An uncentred 120 %-vol GBM adds −72 %/yr of log drift, which would turn every
+scenario into a bleed. Shipped variants: oracle-attack 10/20/25/34/40/51, attestor-outage 1/2/3/5,
+attestor-capture 10/20/25/33/40/50, hashrate-drop 70/60/50/45/30, dev-absence 14/30/60/90/180.
+
+## D-WP2-6 (2026-10-03, WP-2) — `--kind hashrate` is the pool-share CSV
+
+**Decision.** WP-0's `ybcal data import --kind hashrate` reads the PLAN §4.1 pool-share CSV
+(`height,payout_key`); shares, rolling shares and a `HashrateDrift` fit come from it. Depth has
+two accepted forms: summary `ts,depth_2pct_usd,volume_24h_usd[,bid_depth_2pct_usd]` and book
+levels `ts,side,price_usd,size_yec` (summarised to USD depth within ±2 % of the mid).

@@ -1,0 +1,41 @@
+# n attestors go offline together for 15 days from day 5, on top of independent per-attestor
+# uptime (policy attestor_uptime = 0.95). nSlots = 9, mSelect = 4, kSlack = 2 at the pin.
+name = "attestor-outage"
+description = "n attestors offline for 15 days from day 5, others at 95 % uptime"
+stresses = "K_SLACK liveness (bundle availability), dormancy ejection"
+tags = ["attest"]
+horizon_days = 30
+resolution = "block"
+p0_usd = 0.40
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.60 }
+
+[schedules.attestor_uptime]
+default = 0.95
+
+[schedules.attestors_down]
+default = 0
+changes = [{ at_days = 5, value = 1 }, { at_days = 20, value = 0 }]
+
+[[variants]]
+name = "attestor-outage-1"
+description = "1 attestor offline for 15 days from day 5, others at 95 % uptime"
+tags = ["core", "attest"]
+set = { "schedules.attestors_down.changes.0.value" = 1, "constants.attestors_down" = 1 }
+
+[[variants]]
+name = "attestor-outage-2"
+description = "2 attestors offline for 15 days from day 5, others at 95 % uptime"
+set = { "schedules.attestors_down.changes.0.value" = 2, "constants.attestors_down" = 2 }
+
+[[variants]]
+name = "attestor-outage-3"
+description = "3 attestors offline (more than kSlack = 2) for 15 days from day 5, others at 95 % uptime"
+set = { "schedules.attestors_down.changes.0.value" = 3, "constants.attestors_down" = 3 }
+
+[[variants]]
+name = "attestor-outage-5"
+description = "5 attestors offline (fewer than mSelect = 4 of 9 left) for 15 days from day 5"
+set = { "schedules.attestors_down.changes.0.value" = 5, "constants.attestors_down" = 5 }

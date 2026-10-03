@@ -1,0 +1,19 @@
+# The long-term solvency case: no single crash, a 95 % bleed over two years (fact 1.5-1: no
+# liquidation before claimHeight, so class B/C vaults must survive the whole term plus grace).
+name = "slow-bleed-95-2y"
+description = "-95 % over 2 years (log-linear) from day 30, GBM 80 % volatility around the trend, 900-day horizon"
+stresses = "long-term class B/C solvency (no liquidation before claimHeight)"
+tags = ["core", "price", "long"]
+horizon_days = 900
+resolution = "hour"
+p0_usd = 0.40
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.80 }
+
+[[segments]]
+kind = "ramp"
+start_days = 30
+duration_days = 730
+pct = -95

@@ -1,0 +1,23 @@
+# Vault owners are absent at random (log-normal spells, about one per year), with a seasonal dip
+# in reachability. G4 reads the constants (they default to the policy's owner-absence model) and
+# the reachability schedule.
+name = "owner-absence"
+description = "absentee owners: log-normal absence spells (median 7 days, sigma 1, ~1/yr) and a 3-week holiday dip"
+stresses = "absentee owners vs grace length"
+tags = ["core", "governance"]
+horizon_days = 400
+resolution = "hour"
+p0_usd = 0.40
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 1.0 }
+
+[schedules.owner_present_fraction]
+default = 0.98
+changes = [{ at_days = 170, value = 0.90 }, { at_days = 191, value = 0.98 }]
+
+[constants]
+owner_absence_median_days = 7.0
+owner_absence_sigma = 1.0
+owner_absence_rate_per_year = 1.0

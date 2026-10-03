@@ -1,0 +1,54 @@
+# An adversary controlling bond-weight share w biases its attestations by 10 % from day 5.
+name = "attestor-capture"
+description = "adversary with attestor bond-weight share w biases attestations by 10 % from day 5"
+stresses = "weighted-quantile robustness (qLowBps / qHighBps), selection, time-to-capture under ageCap"
+tags = ["attest", "adversarial"]
+horizon_days = 30
+resolution = "block"
+p0_usd = 0.40
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.60 }
+
+[schedules.attestor_capture_weight]
+default = 0.0
+changes = [{ at_days = 5, value = 0.25 }]
+
+[schedules.attestor_bias_bps]
+default = 0
+changes = [{ at_days = 5, value = 1000 }]
+
+[constants]
+attestor_bias_bps = 1000
+attacker_direction = "both"
+
+[[variants]]
+name = "attestor-capture-10"
+description = "adversary with 10 % of attestor weight biases attestations by 10 %"
+set = { "schedules.attestor_capture_weight.changes.0.value" = 0.10, "constants.capture_weight" = 0.10 }
+
+[[variants]]
+name = "attestor-capture-20"
+description = "adversary with 20 % of attestor weight biases attestations by 10 %"
+set = { "schedules.attestor_capture_weight.changes.0.value" = 0.20, "constants.capture_weight" = 0.20 }
+
+[[variants]]
+name = "attestor-capture-25"
+description = "adversary with 25 % of attestor weight (policy max_single_entity_weight_share) biases attestations by 10 %"
+set = { "schedules.attestor_capture_weight.changes.0.value" = 0.25, "constants.capture_weight" = 0.25 }
+
+[[variants]]
+name = "attestor-capture-33"
+description = "adversary with 33 % of attestor weight (just under qLowBps = 3,333) biases attestations by 10 %"
+set = { "schedules.attestor_capture_weight.changes.0.value" = 0.33, "constants.capture_weight" = 0.33 }
+
+[[variants]]
+name = "attestor-capture-40"
+description = "adversary with 40 % of attestor weight biases attestations by 10 %"
+set = { "schedules.attestor_capture_weight.changes.0.value" = 0.40, "constants.capture_weight" = 0.40 }
+
+[[variants]]
+name = "attestor-capture-50"
+description = "adversary with 50 % of attestor weight biases attestations by 10 %"
+set = { "schedules.attestor_capture_weight.changes.0.value" = 0.50, "constants.capture_weight" = 0.50 }

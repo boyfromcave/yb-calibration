@@ -1,0 +1,20 @@
+# A 50 % wick that fully recovers within an hour (a thin-book liquidation cascade on one venue
+# that the aggregate reports).
+name = "flash-wick-50-1h"
+description = "instant -50 % at day 10 that recovers log-linearly within 1 hour; calm market otherwise"
+stresses = "median robustness, MINT-10 (attestation divergence), PIN-1"
+tags = ["core", "price"]
+horizon_days = 30
+resolution = "block"
+p0_usd = 0.40
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.60 }
+
+[[segments]]
+kind = "wick"
+at_days = 10
+pct = -50
+duration_hours = 1
+recover = 1.0

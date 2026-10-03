@@ -1,0 +1,54 @@
+# The enforcing hash share falls from 80 % to `to` at day 30, stays there 45 days, then recovers
+# over 5 days. Random 2-hour dips (a big pool restarting) on top.
+name = "hashrate-drop"
+description = "enforcing hash share 80 % -> to at day 30 for 45 days, recovering over 5 days"
+stresses = "ACT-4/ACT-6 hysteresis, flapping, abandonment trigger"
+tags = ["activation"]
+horizon_days = 120
+resolution = "block"
+p0_usd = 0.40
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.80 }
+
+[schedules.enforcing_share]
+default = 0.80
+changes = [{ at_days = 30, value = 0.45 }]
+ramps = [{ start_days = 75, duration_days = 5, to = 0.80 }]
+
+[schedules.signal_share]
+default = 0.80
+changes = [{ at_days = 30, value = 0.45 }]
+ramps = [{ start_days = 75, duration_days = 5, to = 0.80 }]
+
+[schedules.tagging_share]
+default = 0.80
+changes = [{ at_days = 30, value = 0.45 }]
+ramps = [{ start_days = 75, duration_days = 5, to = 0.80 }]
+
+[[variants]]
+name = "hashrate-drop-70"
+description = "enforcing hash share 80 % -> 70 % for 45 days (above every floor)"
+set = { "schedules.enforcing_share.changes.0.value" = 0.70, "schedules.signal_share.changes.0.value" = 0.70, "schedules.tagging_share.changes.0.value" = 0.70, "constants.drop_to" = 0.70 }
+
+[[variants]]
+name = "hashrate-drop-60"
+description = "enforcing hash share 80 % -> 60 % for 45 days (at participationFloor / enforcementResume)"
+set = { "schedules.enforcing_share.changes.0.value" = 0.60, "schedules.signal_share.changes.0.value" = 0.60, "schedules.tagging_share.changes.0.value" = 0.60, "constants.drop_to" = 0.60 }
+
+[[variants]]
+name = "hashrate-drop-50"
+description = "enforcing hash share 80 % -> 50 % for 45 days (at enforcementFloor)"
+set = { "schedules.enforcing_share.changes.0.value" = 0.50, "schedules.signal_share.changes.0.value" = 0.50, "schedules.tagging_share.changes.0.value" = 0.50, "constants.drop_to" = 0.50 }
+
+[[variants]]
+name = "hashrate-drop-45"
+description = "enforcing hash share 80 % -> 45 % for 45 days (the policy detection_drop_share)"
+tags = ["core", "activation"]
+set = { "schedules.enforcing_share.changes.0.value" = 0.45, "schedules.signal_share.changes.0.value" = 0.45, "schedules.tagging_share.changes.0.value" = 0.45, "constants.drop_to" = 0.45 }
+
+[[variants]]
+name = "hashrate-drop-30"
+description = "enforcing hash share 80 % -> 30 % for 45 days (deep loss of enforcement)"
+set = { "schedules.enforcing_share.changes.0.value" = 0.30, "schedules.signal_share.changes.0.value" = 0.30, "schedules.tagging_share.changes.0.value" = 0.30, "constants.drop_to" = 0.30 }
