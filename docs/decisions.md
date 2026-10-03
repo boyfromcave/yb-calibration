@@ -738,3 +738,90 @@ public engine fields (`BlockSeries` arrays, `series.rng`, `extras["vaults"]`); W
 
 Policy keys `yed_premium_bps`, `claimant_slippage_bps`, `defector_share`, `lost_key_prob` added
 (`[agents]` in `policy/default.toml`). Studies build `AgentsConfig` from them.
+
+## D-WP7d-1 (2026-10-03, WP-7d) — G6 judgement model and rule readings
+
+**Decision.** REG-4 metrics come from a tag stream in which `PoolModel` pools mine blocks and quote the
+12-block TWAP of *their own* `SpreadModel` exchange source (pool `i` → source `i mod 3`), so honest
+deviation reflects source dispersion, staleness and outages; `stale-pools` maps its 30 % stale share and
+10 % frozen share onto the pools whose shares sum closest. `reg4_deviations` returns the REG-4 deviation
+(tested equal to `fees.judgement_series`). Rule readings: `deviationBps` minimises its own value (it is
+the liar-detection threshold) under `≥ k_dev × p99`, false penalties and a ±20 % liar caught on ≥ 90 % of
+its tags; `peerMin` is "the largest value with P(not evaluated) ≤ 5 %" literally (re-checked analytically
+when `peerLag` moves); `accuracyBandBps` is the calm p75 rounded to 50 bps (rule family); liar detection
+moves an honest tag against unchanged peers (the liar's own tags among the peers are ignored).
+**Reason.** PLAN §5.6 names the metrics but not the noise model; tying quotes to sources lets a real
+`spreads.csv` drive every judgement value through `SpreadModel.fit`.
+
+## D-WP7d-2 (2026-10-03, WP-7d) — G6 fee model and the BLOCKED fallback
+
+**Decision.** Revenue comes from one hour-mode vault book (a year from `startHeight`, policy personas,
+MINT-6 refusals included) run with every G6 parameter at its registry value; FEE-1/AFEE-1 are recomputed
+exactly per candidate on the same vaults (CRN). AFEE-1 is counted on every mint and claim (ARMED); pool
+revenue is split equally over `expected_pool_count`, attestor revenue over `nSlots`; the attestor floor is
+`max(attestor_min_monthly_revenue_usd, bondMin's monthly opportunity cost)` at the reference price
+(G8's provisional 30,000 YEC is reported alongside). The fee share is the round-trip share of a `minMint`
+vault's *debt*, ARMED, worst class. `feeBps × attestFeeBps` is one 2-D family; when no grid point is
+feasible the verdict is BLOCKED at the point with the smallest sum of relative violations (ties toward
+current), and a design note explains why.
+**Finding (quick, synthetic).** FEE-1 on collateral makes class A's minMint round trip 2.81 % ARMED at
+25/2,500 bps; attestors earn ≈ $22/seat/month at the low adoption case against a $50 floor; no grid
+point satisfies both → BLOCKED.
+
+## D-WP7d-3 (2026-10-03, WP-7d) — affordability, system tolerance, HALT-2 horizon
+
+**Decision.** (1) "Redemption affordability under the 4·feeMin floor at crash prices" is read as: the
+owner of a `minMint` vault (any class, minted at the reference price or at `worst_price_usd`) whose
+collateral has fallen to the claim threshold still gains by redeeming, i.e. FEE-1 ≤ `1 −
+10⁴/claimThresholdBps` of the collateral (9.1 %). At $100 a class-C minMint vault holds 3 YEC, so feeMin
+0.5 YEC (16.7 %) fails and the verify rule moves it to 0.2 YEC. (2) The system bad-debt tolerance for
+`globalRatioHaltBps` is `max_bad_debt_prob` weighted by each class's share of a mature book's outstanding
+debt (class weight × mid-point term ≈ 1.6 %), and the risk is P(the price falls to 1/halt within
+`grace`) — the time before any claim can act (fact 1.5-1).
+**Reason.** The plan states both rules without a horizon or a weighting; these are the narrowest readings
+that use only policy quantities. The class-weighted-by-arrivals alternative (1.0 %) can push the halt
+to 27,500 on the GARCH placeholder and move `recapRatioBps` past class A's 50,000, closing class A too.
+
+## D-WP7d-4 (2026-10-03, WP-7d) — supplyCapBps judged on cap-bound liquidation demand
+
+**Decision.** "Liquidation volume" is the *demand*: collateral of vaults whose claim path is open and that
+fall under `claimThresholdBps` at the true price, on their first such day, p95 over paths of the worst
+crash day, worse crash. The cap rule applies the depth budget to the **cap-bound** (below
+`recapRatioBps`) part; the cap-exempt class-A part is reported against the same budget and raised as a
+design note. Inside the crash book `divergenceBps` is held at the registry value so the divergence sweep
+reuses one book per (cap, halt). The p10 daily volume placeholder is $25,000 (judgement) until a depth
+file is loaded.
+**Reason.** W20 lets class A at σ = 1 bypass MINT-6, so PLAN §5.7's literal total-volume rule is
+unsatisfiable by any cap whenever class-A demand alone exceeds the budget; a parameter can only be judged
+on what it controls. The book's actual claimant sales are reported but not used (claims rarely pay,
+WP-4 finding 3).
+
+## D-WP7d-5 (2026-10-03, WP-7d) — HALT-2 timeliness and HALT-3 classification
+
+**Decision.** HALT-2 is "timely" on a crash path if it fires (global ratio at xMint of a frozen mature
+book below the halt) no later than the true system ratio reaches 150 %; the policy recall floor applies.
+For HALT-3, positives are the falls of `crash-70-1d`, `crash-90-30d` and the dump of `pump-dump-3x`
+(caught = fires between the fall's start and one day after its end); negatives are `calm-90d`, the part
+of `pump-dump-3x` before the dump (the rally; HALT-3 fires on falls only, fact 1.5-6) and the 1-hour
+`flash-wick-50-1h`; counts per path.
+**Finding (quick).** At 2,000 bps HALT-3 catches only ≈ 40–60 % of the 30-day −90 % grind → recall below
+0.9 → `divergenceBps` 1,500.
+
+## D-WP7d-6 (2026-10-03, WP-7d) — requested policy keys
+
+The G6/G7 judgement constants are module constants read with `getattr(policy, key, default)`; please add
+them to `Policy` / `policy/default.toml` (a `[studies_g6_g7]` section): `liar_bias_bps` (2000),
+`min_liar_detection` (0.90), `max_fee0_prob` (0.001), `min_registered_prob` (0.999),
+`min_liar_exclusion` (0.99), `max_honest_exclusion` (0.01), `max_accuracy_sd_bps` (500),
+`max_honest_payee_spread` (1.5), `min_accuracy_premium` (0.25), `p10_daily_volume_usd` (25000),
+`system_ratio_alarm_bps` (15000). No frozen contract changed. `agents_config(policy)` (in
+`g6_miners_fees`) maps the `[agents]` keys onto `AgentsConfig`; `AgentsConfig.from_policy` itself could
+absorb that mapping (WP-4 file, not edited).
+
+## D-WP7d-7 (2026-10-03, WP-7d) — excluded L6 values and payeeWindow
+
+**Decision.** `payeeWindow`, `accuracyWindow`, `payeeTiltBps` and `nReg` are *verify* families (KEEP
+unless a constraint fails — there is no cost to trade a shorter or longer window against);
+`nPenalty` minimises honest exclusion subject to a smallest-share liar being excluded ≥ 99 % of the time.
+FEE-W picks payees in proportion to tags in the window, so a pool's expected revenue share does not
+depend on `payeeWindow`; the window is judged on FEE-0 only.
