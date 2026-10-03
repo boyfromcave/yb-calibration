@@ -942,6 +942,8 @@ final prices for `price`.
 
 ### Measured runtime (this sandbox, 4 workers, `--budget quick --synthetic`)
 
-With the four merged studies (G1, G2, G5, G8): 2 rounds, 234 s; sensitivity (Sobol, grouped,
-TopRiskModel) 119 s; report about 5 s; **≈ 6 min total**. Round 2 re-evaluates every group whose
-inputs moved, because cache keys are whole-set digests (D-WP8-9).
+With all ten studies: 2 rounds of 499 s together (round 1 ≈ 232 s, round 2 ≈ 267 s; G3 ≈ 78 s and
+G1 ≈ 57 s per round dominate). Sensitivity (Sobol over grouped factors, TopRiskModel) takes 57 s and
+the report a few seconds, so **≈ 9.3 min in total**, just inside the 10-minute target. Round 2
+re-evaluates every group whose inputs moved, because cache keys are whole-set digests (D-WP8-9).
+`--max-rounds 1` halves the joint pass.

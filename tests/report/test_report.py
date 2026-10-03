@@ -23,11 +23,24 @@ STUBS = {
     "G1": StubStudy("G1", {"pFastWindow": -1}, notes=("The early supply cap closes B/C.",)),
     "G2": StubStudy("G2", provenance="synthetic"),
     "G3": StubStudy("G3", {"baseRatioBps[1]": 1}, notes=("the early supply cap closes b/c",)),
-    "G4": StubStudy("G4"),
+    "G4": StubStudy(
+        "G4",
+        notes=(
+            {
+                "id": "G4-DN1",
+                "title": "Runbook margin",
+                "finding": "Abandonment margin is thin.",
+                "evidence": {"margin_blocks": 9792},
+                "consequence": "Little slack.",
+                "fix": "Lengthen.",
+                "params": ["abandonBlocks"],
+            },
+        ),
+    ),
     "G5": "broken",
     "G6": StubStudy("G6", {"feeBps": 1}),
     "G8": StubStudy("G8", {"qLowBps": 1}),
-    "G9": StubStudy("G9", {"walletConfirmations": 1}),
+    "G9": StubStudy("G9", {"walletConfirmations": 1, "minMint": 1}, blocked=("minMint",)),
 }  # G7 and R missing
 
 
@@ -120,7 +133,35 @@ def test_verdict_counts_and_changes(stub_report):
     assert recs["pFastWindow"].recommended == 48 and recs["pFastWindow"].verdict == "CHANGE"
     assert recs["sigmaRefBps"].verdict == "PROVISIONAL"
     assert sum(res.counts.values()) == len(tunable_params())
-    assert len(res.joint.design_notes) == 1
+    assert len(res.joint.design_notes) == 2
+    dn = res.joint.design_notes[1]
+    assert dn.id == "G4-DN1" and dn.title == "Runbook margin" and "abandonBlocks" in dn.params
+    assert recs["minMint"].verdict == "BLOCKED"
+
+
+def test_blocked_and_rich_design_notes_rendered(stub_report):
+    _, out = stub_report
+    md = (out / "report.md").read_text()
+    summ = md.split("## 1. Executive summary", 1)[1].split("**Top remaining risks**", 1)[0]
+    assert (
+        "**BLOCKED" in summ
+        and "`minMint`" in summ
+        and "max_bad_debt_prob[B]" in summ
+        and "pbad.B 0.031" in summ
+    )
+    dn = md.split("## 5. Design notes", 1)[1].split("## 6.", 1)[0]
+    for part in (
+        "Runbook margin",
+        "G4-DN1",
+        "**Finding:** Abandonment margin is thin.",
+        "margin_blocks: 9792",
+        "**Consequence:** Little slack.",
+        "Lengthen.",
+    ):
+        assert part in dn, part
+    assert "BLOCKED: least-violating value" in (out / "params.cpp.patch").read_text()
+    html = (out / "report.html").read_text()
+    assert 'class="blocked-box"' in html and "Runbook margin" in html
 
 
 def test_recommended_json_and_patch(stub_report):
@@ -273,7 +314,20 @@ def test_end_to_end_with_merged_studies(tmp_path):
         "G5": "real",
         "G8": "real",
         "G3": StubStudy("G3"),
-        "G4": StubStudy("G4"),
+        "G4": StubStudy(
+            "G4",
+            notes=(
+                {
+                    "id": "G4-DN1",
+                    "title": "Runbook margin",
+                    "finding": "Abandonment margin is thin.",
+                    "evidence": {"margin_blocks": 9792},
+                    "consequence": "Little slack.",
+                    "fix": "Lengthen.",
+                    "params": ["abandonBlocks"],
+                },
+            ),
+        ),
         "G9": "missing",
     }
     cfg = RecommendConfig(

@@ -80,6 +80,10 @@ figure .card { background: #fcfcfb; border-radius: 8px; padding: 8px; display: i
   border: 1px solid var(--border); }
 figure img { max-width: 100%; height: auto; display: block; }
 figcaption { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+.blocked-box { border: 1px solid var(--blocked); background: var(--blocked-bg); border-radius: 10px; padding: 4px 16px 14px; margin: 16px 0; }
+.blocked-box h3 { color: var(--blocked); margin-top: 12px; }
+dl.dn { display: grid; grid-template-columns: minmax(100px, 130px) 1fr; gap: 2px 12px; margin: 6px 0 14px; font-size: 14px; }
+dl.dn dt { color: var(--text-2); } dl.dn dd { margin: 0; }
 details { margin: 8px 0; } summary { cursor: pointer; color: var(--text-2); font-size: 13px; }
 nav.toc { columns: 2 260px; font-size: 13px; }
 nav.toc a { display: block; padding: 1px 0; }
@@ -100,6 +104,11 @@ nav.toc a { display: block; padding: 1px 0; }
 {% endfor %}<div class="tile"><div class="n">{{ moved }}</div><div class="l">values move off the shipped set</div></div>
 <div class="tile"><div class="n {{ 'ok' if ready else 'fail' }}">{{ "yes" if ready else "no" }}</div><div class="l">lock-ready (§7)</div></div>
 </div>
+{% if blocked %}<div class="blocked-box"><h3>BLOCKED — the policy cannot be met</h3>
+<p>For these parameters no evaluated value satisfies the policy. The owner must relax a tolerance (or change a rule, see §5) or accept the least-violating value.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Current</th><th>Least-violating value</th><th>Reason</th><th>Metrics there</th></tr></thead><tbody>
+{% for b in blocked %}<tr><td><a href="#{{ b.anchor }}"><code>{{ b.param|e }}</code></a></td><td class="num">{{ b.current|e }}</td><td class="num moved">{{ b.least|e }}{% if b.applied %} <span class="muted">(in the patch)</span>{% endif %}</td><td>{{ b.reason|e }}</td><td>{{ b.least_metrics|e }}</td></tr>
+{% endfor %}</tbody></table></div></div>{% endif %}
 <h3>Top remaining risks</h3>
 <ol>{% for r in risks %}<li>{{ r|e }}</li>{% else %}<li>None identified.</li>{% endfor %}</ol>
 <div class="table-wrap"><table>
@@ -162,7 +171,9 @@ nav.toc a { display: block; padding: 1px 0; }
 {% else %}<p>Not run{% if sensitivity_error %}: {{ sensitivity_error|e }}{% endif %}.</p>{% endif %}
 
 <h2 id="s5">5. Design notes</h2>
-<ol>{% for d in design_notes %}<li>{{ d.text|e }} <span class="muted">({{ d.groups|join(", ") }}{% if d.params and d.params|length <= 3 %}: {{ d.params|join(", ")|e }}{% endif %})</span></li>{% else %}<li>No design notes were raised by the studies that ran.</li>{% endfor %}</ol>
+<ol>{% for d in design_notes %}<li>{% if d.title %}<b>{{ d.title|e }}</b>{% if d.id %} <span class="muted">{{ d.id|e }}</span>{% endif %} <span class="muted">· {{ d.groups|join(", ") }}{% if d.params %} · {{ d.params|join(", ")|e }}{% endif %}</span>
+<dl class="dn"><dt>Finding</dt><dd>{{ d.text|e }}</dd>{% if d.evidence %}<dt>Evidence</dt><dd>{% for k, v in d.evidence %}{{ k|e }}{{ ": " if k }}{{ v|e }}{{ "; " if not loop.last }}{% endfor %}</dd>{% endif %}{% if d.consequence %}<dt>Consequence</dt><dd>{{ d.consequence|e }}</dd>{% endif %}{% if d.fix %}<dt>Possible fix</dt><dd>{{ d.fix|e }} <span class="muted">(rule change, out of scope for tuning)</span></dd>{% endif %}</dl>
+{% else %}{{ d.text|e }} <span class="muted">({{ d.groups|join(", ") }}{% if d.params and d.params|length <= 3 %}: {{ d.params|join(", ")|e }}{% endif %})</span>{% endif %}</li>{% else %}<li>No design notes were raised by the studies that ran.</li>{% endfor %}</ol>
 
 <h2 id="s6">6. Devnet validation</h2>
 <p>Status: <b>{{ devnet.status|e }}</b> — {{ devnet.reason|e }}</p>

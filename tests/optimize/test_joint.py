@@ -183,3 +183,23 @@ def test_top_risk_model_is_cheap_deterministic_and_finite():
     assert 0.0 < a["attack_share"] < 1.0
     c = m(mainnet().replace({"baseRatioBps[1]": 60000}), e)
     assert c["bad_debt_prob_B"] <= a["bad_debt_prob_B"]
+
+
+@dataclass
+class FailsLater(StubStudy):
+    """Works in round 1 (on the shipped set), raises once another group has moved something."""
+
+    def evaluate(self, cand, env):
+        if cand["baseRatioBps[0]"] != 50000:
+            raise ValueError("cannot convert float NaN to integer")
+        return super().evaluate(cand, env)
+
+
+def test_later_round_failure_keeps_the_earlier_result():
+    spec = {"G1": FailsLater("G1", {"pMidWindow": 1}), "G3": StubStudy("G3", {"baseRatioBps[0]": 1})}
+    res = joint_pass(mainnet(), env(), loader=stub_loader(spec), groups=["G1", "G3"])
+    o = res.outcomes["G1"]
+    assert o.status == "ok" and o.round == 1 and "round 2 re-run failed" in o.reason
+    r = res.recommendations["pMidWindow"]
+    assert r.recommended == 624 and any("re-run of G1 failed" in n for n in r.notes)
+    assert res.rounds[1].statuses["G1"].startswith("error")

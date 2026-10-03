@@ -1051,3 +1051,27 @@ Once G3/G4/G6/G7/G9 land, quick may exceed the 10-minute target. The owner then 
 not iterated.
 **Not done.** Projecting cache keys onto the parameters a study actually reads would need
 instrumented ParamSets. That was judged too fragile to do here.
+
+## D-WP8-10 (2026-10-03, WP-8) — rich design notes, BLOCKED rendering, late-round failures
+
+**Decision.**
+- **Design notes.** A design note is either a string or a dict `{id, title, finding, evidence,
+  consequence, fix, params}`. That is the shape G3/G4/G6/G7/G9/release return, from module-level
+  `design_notes(results, policy)` and from `Recommendation.metrics["design_notes"]`. The joint pass
+  calls `design_notes(results, policy)`, or `design_notes(results)` for a one-argument helper. Dicts
+  are de-duplicated by `id`, strings by normalised text. A note that begins "Design note:" in
+  `Recommendation.notes` is also collected (G8's qLow note). §5 renders the title, id, groups and
+  params, then the finding, evidence, consequence and fix.
+- **BLOCKED parameters.** These get a box in the executive summary: current value, least-violating
+  value, reason (the binding constraint plus the decision text), and the metrics at the
+  least-violating value (`metrics["least_violating"]`, when the study gives them). The
+  least-violating value is applied to the joint set like any other recommendation. Its patch line is
+  marked `BLOCKED: least-violating value`, so the owner sees it was not a policy-feasible choice.
+- **Late-round failures.** A group that succeeded in an earlier round but raises in a later round
+  keeps its last successful outcome. Its Recommendations get a note, the joint set keeps their
+  values, and the round history records the error.
+**Finding.** In the quick run on all ten studies, G6's round-2 re-run on the joint set raised
+`ValueError: cannot convert float NaN to integer` at `g6_miners_fees.py:908`. `dev_need` is NaN
+when every honest-p99 sample is NaN (`np.nanmax` of all-NaN) once round 1 has moved
+`peerMin`/`deviationBps`. This is a G6 bug (WP-7d), reported to the integrator. The report shows G6's
+round-1 result with a note.

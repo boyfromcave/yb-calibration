@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import copy
 import importlib
+import inspect
 import math
 import re
 import sys
@@ -98,7 +99,7 @@ class GroupOutcome:
     seconds: float = 0.0
     round: int = 0
     applied: bool = True  #: its recommendations were applied to the joint set
-    design_notes: list[str] = field(default_factory=list)
+    design_notes: list[Any] = field(default_factory=list)
     rec_metrics: Metrics | None = None  #: the study's Metrics at the recommended set (cache hit)
 
     @property
@@ -144,15 +145,32 @@ class RoundRecord:
 
 @dataclass(frozen=True)
 class DesignNote:
-    """A finding that tuning cannot fix, raised for the owner (PLAN §7 item 5)."""
+    """A finding that tuning cannot fix, raised for the owner (PLAN §7 item 5).
 
-    text: str
+    Studies give either a plain string or a dict ``{id, title, finding, evidence, consequence, fix,
+    params}`` (G3/G4/G6/G7/G9/release); dicts are de-duplicated by ``id``."""
+
+    text: str  #: the finding (or the whole note for plain strings)
     groups: tuple[str, ...]
     params: tuple[str, ...] = ()
+    id: str = ""
+    title: str = ""
+    evidence: tuple[tuple[str, str], ...] = ()
+    consequence: str = ""
+    fix: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """JSON-ready."""
-        return {"text": self.text, "groups": list(self.groups), "params": list(self.params)}
+        return {
+            "id": self.id,
+            "title": self.title,
+            "text": self.text,
+            "groups": list(self.groups),
+            "params": list(self.params),
+            "evidence": dict(self.evidence),
+            "consequence": self.consequence,
+            "fix": self.fix,
+        }
 
 
 @dataclass
@@ -196,49 +214,93 @@ def _norm_note(t: str) -> str:
     return re.sub(r"\s+", " ", t.strip().lower().rstrip("."))
 
 
+def _note_key(n: Any) -> str:
+    if isinstance(n, Mapping):
+        if n.get("id"):
+            return "id:" + str(n["id"])
+        return _norm_note(f"{n.get('title', '')} {n.get('finding', '')}")
+    return _norm_note(str(n))
+
+
 def collect_design_notes(outcomes: Mapping[str, GroupOutcome]) -> list[DesignNote]:
     """Aggregated, de-duplicated design notes: ``Recommendation.metrics["design_notes"]`` of every
     recommendation, notes starting with "Design note:", and each study module's
-    ``design_notes(results)``; order = group order, then first appearance."""
-    seen: dict[str, tuple[str, list[str], list[str]]] = {}
+    ``design_notes(results[, policy])``. Each note is a string or a dict (``id``, ``title``,
+    ``finding``, ``evidence``, ``consequence``, ``fix``, ``params``; de-duplicated by ``id``); order =
+    group order, then first appearance."""
+    seen: dict[str, tuple[Any, list[str], list[str]]] = {}
     for g, o in outcomes.items():
-        notes: list[tuple[str, str | None]] = [(n, None) for n in o.design_notes]
+        notes: list[tuple[Any, str | None]] = [(n, None) for n in o.design_notes]
         for r in o.recommendations:
             dn = r.metrics.get("design_notes") if isinstance(r.metrics, Mapping) else None
-            if isinstance(dn, str):
+            if isinstance(dn, (str, Mapping)):
                 dn = [dn]
             for n in dn or ():
-                notes.append((str(n), r.param))
-            for n in r.notes:   # studies that predate the metrics["design_notes"] convention
+                notes.append((n, r.param))
+            for n in r.notes:  # studies that predate the metrics["design_notes"] convention
                 m = _DESIGN_NOTE.match(str(n))
                 if m:
                     notes.append((m.group(1), r.param))
-        for text, param in notes:
-            if not text.strip():
-                continue
-            k = _norm_note(text)
-            if k not in seen:
-                seen[k] = (text.strip(), [g], [param] if param else [])
+        for note, param in notes:
+            if isinstance(note, Mapping):
+                if not (note.get("finding") or note.get("title")):
+                    continue
+                extra = [str(x) for x in note.get("params") or ()]
             else:
-                if g not in seen[k][1]:
-                    seen[k][1].append(g)
-                if param and param not in seen[k][2]:
-                    seen[k][2].append(param)
-    return [DesignNote(t, tuple(gs), tuple(ps)) for t, gs, ps in seen.values()]
+                note = str(note).strip()
+                if not note:
+                    continue
+                extra = []
+            k = _note_key(note)
+            if k not in seen:
+                seen[k] = (note, [g], [])
+            if g not in seen[k][1]:
+                seen[k][1].append(g)
+            for p in ([param] if param else []) + extra:
+                if p not in seen[k][2]:
+                    seen[k][2].append(p)
+    out = []
+    for note, gs, ps in seen.values():
+        if isinstance(note, Mapping):
+            ev = note.get("evidence") or {}
+            evt = (
+                tuple((str(k), str(v)) for k, v in ev.items())
+                if isinstance(ev, Mapping)
+                else (("", str(ev)),)
+            )
+            out.append(
+                DesignNote(
+                    str(note.get("finding") or note.get("title")),
+                    tuple(gs),
+                    tuple(ps),
+                    str(note.get("id") or ""),
+                    str(note.get("title") or ""),
+                    evt,
+                    str(note.get("consequence") or ""),
+                    str(note.get("fix") or ""),
+                )
+            )
+        else:
+            out.append(DesignNote(note, tuple(gs), tuple(ps)))
+    return out
 
 
-def _module_design_notes(study: Study, run: GroupRun) -> list[str]:
+def _module_design_notes(study: Study, run: GroupRun, policy: Any = None) -> list[Any]:
     mod = sys.modules.get(type(study).__module__)
     fn = getattr(mod, "design_notes", None) if mod is not None else None
     if not callable(fn):
         return []
     try:
-        out = fn(run.table)
+        try:
+            nargs = len(inspect.signature(fn).parameters)
+        except (TypeError, ValueError):
+            nargs = 1
+        out = fn(run.table, policy) if nargs >= 2 else fn(run.table)
     except Exception as e:  # a broken helper must not sink the report
         return [f"(design_notes() of {getattr(mod, '__name__', '?')} failed: {e})"]
-    if isinstance(out, str):
+    if isinstance(out, (str, Mapping)):
         return [out]
-    return [str(x) for x in (out or [])]
+    return list(out or [])
 
 
 def _load(group: str, loader: Loader) -> tuple[Study | None, Status, str]:
@@ -350,12 +412,24 @@ def joint_pass(
                 )
             except Exception as e:
                 tb = traceback.format_exc(limit=4)
-                outcomes[g] = GroupOutcome(
-                    g, "error", f"{type(e).__name__}: {e}", None, time.perf_counter() - t, rnd
-                )
-                warnings.append(f"round {rnd}: {g} raised {type(e).__name__}: {e}\n{tb}")
-                statuses[g] = "error"
-                say(f"round {rnd} {g}: error {type(e).__name__}: {e}")
+                err = f"{type(e).__name__}: {e}"
+                warnings.append(f"round {rnd}: {g} raised {err}\n{tb}")
+                prev = outcomes.get(g)
+                if prev is not None and prev.status == "ok":
+                    # keep the last successful round's result; the joint set keeps its values
+                    prev.reason = (prev.reason + "; " if prev.reason else "") + (
+                        f"round {rnd} re-run failed ({err}); round {prev.round} result kept"
+                    )
+                    for r in prev.recommendations:
+                        r.notes.append(
+                            f"Joint pass: the round-{rnd} re-run of {g} failed ({err}); the round-"
+                            f"{prev.round} recommendation is reported."
+                        )
+                    statuses[g] = "error (kept earlier round)"
+                else:
+                    outcomes[g] = GroupOutcome(g, "error", err, None, time.perf_counter() - t, rnd)
+                    statuses[g] = "error"
+                say(f"round {rnd} {g}: error {err}")
                 continue
             applied, reason = True, ""
             try:
@@ -381,7 +455,15 @@ def joint_pass(
             except Exception:
                 rm = None
             outcomes[g] = GroupOutcome(
-                g, "ok", reason, run, time.perf_counter() - t, rnd, applied, _module_design_notes(st, run), rm
+                g,
+                "ok",
+                reason,
+                run,
+                time.perf_counter() - t,
+                rnd,
+                applied,
+                _module_design_notes(st, run, env.policy),
+                rm,
             )
             for r in run.recommendations:
                 if r.param not in first_recs and r.current == base.get(r.param):

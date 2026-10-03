@@ -9,6 +9,16 @@ Run `{{ run_id }}` · {{ now }} · ybcal {{ version }} · ycash6 `{{ pin }}` · 
 
 {% for v in verdict_order %}**{{ v }}** {{ counts[v] }}{{ " · " if not loop.last }}{% endfor %} — {{ moved }} value(s) move off the shipped set. Lock-ready: **{{ "yes" if ready else "no" }}** (§7).
 
+{% if blocked %}
+**BLOCKED — the policy cannot be met; the owner must relax a tolerance or accept the least-violating value**
+
+| Parameter | Current | Least-violating value | Reason | Metrics at the least-violating value |
+|---|---|---|---|---|
+{% for b in blocked %}
+| [`{{ b.param }}`](#{{ b.anchor }}) | {{ b.current|mdcell }} | **{{ b.least|mdcell }}**{{ " (in the patch)" if b.applied }} | {{ b.reason|mdcell }} | {{ b.least_metrics|mdcell }} |
+{% endfor %}
+
+{% endif %}
 **Top remaining risks**
 
 {% for r in risks %}
@@ -136,7 +146,23 @@ Not run{% if sensitivity_error %}: {{ sensitivity_error }}{% endif %}.
 ## 5. Design notes
 
 {% for d in design_notes %}
+{% if d.title %}
+### {{ loop.index }}. {{ d.title }}{% if d.id %} ({{ d.id }}){% endif %}
+
+*{{ d.groups|join(", ") }}{% if d.params %} · {{ d.params|join(", ") }}{% endif %}*
+
+- **Finding:** {{ d.text }}
+{% if d.evidence %}- **Evidence:** {% for k, v in d.evidence %}{{ k }}{{ ": " if k }}{{ v }}{{ "; " if not loop.last }}{% endfor %}
+
+{% endif %}
+{% if d.consequence %}- **Consequence:** {{ d.consequence }}
+{% endif %}
+{% if d.fix %}- **Possible fix (rule change, out of scope for tuning):** {{ d.fix }}
+{% endif %}
+
+{% else %}
 {{ loop.index }}. {{ d.text }} *({{ d.groups|join(", ") }}{% if d.params and d.params|length <= 3 %}: {{ d.params|join(", ") }}{% endif %})*
+{% endif %}
 {% else %}
 No design notes were raised by the studies that ran.
 {% endfor %}

@@ -51,7 +51,8 @@ class StubStudy:
     targets: dict[str, int] = field(default_factory=dict)  #: param → offset in steps from shipped
     provenance: str = "real-data"
     coupled: tuple[str, str, int] | None = None  #: (param, source, offset steps)
-    notes: tuple[str, ...] = ()
+    notes: tuple[Any, ...] = ()  #: design notes: strings or {id, title, finding, …} dicts
+    blocked: tuple[str, ...] = ()  #: params reported BLOCKED (least-violating = the bowl's best)
     params: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -121,6 +122,15 @@ class StubStudy:
                     notes=[d.reason],
                 )
             )
+        for r in recs:
+            if r.param in self.blocked:
+                r.verdict = "BLOCKED"
+                r.binding = "max_bad_debt_prob[B]"
+                r.metrics["least_violating"] = {
+                    "delta": {r.param: r.recommended},
+                    "values": {"pbad.B": 0.031},
+                }
+                r.metrics["decision"] = "no candidate satisfies max_bad_debt_prob[B]"
         return recs
 
     def explain(self, rec: Recommendation, results: ResultTable) -> str:

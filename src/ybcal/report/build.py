@@ -370,6 +370,38 @@ def top_risks(
     return [t for _, t in risks[:3]]
 
 
+def blocked_rows(joint: JointResult, sections: Mapping[str, X.ParamSection]) -> list[dict[str, Any]]:
+    """BLOCKED parameters for the executive summary: current, least-violating value, reason."""
+    out = []
+    for p, r in joint.recommendations.items():
+        if r.verdict != "BLOCKED" or p not in sections:
+            continue
+        m = r.metrics if isinstance(r.metrics, Mapping) else {}
+        lv = m.get("least_violating")
+        lv_txt = ""
+        if isinstance(lv, Mapping):
+            vals = lv.get("values") or {}
+            lv_txt = (
+                ", ".join(f"{k} {X.fmt_number(v)}" for k, v in list(vals.items())[:6])
+                if isinstance(vals, Mapping)
+                else str(vals)
+            )
+        reason = "; ".join(x for x in (r.binding, str(m.get("decision") or "")) if x and x != "—")
+        out.append(
+            {
+                "param": p,
+                "anchor": sections[p].anchor,
+                "number": sections[p].number,
+                "current": X.fmt_value(p, r.current),
+                "least": X.fmt_value(p, r.recommended),
+                "applied": r.recommended != r.current,
+                "reason": reason or "no candidate meets the policy",
+                "least_metrics": lv_txt,
+            }
+        )
+    return out
+
+
 # ===================================================================================================
 # Context
 
@@ -700,7 +732,11 @@ def write_report(ctx: ReportContext, out: Path) -> dict[str, Path]:
 
     # -- patch and recommended.json --------------------------------------------------------------
     src = emit.params_cpp_source(ctx.ycash6)
-    patch = emit.make_patch(joint.recommended, ctx.base, sections=nums, source=src)
+    psec = dict(nums)
+    for k, r in joint.recommendations.items():
+        if r.verdict == "BLOCKED" and r.recommended != r.current and k in psec:
+            psec[k] = f"{psec[k]}, BLOCKED: least-violating value"
+    patch = emit.make_patch(joint.recommended, ctx.base, sections=psec, source=src)
     pfile = out / "params.cpp.patch"
     pfile.write_text(
         patch.locked
@@ -733,6 +769,7 @@ def write_report(ctx: ReportContext, out: Path) -> dict[str, Path]:
     checklist = lock_readiness(joint, ctx.policy, patch_check=check, devnet=ctx.devnet)
     ready = all(c.ok for c in checklist if c.required)
     risks = top_risks(joint, ctx.sensitivity, ctx.policy, ctx.devnet, ctx.provenance)
+    blocked = blocked_rows(joint, sections)
 
     groups = []
     for g in GROUP_ORDER:
@@ -831,6 +868,7 @@ def write_report(ctx: ReportContext, out: Path) -> dict[str, Path]:
         "verdicts": X.VERDICTS,
         "verdict_order": VERDICT_ORDER,
         "risks": risks,
+        "blocked": blocked,
         "groups": groups,
         "sections": sections,
         "joint": joint,
