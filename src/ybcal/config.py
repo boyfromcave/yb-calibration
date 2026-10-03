@@ -58,6 +58,16 @@ class Policy:
     max_no_price_hours: float = 6.0
     pump_overpricing_lambda: float = 0.5
     crash_lag_cvar_alpha: float = 0.95
+    activation_reliability: float = 0.99
+    valve_minority_trip_max: float = 0.01
+    attestor_mean_outage_blocks: int = 48
+    max_harmful_capture_prob: float = 0.01
+    max_grief_capture_prob: float = 0.05
+    max_premature_claim_prob: float = 0.01
+    claim_reaction_blocks: int = 576
+    registration_notice_blocks: int = 8064
+    min_capture_days: int = 90
+    max_newcomer_seat_days: int = 365
     attack_moved_tol: float = 0.05
     pool_outage_rate_per_day: float = 0.033333333333333
     pool_outage_mean_hours: float = 4.0

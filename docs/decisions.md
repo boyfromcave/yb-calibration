@@ -650,3 +650,8 @@ copy (`git show` at 7702d22 — ycash6 untouched) and skips without a clone; han
   dormancy can never eject it (a protocol property, not a simulator artefact): G8 adds the
   `dead_detectable` (k ≥ 1) constraint to the kSlack family and counts a dead attestor's rows only when
   the other `m + k − 1` still make the bundle.
+
+## Contract changes from WP-7c (2026-10-03, integrator)
+
+The ten G5/G8 assumption constants are now `Policy` keys under `[studies_g5_g8]` in
+`policy/default.toml`; the studies already read them with `getattr(policy, key, default)`.

@@ -114,3 +114,15 @@ max_void_prob = 0.01               # max P(a mint is VOIDed by a reorg past REF_
 [optimizer]
 max_rounds_joint = 3               # coordinate-descent rounds in the joint pass (§5.10)
 insensitive_total_order = 0.01     # Sobol total-order index below which a param is "insensitive" (§5.10)
+
+[studies_g5_g8]  # assumptions of the G5/G8 studies (D-WP7c)
+activation_reliability = 0.99                 # probability activation completes within the expected time (G5)
+valve_minority_trip_max = 0.01                 # max probability the work valve trips under a minority enforcing share (G5)
+attestor_mean_outage_blocks = 48                   # mean attestor outage length, blocks (G8)
+max_harmful_capture_prob = 0.01                 # max probability a captured entity can move a bundle price in the harmful direction (G8)
+max_grief_capture_prob = 0.05                 # max probability of griefing-only capture of a bundle (G8)
+max_premature_claim_prob = 0.01                 # max probability a wick turns into an emergency claim (G8)
+claim_reaction_blocks = 576                  # blocks a claimant needs to react to a notice (G8)
+registration_notice_blocks = 8064                 # public notice before arming, blocks (G8)
+min_capture_days = 90                   # min days for a new large bond to reach capture weight (G8)
+max_newcomer_seat_days = 365                  # max days for a new honest bond to win a seat (G8)
