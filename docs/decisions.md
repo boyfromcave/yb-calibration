@@ -85,3 +85,83 @@ The runbook buffer defaults to 4,608 blocks (4 days) and `operator_upgrade_windo
 **Decision.** The `ybcal study` driver (`ybcal.studies.cli.cli_study`) is assigned to WP-8 with
 `recommend`, so the three parallel WP-7 agents do not collide on one file; WP-7 agents test their
 studies through the library API.
+
+## D-WP9-1 (2026-10-03, WP-9) — time-scaling rules
+
+**Decision.** `scale_to_regtest` divides block counts by one cadence factor (default
+`pSlowWindow / 64` = 31.5) and, optionally, a separate `term_factor` for grace, classes,
+abandonment and bond lifetimes (default: the same). Rounding is half-up for block counts. Thresholds
+are `⌈c·S′/S⌉` of `signalWindow` with the §1.4 ordering re-imposed. The σ sample count
+`volWindow/volStep` is kept exactly: `volStep` is whichever of ⌊volStep/f⌋ or ⌈volStep/f⌉ gives a
+window nearer `volWindow/f`, giving 2 / 84 at the default. Counts over a scaled window
+(`pinMinTags`, `pinMinBundles`, `dormancyMinBundles`) keep their rate, floored at 2 (two equal
+observations). Two more floors: `attestInterval` ≥ 4 (agent cadence vs ~2 s blocks) and
+`peerLag` ≥ ⌈peerMin/2⌉. Selection counts, `peerMin`, `valveBlocks`, bps, amounts and constants are
+not scaled.
+**Reason.** PLAN §6.3: keep the ratios the rules read, and report what integers cannot hold. One
+factor keeps term-to-window ratios. The shipped regtest column instead compresses terms ~1,440×, so
+`--term-factor` exposes that choice rather than hiding it.
+**Consequence.** At the default factor, 37 values differ from the shipped regtest column. Every
+difference is explained in `SHIPPED_REGTEST_NOTES`, and the test suite fails on an unexplained one.
+Ratio losses over 5 % are listed in `docs/devnet.md` §3.
+
+## D-WP9-2 (2026-10-03, WP-9) — `bondMin` on a scaled set is the regtest 10 YEC
+
+**Decision.** By default the scaler sets `bondMin = 10 · COIN` (the shipped regtest value) and leaves
+every other amount unscaled; `bond_min="mainnet"` keeps 20,000 YEC.
+**Reason.** A devnet wallet cannot fund three 20,000-YEC bonds in a reasonable number of blocks, and
+bond size only enters bond weight, which the devnet does not calibrate.
+**Consequence.** Weight-capture studies (G8) must not read bond economics off devnet runs.
+
+## D-WP9-3 (2026-10-03, WP-9) — contract note: the `sunset` invariant at regtest scale
+
+**Request to WP-0.** `invariants._sunset` accepts `enforceUntilHeight = 0` at regtest scale, but a
+non-zero regtest sunset must still equal `startHeight + BLOCKS_PER_YEAR`, which is a mainnet-scale
+clause. A scaled sunset (`start + 420,480 / term_factor`) or a flag such as
+`-yellowbackenforceuntil=500` is legitimate on regtest.
+**Interim.** `scaling.check_regtest(ps)` drops only that clause for regtest-scale sets with a
+non-zero sunset. The scaler and the overlay split use it. The scaler defaults to
+`enforceUntilHeight = 0` (the registry's regtest default), so the default path never needs it.
+**Proposed fix.** Scope the `u == s + BLOCKS_PER_YEAR` clause to mainnet scale (keep
+`u > startHeight` at regtest scale).
+
+## D-WP9-4 (2026-10-03, WP-9) — own minimal launcher beside `yellowback-devnet`
+
+**Decision.** `ybcal devnet run` starts its nodes itself by default (`runner.MinimalDevnet`), using
+the single-node configuration of `doc/yellowback-devnet.md` §2 plus the devnet's fixed pool keys
+and port-seed scheme. `--launcher` drives `contrib/yellowback/devnet/yellowback-devnet up` only when
+the overlay's six runtime flags equal what that launcher hard-codes.
+**Reason.** At the pin the launcher builds every node's arguments with `yellowback_node_args`
+(`-yellowbackstartheight=1 -yellowbacksigmaref=0`) and has no option to pass other node arguments,
+so the six runtime parameters could not be varied through it (PLAN §6.2 item 3). The minimal
+launcher also has a deterministic bootstrap (101 funding blocks plus a full activation) that the
+simulator can replay exactly.
+**Consequence.** `attestor-outage-1` needs attestor seats with real `yellowback-attest` agents, so it
+runs only under `--launcher`, and is skipped otherwise. Personas (`yellowback-sim`) need the
+launcher's role presets and are not driven in v1; `replay(on_step=…)` is the hook for them.
+
+## D-WP9-5 (2026-10-03, WP-9) — differential contract and pass criterion
+
+**Decision.** The simulator entry point is
+`ybcal.sim.engine.simulate_devnet(params, path, schedule) -> list[dict]` (records as
+`scrape.HISTORY_FIELDS`). `diff.compare` requires exact equality with type discipline: `None ≠ 0`
+and `bool ≠ int`. An allowlist entry is `field`, `field@h` or `field@lo-hi`. Keys present on one
+side only fail the comparison. `pending` (no simulator) and `skipped` (no node) never count as a
+pass.
+**Consequence.** WP-3..5 implement `simulate_devnet` against `devnet.scenarios.ReplayStep`
+semantics. Until then `ybcal devnet validate` reports every scenario `pending WP-3..5` and exits 0
+(3 with `--strict`).
+
+## D-WP9-6 (2026-10-03, WP-9) — version-skew policy
+
+**Decision.** A binary whose commit is not the pin, or cannot be determined, is refused unless
+`--allow-version-skew` is passed. This covers the relations predates, postdates, diverged and
+unknown. The refusal lists the commits in between and the parameter values that differ on both
+networks. A running node's `yed_getinfo.params` and `yed_getactivation` must equal the overlay,
+except the node-overridable wallet policy (`nPenalty`, `accuracyWindow`, `payeeTiltBps`).
+**Finding.** CI run 37081639884 is built from `94bafa4`, eight commits before `7702d22`. Its regtest
+column is identical; mainnet `abandonBlocks` differs (4,032 vs 34,560). The rule changes are the
+W20 soft supply cap (`deff6f5`) and the `mintingAllowed` / `supplyCapReached` RPC predicate
+(`a8291a0`). With `-yellowbacksupplycapbps=0` W20 has no effect, so that binary is usable for
+stock-column runs under `--allow-version-skew`. It is not usable for runs with a cap, such as a
+scaled mainnet overlay's 1,500 bps.

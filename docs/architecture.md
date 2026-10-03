@@ -171,3 +171,34 @@ driver lands with WP-8.
 - **Tests**: `pytest -m "not devnet"` must pass without a ycash6 clone (tests fall back to the
   snapshot); set `YBCAL_YCASH6` to run the live-source tests; `YBCAL_NO_YCASH6=1` forces the
   CI path locally.
+
+## Devnet (WP-9)
+
+The devnet layer is optional and never writes to ycash6 beyond `git worktree add --detach` under
+`.work/`. Every environmental failure becomes `Skipped(reason, step)` (`ybcal.devnet.status`) and
+prints `skipped: …`, never a fake success. The owner's guide is [devnet.md](devnet.md).
+
+| Module (`src/ybcal/`) | Role |
+|---|---|
+| `params/scaling.py` | `scale_to_regtest(mainnet, factor=None, *, term_factor=None, start_height=1, bond_min="regtest", keep_sunset=False) -> ScaledSet(params, source, factor, term_factor, losses: list[RatioLoss], notes)`; `default_factor` (= pSlowWindow/64); `RULES`; `RELATIONS`; `compare_to_shipped(scaled, shipped=None) -> list[ShippedDiff]` (raises on an unexplained difference); `check_regtest(ps)` |
+| `devnet/worktree.py` | `create_worktree(repo, commit, *, base=None, path=None) -> Worktree`, `remove_worktree`, `temp_worktree` (context manager), `resolve_commit` (refuses a missing commit; never fetches), `is_ancestor`, `work_dir()` (`$YBCAL_WORK` or `.work`), `ycash6_repo()` |
+| `devnet/overlay.py` | `load_overlay(src, base=None) -> ParamSet`; `split(overlay, base=None) -> OverlaySplit(params, runtime, compiled, …)` with `.node_args()`/`.conf_lines()`; `make_patch(src, compiled)` / `patch_source` (RegtestParams() only); `apply_patch(worktree, patch, check_only=False)`; `overlay_hash`, `build_key` (`stock-<commit12>` / `ov-<sha16>`; runtime flags excluded) |
+| `devnet/build.py` | `preflight(worktree=None, …) -> Ready \| Skipped`; `plan_build`; `build(repo, split, …) -> BuildResult \| Skipped` (cache `.work/bin/<key>/`); `fetch_ci_binary(run, artifact=None, …) -> BinaryInfo \| Skipped`; `resolve_binary(ycashd=None, *, key=None)`; `binary_version` / `parse_version_banner`; `check_skew(repo, binary_commit, pin, *, allow) -> SkewReport`; `compare_node_params(getinfo_params, expected, activation=None)`; `check_node_params(client, expected, *, allow) -> NodeCheck` |
+| `devnet/rpc.py` | `RpcClient(url, user, password)` (urllib; `.call(method, *params)`, attribute calls, `wait_ready` through `-28`), `read_cookie`, `RpcError(code, message)` |
+| `devnet/keys.py` | the devnet's fixed pool WIFs and their regtest P2PKH addresses (secp256k1 + HASH160 + Base58Check, pure-Python RIPEMD-160 fallback) |
+| `devnet/scenarios.py` | `ReplayStep(price, blocks, pool_bias_bps, pool_weights, signal_share_bps, attestors_down, label)`, `Schedule`, `bootstrap_steps`, `make_schedule(name_or_file, params, *, seed)`, `SCENARIOS`, `SUITE`, `steps_from_path(PricePath)`, `schedule_prices(schedule) -> PricePath` |
+| `devnet/runner.py` | `MinimalDevnet(DevnetConfig)` (own launcher: the launcher cannot pass runtime flags), `LauncherDevnet` (drives `yellowback-devnet up`), `replay(devnet, steps, *, seed, jitter_bps, …) -> ReplayLog`, `run_devnet(schedule, split, …) -> RunResult \| Skipped`, `p2p_port`/`rpc_port` |
+| `devnet/scrape.py` | `scrape(client, out_dir=None, *, from_height=None, to_height=None) -> ScrapeResult`; `normalize_history_row` / `normalize_vault` / `normalize_attestor`; `HISTORY_FIELDS`, `HALT_BITS`; `load_history_csv` |
+| `devnet/diff.py` | `compare(node_records, sim_records, fields=DEFAULT_FIELDS, allowlist=(), *, key="height") -> DiffReport`; `validate_suite(scenarios=SUITE, simulator=None, *, params=None, node_runner=None, …) -> SuiteReport`; `resolve_simulator()` |
+| `devnet/cli.py` | `cli_build` / `cli_run` / `cli_validate` + `configure_*` (extra flags incl. `build --from-ci-run RUN --artifact NAME`, `--ycashd`, `--allow-version-skew`, `--strict`, `--dry-run`, `--json`) |
+
+**Simulator contract requested from WP-3..5** (D-WP9-5): `ybcal.sim.engine.simulate_devnet(params:
+ParamSet, path: PricePath, schedule: Schedule) -> list[dict]`, one record per block from
+`startHeight` with the `HISTORY_FIELDS` names and integer types (`None` for undefined prices,
+`haltMask` as the §3.6 bit integer, `activationCode` 0/1/2). `schedule` carries the replay semantics
+(`ReplayStep`): price 0 = no quote, per-pool bias/weights, signalling share, the funding/activation
+bootstrap. `ybcal devnet validate` reports `pending` until this function exists.
+
+**CLI exit codes** (devnet only): 0 done or skipped (3 with `--strict`), 1 error / failed suite,
+4 refused (version or parameter skew without `--allow-version-skew`, or a compiled overlay on a
+prebuilt binary).
