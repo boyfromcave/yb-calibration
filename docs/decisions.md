@@ -489,3 +489,14 @@ window for Markov outages; per-year figures are a union bound over checks. Captu
 thresholds (qLow / 1 − qLow) plus Monte Carlo over W9 selections with the exact kernels.
 **Reason.** Matches PLAN §5.8; each helper is validated against Monte Carlo and the liveness formula
 against the simulator's own bundle success rate.
+
+## Integration of WP-3 and WP-5 (2026-10-03, integrator)
+
+- The engine reads `activation.simulate`'s `ActivationSeries` fields (it had assumed a tuple) and keeps
+  the series on `BlockSeries.activation_series`.
+- `attest.simulate` runs only when `inputs.attest` is given; without it the run is unarmed.
+- D-WP5-3 item 1: `oracle.generate_block_inputs(..., enforce_until=)` applies the sunset signal mask
+  (miners drop the bit past `enforceUntilHeight`). The engine itself does not mask, so replayed tag
+  streams stay exact.
+- D-WP5-3 item 2 (iterating PIN-1/PIN-2 coupling to a fixed point) is not yet done: the engine runs
+  one pass (oracle → attest → PIN-1 → medians). Assigned to WP-8.

@@ -246,6 +246,7 @@ class BlockSeries:
     pinned_seqs: Any = None  # PIN-2, from WP-5's AttestSeries
     attest: Any = None  # WP-5's AttestSeries as returned
     activation_source: str = "internal"  # "wp5" | "internal" | "always_active"
+    activation_series: Any = None  # WP-5 ActivationSeries when activation_source == "wp5"
     attest_source: str = "unarmed"  # "wp5" | "unarmed"
     pinned_recomputed: int = 0  # heights recomputed exactly (PIN-1)
     extras: dict = field(default_factory=dict)  # hook outputs (WP-4 vault book, judgements, …)
@@ -558,7 +559,9 @@ def _simulate_chunk(
     # ACT-1..3, ACT-4/6
     act = _wp5("activation") if activation_mode == "auto" else None
     if act is not None:
-        status, count, part, enf = act(params, inputs.signal_bit, inputs.start_height)
+        a = act(params, inputs.signal_bit, inputs.start_height, inputs.start_height)
+        status, count, part, enf = a.status, a.signal_count, a.participation_halt, a.enforcement_halt
+        s.activation_series = a
         s.activation_source = "wp5"
     elif activation_mode == "always_active":
         status = np.full(shape, ACTIVE, dtype=np.int8)
@@ -575,7 +578,7 @@ def _simulate_chunk(
     run_hooks("activation")
 
     # maturity, ARM-1/2, bundles (WP-5)
-    att_fn = _wp5("attest") if attest_mode == "auto" else None
+    att_fn = _wp5("attest") if attest_mode == "auto" and inputs.attest else None
     if att_fn is not None:
         att = att_fn(params, inputs, s)
         s.attest, s.attest_source = att, "wp5"

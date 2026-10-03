@@ -192,6 +192,7 @@ def generate_block_inputs(
     start_height: int = 0,
     attest: dict | None = None,
     meta: dict | None = None,
+    enforce_until: int = 0,
 ) -> BlockInputs:
     """Tag stream for every block of every path (see the module docstring). Returns
     :class:`ybcal.sim.engine.BlockInputs`.
@@ -199,6 +200,9 @@ def generate_block_inputs(
     Draw order (fixed, so two configs with the same pools give common random numbers): miner
     uniforms, then per pool in index order its outage process and (if stale) its own noise, then the
     shared per-block noise.
+
+    ``enforce_until`` > 0 models MINER-1 at the sunset: miners stop setting the signal bit for
+    ``H > enforceUntilHeight`` (index.cpp:713, ``activation.sunset_signal_mask``; fact 1.5-4).
     """
     from ybcal.sim.engine import BlockInputs
 
@@ -280,6 +284,10 @@ def generate_block_inputs(
         tag_price[quoting] = q[quoting]
         if p.signals:
             signal |= present
+    if enforce_until > 0:
+        from ybcal.sim.activation import sunset_signal_mask
+
+        signal &= sunset_signal_mask(n, int(start_height), int(enforce_until))[None, :]
     return BlockInputs(
         true_price=tp,
         tag_present=tag_present,
