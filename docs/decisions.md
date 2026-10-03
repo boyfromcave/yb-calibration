@@ -85,3 +85,79 @@ The runbook buffer defaults to 4,608 blocks (4 days) and `operator_upgrade_windo
 **Decision.** The `ybcal study` driver (`ybcal.studies.cli.cli_study`) is assigned to WP-8 with
 `recommend`, so the three parallel WP-7 agents do not collide on one file; WP-7 agents test their
 studies through the library API.
+
+## D-WP6-1 (2026-10-03, WP-6) — per-candidate RNG: common random numbers by default
+
+**Decision.** `evaluate_many` scores every candidate with a copy of the run `Env` whose `rng` is
+reset to `env.rng_for("evaluate")` — the *same* stream for every candidate (common random numbers).
+`crn=False` switches to `env.rng_for("evaluate", ParamSet.digest())`.
+**Reason.** Results must not depend on evaluation order or worker count (architecture
+"Seeds"), and comparisons between candidates are far less noisy when they face the same simulated
+paths — which matters for the 20 % materiality rule and for successive halving at low fidelity.
+**Consequence.** `workers=1` and `workers=N` give bit-identical tables (tested). Studies should
+still draw scenario paths from `env.rng_for(scenario, …)`; a study that wants independent noise per
+candidate passes `crn=False` through `run_group`.
+
+## D-WP6-2 (2026-10-03, WP-6) — search axes are anchored on the current value
+
+**Decision.** An axis is `base + k·step` inside the registry `bounds` (anchored on the lower
+bound only when the base lies outside them, i.e. a regtest-scale set). Grids are thinned to
+`budget.grid_points` per axis keeping the base value; full grids above `cap` (4,096) are thinned
+further, and if even two points per axis do not fit, LHS with `cap` samples is used. Both
+fallbacks warn.
+**Reason.** The current value must be a candidate (materiality), and "±1 step" has to mean the
+same thing in a grid, a neighbourhood check and the joint Sobol pass.
+**Consequence.** Some grid points sit closer to a bound than one step without touching it; the
+bounds themselves are only included when they are on the base lattice.
+
+## D-WP6-3 (2026-10-03, WP-6) — successive halving over Monte-Carlo paths ("Hyperband-lite")
+
+**Decision.** Fidelity is `Budget.paths`. Rung `r` of `R = budget.halving_rounds` runs at
+`max(min_paths, ceil(paths / eta^(R−1−r)))` paths (`eta = 3`, `min_paths = 8`), the last at the full
+budget; each rung keeps the best `ceil(n/eta)` (feasible first) **plus the current set**. A single
+bracket is run (no Hyperband bracket sweep).
+**Reason.** The candidate lists are small and fixed by each study, so the Hyperband hedge over
+starting fidelities buys little; keeping the current set guarantees the materiality comparison is
+made at full fidelity.
+**Consequence.** `optimize_group(method="halving")` returns a table of full-fidelity survivors only;
+the low-fidelity scores are kept in `GroupRun.halving.low_fidelity` for the report.
+
+## D-WP6-4 (2026-10-03, WP-6) — rejected candidates are counted, base is always evaluated
+
+**Decision.** Candidates failing an invariant, a feasibility predicate, a coupled-bounds check, or
+construction are recorded as `Rejected(changes, reason, detail)` and summarised by invariant name
+(`CandidateSet.invalid_counts()`); the summary goes into every Recommendation's "Search:" note. The
+base set is always evaluated, even if it violates an invariant (a warning is recorded).
+**Reason.** "Why was this value not considered?" must have an answer in the report; and
+`decide_with_materiality` needs the current row.
+
+## D-WP6-5 (2026-10-03, WP-6) — robust selection and tie-breaking
+
+**Decision.** `robust_select` builds the feasible set from `Constraint`s (policy bounds on an
+aggregate — worst / CVaR / mean / quantile — of a metric over scenarios) and the per-scenario
+`Metrics.constraints`; minimax regret is measured against the best *feasible* candidate per
+scenario. If nothing is feasible it returns the least-violating candidate (sum of relative
+violations) with `blocked=True`. Ties within `1e-12·max(1,|best|)` go to the current set, then to
+the smallest step distance, then to input order. CVaR uses the fractional-atom (Rockafellar–Uryasev)
+definition; for a loss the tail is the upper `1 − alpha` mass.
+
+## D-WP6-6 (2026-10-03, WP-6) — sensitivity estimators
+
+**Decision.** Sobol: Saltelli design on a scrambled Sobol' sequence (`scipy.stats.qmc`; `n` rounded
+up to a power of two), Jansen estimators for both `S1` and `ST`, 95 % percentile bootstrap CIs; rows
+with a NaN output (an invariant-violating set) are dropped and counted. Morris: random trajectories
+with a jump of `⌊n_levels/2⌋` levels (Δ = p/(2(p−1)) for even p), effects per unit of the factor's
+range. OAT slope classes use arc elasticity with a 5 %-of-max floor on the denominator: flat
+`|e| < 0.1`, steep `|e| ≥ 1`.
+**Reason.** Validated against the Ishigami analytic indices (S1 ≈ 0.314, 0.442, 0; ST ≈ 0.558,
+0.442, 0.244 — within 0.02 at n = 8,192) and an additive linear model (S1 = ST, exact Morris μ*).
+**Consequence.** Morris with 4 levels ranks Ishigami's x1 and x2 together ahead of x3 (x3's effect
+is pure interaction: σ > μ*); that is the known behaviour of the method, so Sobol `ST` is the
+quantity the joint pass uses for "insensitive" (`policy.insensitive_total_order`).
+
+## D-WP6-7 (2026-10-03, WP-6) — `ybcal sensitivity` CLI deferred
+
+**Decision.** `ybcal.optimize.cli.cli_sensitivity` is not implemented by WP-6: it needs the joint
+recommended set and the study evaluators (WP-7/WP-8). The command keeps exiting 2 ("not implemented
+yet (WP-6)"). The library pieces (`ParamSetObjective`, `factors_for_params`, `morris`, `sobol`) are
+ready for whoever wires it (suggested: WP-8 alongside `recommend`).

@@ -171,3 +171,52 @@ driver lands with WP-8.
 - **Tests**: `pytest -m "not devnet"` must pass without a ycash6 clone (tests fall back to the
   snapshot); set `YBCAL_YCASH6` to run the live-source tests; `YBCAL_NO_YCASH6=1` forces the
   CI path locally.
+
+## Optimizer (WP-6)
+
+`src/ybcal/optimize/` turns a Study into candidates, scores, and evidence. Everything is built on the
+frozen contracts above; nothing here changes them.
+
+| Module | Public API |
+|---|---|
+| `evaluate.py` | `evaluate_many(fn, cands, env, *, workers=1, cache=None, crn=True, evaluator=None, stats=None) -> list[Metrics]`; `evaluate_set(study_or_fn, ps, env, *, cache=None)`; `candidate_env(env, cand, *, crn=True)`; `with_budget(env, b)`, `with_paths(env, n)`; `EvalCache(directory=None)` / `EvalCache.on_disk(".work/cache")`; `env_fingerprint(env)`, `fingerprint(obj)`, `evaluator_id(fn)`; `EvalStats`; `rank_key(m)` |
+| `search.py` | `axis(name, base, *, bounds=, step=, values=) -> Axis`; `SearchSpace.for_params(base, params, *, bounds=, steps=, values=, couple=, feasible=, context=, network=)`; `grid(space, *, points=, cap=4096)`; `latin_hypercube(space, n, *, seed=)`; `neighbourhood(space, around=None, *, k=1, params=, mode="axis"\|"full")`; `screen(sets, base, *, context=, feasible=)`; `successive_halving(fn, cands, env, *, rounds=, eta=3, min_paths=8, keep=, workers=, cache=) -> HalvingResult`; `halving_schedule(full, rounds, eta, min_paths)`; `Tie(target, source, scale, div, offset)`; `CandidateSet` (`candidates`, `rejected`, `invalid_counts()`, `summary()`), `Rejected` |
+| `robust.py` | `cvar(x, alpha, *, minimize, weights)`, `quantile`, `weighted_mean`, `worst_case`, `aggregate(V, how)`; `regret_matrix(V, *, minimize, among)`, `max_regret`; `ScenarioTable(labels, scenarios, values, feasible, weights)` / `.from_tables({scenario: ResultTable})`; `Constraint(name, metric, op, bound, agg)` / `.from_policy(policy, field, metric, key=)`; `robust_select(table, metric, *, rule="minimax_regret"\|"mean"\|"cvar"\|"worst"\|"quantile", constraints=, current=, distance=) -> RobustChoice` (`blocked` flag); `tie_break`, `step_distance` |
+| `pareto.py` | `non_dominated_sort(F, directions)`, `pareto_front`, `ranks`, `normalize`, `knee_point`, `select_feasible(F, directions, primary, feasible, *, current=)`, `objectives_from_table(table, metrics)`, `front_for_plot(F, directions, names, labels, *, feasible, primary, current) -> dict` |
+| `sensitivity.py` | `Factor(name, lo, hi, levels)` / `Factor.discrete`; `factors_for_params(base, names, *, k_steps=1)`; `ParamSetObjective(fn, env, base, names, *, metric, workers, cache, context)`; `oat(fn, env, base, param, values=None, *, metric, components, points) -> OATResult`; `oat_from_table(table, param, metric)`; `sensitivity_sentence(param, oat_result, metric_name) -> str`; `morris(f, factors, r, *, levels=4, seed) -> MorrisResult`, `morris_design`; `sobol(f, factors, n, *, seed, n_boot, conf) -> SobolResult` (`S1`, `ST`, CIs, `insensitive(thr)`), `saltelli_design`; `ishigami`, `ishigami_indices` |
+| `runner.py` | `optimize_group(study, base, env, budget=None, policy=None, *, method="space"\|"grid"\|"lhs"\|"halving", workers=None, **kw) -> (ResultTable, list[Recommendation])`; `run_group(...) -> GroupRun` (table, recommendations, candidates with rejection counts, recommended set, neighbours, halving history, stats, timings, warnings); `recommended_set(base, recs)`; `NeighbourPoint` |
+
+**Flow of `optimize_group`.** Candidates come from `study.space(base, budget)` (`method="space"`,
+the default) or from a registry grid / LHS over the study's tunable params; `screen`/`SearchSpace`
+reject sets that fail `ParamSet.check(Context.from_policy(policy))` or a feasibility predicate and
+count them by invariant; the base is always kept first. Candidates are scored with
+`evaluate_many` (or `successive_halving` for `method="halving"`, whose table holds the
+full-fidelity survivors), `study.decide` produces the Recommendations, and the runner then scores
+±1 step around the *recommended* set for every tunable param. Each Recommendation receives a
+`"Search: …"` note (method, counts, rejections, cache use, workers, seconds), and
+`sensitivity["neighbours"]` / `sensitivity["local_slope"]` / `sensitivity["local_elasticity"]`
+(set only if the study did not set them). A neighbour that beats the recommendation adds a note
+saying whether the gain is within or beyond materiality.
+
+**Determinism.** `evaluate_many` scores each candidate with a fresh `Env` copy whose `rng` is
+`env.rng_for("evaluate")` — common random numbers across candidates — or, with `crn=False`,
+`env.rng_for("evaluate", digest)`. Results are identical for any `workers` value and any order.
+
+**Parallelism.** `workers=None` means `os.cpu_count()`; `workers=1` runs in-process. With
+`workers > 1` the evaluation callable and the `Env` go to each worker once (pool initializer), so
+**studies must be module-level classes and `Env.data` picklable**; otherwise the evaluation falls
+back to serial with a `RuntimeWarning`.
+
+**Cache.** `EvalCache` keys are `sha256(evaluator_id | ParamSet.digest() | env_fingerprint)`, where
+the fingerprint covers seed, budget, policy digest, data and scenarios (arrays hashed by content),
+provenance and CRN mode. Memory always; JSON files under `.work/cache/<k[:2]>/<k>.json` with
+`EvalCache.on_disk()`. Pass one cache to every `run_group` call of the joint pass so repeated sets
+are free.
+
+**For WP-8 (`joint.py`).** Coordinate descent is a loop over `GROUP_ORDER` calling
+`run_group(load_study(g), current, env, cache=cache)` and `current = recommended_set(current,
+run.recommendations)` until nothing moves (`policy.max_rounds_joint`); the Sobol pass is
+`sobol(ParamSetObjective(fn, env, current, names, metric=m), factors_for_params(current, names,
+k_steps=1), env.budget.sobol_samples)` with `SobolResult.insensitive(policy.insensitive_total_order)`;
+the robust pass is `robust_select(ScenarioTable.from_tables(per_scenario_tables), metric,
+constraints=[Constraint.from_policy(...)], current=current)`.
