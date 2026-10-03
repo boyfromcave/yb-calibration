@@ -1075,3 +1075,8 @@ instrumented ParamSets. That was judged too fragile to do here.
 when every honest-p99 sample is NaN (`np.nanmax` of all-NaN) once round 1 has moved
 `peerMin`/`deviationBps`. This is a G6 bug (WP-7d), reported to the integrator. The report shows G6's
 round-1 result with a note.
+
+## G6 undefined honest p99 (2026-10-03, integrator)
+
+`judge.dev_target` is NaN (like `acc_target`) when no honest quote is evaluated, instead of raising
+on `math.ceil(nan)`; this was the round-2 joint-pass failure reported in WP-8.

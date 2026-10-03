@@ -905,7 +905,12 @@ class G6Study(FamilyStudy):
         dev_need = kdev * v["judge.honest_p99"]
         v["judge.dev_required"] = dev_need
         lo, hi = REGISTRY["deviationBps"].bounds
-        v["judge.dev_target"] = float(min(hi, max(lo, math.ceil(dev_need / 100) * 100)))
+        # No evaluated honest quote at all (e.g. peerMin above the peers a window holds) leaves the p99
+        # undefined; the target is then undefined too, as for acc_target (the not_evaluated
+        # constraint already fails such a candidate).
+        v["judge.dev_target"] = (
+            float(min(hi, max(lo, math.ceil(dev_need / 100) * 100))) if math.isfinite(dev_need) else math.nan
+        )
         alo, ahi = REGISTRY["accuracyBandBps"].bounds
         p75 = v["judge.honest_p75_calm"]
         v["judge.acc_target"] = (
