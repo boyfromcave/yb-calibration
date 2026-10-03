@@ -26,7 +26,7 @@ ybcal = "ybcal.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-ybcal = ["params/*.json", "report/templates/*", "py.typed"]
+ybcal = ["params/*.json", "model/*.json", "model/*.md", "report/templates/*", "py.typed"]
 
 [tool.ruff]
 line-length = 110

@@ -161,3 +161,48 @@ quantity the joint pass uses for "insensitive" (`policy.insensitive_total_order`
 recommended set and the study evaluators (WP-7/WP-8). The command keeps exiting 2 ("not implemented
 yet (WP-6)"). The library pieces (`ParamSetObjective`, `factors_for_params`, `morris`, `sobol`) are
 ready for whoever wires it (suggested: WP-8 alongside `recommend`).
+
+## D-WP1-1 (2026-10-03, WP-1) — how the reference model is vendored
+
+**Decision.** `yellowback_model.py` and `yellowback_attest.py` are vendored whole (as
+`model/reference.py`, `model/reference_attest.py`) with exact, counted import-line rewrites only;
+from `yellowback_util.py` / `util.py` only the needed top-level definitions are copied verbatim by
+AST (`model/reference_util.py`). Each `.py` carries a pin header; `VENDOR.json` lists hashes;
+`vendor.VENDORED_COMMIT` holds the full pin.
+**Reason.** The golden replay needs the attestation helpers (bundle parsing, signature check, W9
+selection); `yellowback_util.py` imports the node test framework and cannot be imported standalone.
+**Consequence.** `ybcal verify` fails on any edit of a vendored file; re-pinning is
+`ybcal verify --revendor --ycash6 PATH --ref NEW` plus bumping `VENDORED_COMMIT` (and the WP-0
+snapshot, D-log entry). Node-driver functions of `reference_attest` are intentionally unusable.
+
+## D-WP1-2 (2026-10-03, WP-1) — kernels follow the C++ where the reference model differs
+
+**Decision.** On degenerate inputs where `yellowback_model.py` and `math.h` disagree (weighted
+quantile with zero total or q > 10^4; σ with non-positive samples; non-positive amounts), the
+kernels implement `math.h`, and the property tests compare with the reference on its domain only.
+**Reason.** The node is the consensus; the differences are listed in architecture.md ("Model and
+kernels") and never arise on the golden chain or in the worked examples.
+
+## D-WP1-3 (2026-10-03, WP-1) — undefined encodings
+
+**Decision.** Scalar kernels use `None` for undefined (predicates `False`); vectorised kernels use
+int64 with `-1` (`vkernels.UNDEF`) and read any price ≤ 0 as undefined, exactly as the C++ does.
+**Consequence.** Simulator code (WP-3..5) stores prices as int64 arrays with `-1` gaps.
+
+## D-WP1-4 (2026-10-03, WP-1) — rolling medians by wavelet matrix
+
+**Decision.** PRICE-1 rolling lower medians with min-fill are computed by a wavelet matrix over the
+compressed quote sequence (exact range k-th smallest, vectorised over all blocks), not the PLAN
+§3.3 sliding sorted window.
+**Reason.** O(n log n) independent of W, no per-block Python loop: 1 path × 100k × W=2016 in
+≈ 0.07 s (target 2 s); one structure serves all three windows. PIN-1's per-height key exclusion is
+not expressible as a static mask, so pinned heights must use the scalar kernel.
+
+## D-WP1-5 (2026-10-03, WP-1) — reference model's stale mainnet `abandon_blocks`
+
+**Decision.** Recorded, not patched: `yellowback_model.Params.mainnet()` has `abandon_blocks =
+4,032` while `params.cpp` @ 7702d22 has 34,560 (W21). The kernels never read the model's Params
+(parameters are arguments; the registry is the source), and `ybcal verify` prints the drift.
+**Consequence.** Worth reporting upstream (ycash6 test framework); a re-vendor after a fix
+removes the note, and `test_reference_mainnet_column_drift_is_only_the_known_w21_one` will then
+need updating.
