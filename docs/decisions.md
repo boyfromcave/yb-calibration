@@ -580,3 +580,73 @@ policy's pool parameters.
   `pool_outage_mean_hours` (4.0); G1/G2 read them (module constants remain as fallbacks).
   `feed_outages_per_year` was not added: the all-feeds outage stays reported per event (D-WP7a-3).
 - `Env.out_dir` added; `g1_price_windows.out_dir_of` prefers it over `env.data["out_dir"]`.
+
+## D-WP7c-1 (2026-10-03, WP-7c) — G5/G8 as families of one-at-a-time rules
+
+**Decision.** G5 and G8 each run one candidate table of one-at-a-time sweeps around the current set
+and apply one decision rule per *family* of parameters (`g5_activation.Family` / `FamilyStudy`, shared
+by G8): the family's rows are those whose delta lies in its params, its metrics are re-projected onto
+its primary and its own constraints, then `decide_with_materiality` (optimize), "KEEP unless a
+constraint fails, then the nearest feasible" (verify, primary ≡ 0), or a ported closed-form target with
+a materiality tie to current (rule). `adjust_changes` reconciles families that touch the same thing
+(G5: a new signalWindow carries its thresholds at their fractions; G8: when both dormancy families fix
+one violation only the faster fix is applied, the other is KEEP with a note).
+**Reason.** The groups hold many loosely coupled parameters (26 in G8); a joint grid is wasteful and
+mixes unrelated constraints into one feasibility test. The WP-8 joint pass handles cross-group coupling.
+**Consequence.** Simulation confirmation (exact `activation.simulate` / `attest.simulate`) runs inside
+`decide` from `Metrics.meta` (seed, budget name/paths/horizon, out_dir), since `decide` has no `Env`.
+
+## D-WP7c-2 (2026-10-03, WP-7c) — judgement constants; requested policy keys
+
+**Decision.** Tolerances the policy lacks are module constants (`g5_activation.JUDGEMENT`,
+`g8_attestation.JUDGEMENT`), documented in docs/studies/g5.md and g8.md. Requested policy keys
+(integrator: add to `Policy`/`default.toml`; the studies would read them with `getattr(policy, key,
+JUDGEMENT[...])`): `activation_reliability` (0.99), `valve_minority_trip_max` (0.01),
+`attestor_mean_outage_blocks` (48), `max_harmful_capture_prob` (0.01), `max_grief_capture_prob` (0.05),
+`max_premature_claim_prob` (0.01), `claim_reaction_blocks` (576), `registration_notice_blocks` (8,064),
+`min_capture_days` (90), `max_newcomer_seat_days` (365).
+
+## D-WP7c-3 (2026-10-03, WP-7c) — G5 objective: false halts, detection as a constraint
+
+**Decision.** Every G5 threshold family minimises expected false-halt hours/year (0.01-h resolution, a
+drift mixture of window-mean shares) subject to the policy's false-halt, flap and detection budgets, an
+enforcement majority (`enforcementFloor ≥ W/2`, L3) and reliable activation. Detection delay is a hard
+constraint, not the objective. The halted fraction is rate × fluid duration capped by `P(count <
+resume)` (conservative near the resume level).
+**Reason.** The valve bounds the cost of minority enforcement ("the node rejoins within six blocks"),
+whereas a false halt stops minting for everyone; with detection as the objective the rule would shrink
+signalWindow to its bound on any policy. The 0.01-h resolution keeps 10⁻²⁰-hour differences from
+counting as "material improvements".
+**Consequence.** G5 provenance is `judgement` (exact math given an assumed share) unless a pool-share log
+is in `env.data["pool_shares"]`/`["hashrate"]` (`real-data`). `false_abandon_probability(params, share,
+abandon_blocks)` is the G4 import (an upper bound, tested against Monte Carlo).
+
+## D-WP7c-4 (2026-10-03, WP-7c) — G8 capture is evaluated at bundle level
+
+**Decision.** The proposal §7.2 rule ("Q_LOW must exceed the largest single-entity weight share among the
+selected attestors") is checked with the exact selection and weighted-quantile kernels: an entity with
+`max_single_entity_weight_share` of the *seated* weight in one seat, honest seats equal. Theft (aMint up)
+must stay ≤ 0.01; griefing (spanning qLow, aMint down) ≤ 0.05 — the latter only in the qLow family.
+**Reason.** With 6 of 9 seats selected a 25 % seat holds 34.8 % of a bundle's weight, above qLow 3,333,
+in 94 % of bundles. That is griefing (over-collateralisation), not theft, which needs > 2/3.
+**Consequence.** qLowBps → 3,500 (qHigh 6,500) at the default policy — or the owner lowers the assumed
+entity share to ≤ ~0.22. Reported as a design note in the qLowBps recommendation.
+
+## D-WP7c-5 (2026-10-03, WP-7c) — ported spreads.py/pinrate.py; the "200–300" reading
+
+**Decision.** `_g8_ports.py` keeps upstream names and arithmetic (`analyze` renamed `analyze_spreads` /
+`analyze_pinrate`); the README's fallback "pick the smaller of the two whose rate clears 20 %" is read
+literally (the smallest of 200/300 with arming rate > 20 %, 200 if neither). `pooled_pinrate` pools the
+windows of several synthetic histories. The equivalence test imports the upstream scripts from a temp
+copy (`git show` at 7702d22 — ycash6 untouched) and skips without a clone; hand-computed cases always run.
+
+## D-WP7c-6 (2026-10-03, WP-7c) — attest.simulate notes found while confirming G8
+
+- `seatedSince ≤ 0` reads as "not seated" (the node's 0 sentinel), so a mid-chain run with a negative
+  `initial_seated_since` never makes anyone DORMANT. The G8 confirmation uses positive heights
+  (start 1, height0 50,400, a multiple of every dormancyCheck on the grid).
+- BundleLog rows before `height0` are unknown, so dormancy in a mid-chain run counts rows from `height0`.
+- With `kSlack = 0` a dead selected attestor makes every bundle that picks it fail, so no row lists it and
+  dormancy can never eject it (a protocol property, not a simulator artefact): G8 adds the
+  `dead_detectable` (k ≥ 1) constraint to the kSlack family and counts a dead attestor's rows only when
+  the other `m + k − 1` still make the bundle.
