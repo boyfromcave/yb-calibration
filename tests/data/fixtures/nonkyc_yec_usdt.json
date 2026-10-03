@@ -1,0 +1,21 @@
+{
+ "id": "64d1a9d6c2a5b0d7f0e1a2b3",
+ "symbol": "YEC_USDT",
+ "primaryTicker": "YEC",
+ "secondaryTicker": "USDT",
+ "lastPrice": "0.4280",
+ "lastPriceNumber": 0.428,
+ "bestBid": "0.4262",
+ "bestBidNumber": 0.4262,
+ "bestAsk": "0.4291",
+ "bestAskNumber": 0.4291,
+ "spreadPercent": "0.68",
+ "spreadPercentNumber": 0.68,
+ "volume": "15870.21",
+ "volumeNumber": 15870.21,
+ "lineChart": "",
+ "lastTradeAt": 1788673000123,
+ "isActive": true,
+ "isPaused": false,
+ "engine": "orderbook"
+}

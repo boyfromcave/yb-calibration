@@ -1,0 +1,35 @@
+# A grinding 90 % fall over a month with turbulent volatility and downward jumps.
+name = "crash-90-30d"
+description = "-90 % over 30 days from day 15 (log-linear), volatility x1.5 and downward jumps during the fall"
+stresses = "collateral sufficiency, HALT-3/HALT-2 timeliness, claimability"
+tags = ["core", "price", "crash"]
+horizon_days = 90
+resolution = "block"
+p0_usd = 0.40
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.90 }
+
+[[segments]]
+kind = "vol"
+start_days = 15
+duration_days = 30
+mult = 1.5
+
+[[segments]]
+kind = "ramp"
+start_days = 15
+duration_days = 30
+pct = -90
+
+[[segments]]
+kind = "jump"
+start_days = 15
+duration_days = 30
+rate_per_day = 0.2
+mean_pct = -8
+sd_pct = 5
+
+[schedules.enforcing_share]
+default = 0.80

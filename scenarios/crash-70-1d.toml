@@ -1,0 +1,30 @@
+# A 70 % crash in one day after 20 calm days, then 39 days of aftermath at higher volatility.
+name = "crash-70-1d"
+description = "-70 % in one day at day 20 (log-linear over 24 h), volatility x1.5 for the following 10 days"
+stresses = "collateral sufficiency, HALT-3/HALT-2 timeliness, claimability"
+tags = ["core", "price", "crash"]
+horizon_days = 60
+resolution = "block"
+p0_usd = 0.40
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.80 }
+
+[[segments]]
+kind = "ramp"
+start_days = 20
+duration_days = 1
+pct = -70
+
+[[segments]]
+kind = "vol"
+start_days = 21
+duration_days = 10
+mult = 1.5
+
+[schedules.enforcing_share]
+default = 0.80
+
+[schedules.feed_up]
+default = 1

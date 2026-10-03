@@ -1,0 +1,27 @@
+# Some pools publish stale quotes (an agent stuck on an old TWAP) and one repeats a constant quote.
+name = "stale-pools"
+description = "30 % of hash share quotes 1 hour stale and 10 % repeats one constant quote, from day 5; normal market"
+stresses = "REG-4 false penalties of honest-but-slow pools, PIN-1 on constant quotes"
+tags = ["oracle"]
+horizon_days = 30
+resolution = "block"
+p0_usd = 0.40
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.90 }
+
+[schedules.stale_pool_share]
+default = 0.0
+changes = [{ at_days = 5, value = 0.30 }]
+
+[schedules.stale_lag_blocks]
+default = 0
+changes = [{ at_days = 5, value = 48 }]
+
+[schedules.frozen_pool_share]
+default = 0.0
+changes = [{ at_days = 5, value = 0.10 }]
+
+[schedules.tagging_share]
+default = 0.80

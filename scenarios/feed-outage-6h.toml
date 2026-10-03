@@ -1,0 +1,24 @@
+# Every exchange feed is unreachable for 6 hours: pools stop tagging, attestors cannot price.
+# The price itself keeps moving; only the oracle is blind.
+name = "feed-outage-6h"
+description = "all exchange feeds down for 6 hours from day 10 (no tags, no attestations); calm market"
+stresses = "sigma cap trap (K12: one undefined pFast sample pins the multiplier at the cap), minting freeze duration"
+tags = ["core", "oracle"]
+horizon_days = 30
+resolution = "block"
+p0_usd = 0.40
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.60 }
+
+[schedules.feed_up]
+default = 1
+changes = [{ at_days = 10, value = 0 }, { at_hours = 246, value = 1 }]
+
+[schedules.tagging_share]
+default = 0.80
+changes = [{ at_days = 10, value = 0.0 }, { at_hours = 246, value = 0.80 }]
+
+[constants]
+outage_hours = 6
