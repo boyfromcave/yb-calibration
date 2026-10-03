@@ -79,6 +79,17 @@ class Policy:
     yec_daily_volume_p10_usd: float | None = None
     reference_price_usd: float | None = None
     next_upgrade_height: int | None = None
+    liar_bias_bps: int = 2000
+    min_liar_detection: float = 0.9
+    max_fee0_prob: float = 0.001
+    min_registered_prob: float = 0.999
+    min_liar_exclusion: float = 0.99
+    max_honest_exclusion: float = 0.01
+    max_accuracy_sd_bps: int = 500
+    max_honest_payee_spread: float = 1.5
+    min_accuracy_premium: float = 0.25
+    p10_daily_volume_usd: float = 25000.0
+    system_ratio_alarm_bps: int = 15000
     yed_premium_bps: int = 0
     claimant_slippage_bps: int = 100
     defector_share: float = 0.0

@@ -146,3 +146,16 @@ release_tip_date = "2026-10-02"    # date of release_tip
 # yec_daily_volume_p10_usd = 150000.0   # p10 daily YEC trading volume, USD — enables the maxMint/supply-cap depth checks
 # reference_price_usd = 0.40            # YEC/USD reference price for fee/bond judgements (default: from data)
 # next_upgrade_height = 3500000         # next scheduled Ycash network upgrade (default: read from chainparams; none scheduled)
+
+[studies_g6_g7]  # assumptions of the G6/G7 studies (D-WP7d-6)
+liar_bias_bps = 2000                 # quote bias of the liar the judgement rules must catch, bps (G6)
+min_liar_detection = 0.9                  # min probability REG-4 penalises that liar (G6)
+max_fee0_prob = 0.001                # max probability a block has no eligible payee (FEE-0) (G6)
+min_registered_prob = 0.999                # min probability an honest pool is registered (REG-1) (G6)
+min_liar_exclusion = 0.99                 # min probability the wallet payee rule excludes a liar (G6)
+max_honest_exclusion = 0.01                 # max probability the wallet payee rule excludes an honest pool (G6)
+max_accuracy_sd_bps = 500                  # max sd of honest pools' accuracy score, bps (G6)
+max_honest_payee_spread = 1.5                  # max ratio between honest pools' payee weights (G6)
+min_accuracy_premium = 0.25                 # min payee-weight premium of an accurate over a sloppy pool (G6)
+p10_daily_volume_usd = 25000.0              # PLACEHOLDER p10 daily YEC volume, USD, used by G7 only when no depth file and no yec_daily_volume_p10_usd (G7)
+system_ratio_alarm_bps = 15000                # HALT-2 must fire before the true system ratio reaches this, bps (G7)

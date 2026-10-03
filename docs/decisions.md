@@ -920,3 +920,9 @@ unless a constraint fails — there is no cost to trade a shorter or longer wind
 `nPenalty` minimises honest exclusion subject to a smallest-share liar being excluded ≥ 99 % of the time.
 FEE-W picks payees in proportion to tags in the window, so a pool's expected revenue share does not
 depend on `payeeWindow`; the window is judged on FEE-0 only.
+
+## Contract changes from WP-7d (2026-10-03, integrator)
+
+G6/G7 assumption keys are `Policy` fields (`[studies_g6_g7]`). G7's liquidation budget now uses,
+in order: a loaded depth file, the owner's `yec_daily_volume_p10_usd` (shared with G9), then the
+`p10_daily_volume_usd` placeholder ($25k).

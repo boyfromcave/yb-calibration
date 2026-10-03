@@ -107,6 +107,8 @@ def depth_budget(env: Env) -> tuple[float, float, str]:
         if len(arr):
             vol = float(np.percentile(arr, 10))
     prov = "real-data" if vol is not None else "judgement"
+    if vol is None and getattr(env.policy, "yec_daily_volume_p10_usd", None) is not None:
+        vol = float(env.policy.yec_daily_volume_p10_usd)  # owner-supplied figure, shared with G9
     if vol is None:
         vol = judgement(env.policy, "p10_daily_volume_usd")
     return vol, float(env.policy.max_depth_fraction) * vol, prov
