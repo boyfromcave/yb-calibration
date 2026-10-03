@@ -738,3 +738,128 @@ public engine fields (`BlockSeries` arrays, `series.rng`, `extras["vaults"]`); W
 
 Policy keys `yed_premium_bps`, `claimant_slippage_bps`, `defector_share`, `lost_key_prob` added
 (`[agents]` in `policy/default.toml`). Studies build `AgentsConfig` from them.
+
+## D-WP8-1 (2026-10-03, WP-8) — joint pass: re-statement against the shipped set
+
+**Decision.** Coordinate descent runs `run_group` per group on the current joint set and applies the
+group's tunable recommendations through `recommended_set`. A group whose application would violate a
+§1.4 invariant is *not applied*: the joint set is unchanged, and the outcome and warnings say why.
+After the final round every Recommendation is restated:
+- `current` becomes the shipped value and `recommended` the joint set's value (derived values
+  follow their parent);
+- KEEP becomes CHANGE when the value moved in an earlier round, and CHANGE becomes KEEP when it did
+  not; PROVISIONAL and BLOCKED are kept;
+- a value decided in round 1 and only confirmed later is reported with its round-1 Recommendation
+  (metrics and explanation against the shipped value), plus a note;
+- a value that moved in a later round keeps the final round's text, with the round-1 metrics "at
+  the current value" and a note.
+
+A study that cannot be imported, or has no `make_study`, is *not run*. A study that raises is
+*error*. Neither stops the pass.
+**Reason.** In later rounds a study compares against the joint set, not the shipped set, so its
+own KEEP/CHANGE label and metrics no longer describe "shipped → recommended".
+
+## D-WP8-2 (2026-10-03, WP-8) — the four top-level risk metrics (fast model)
+
+**Decision.** `TopRiskModel` computes four metrics:
+- **system P(bad debt)**: the mean over classes A/B/C of `metrics.p_bad_debt_fast`, with 4 terms
+  per class and a 24 h start stride, on hourly paths. The paths are `min(32, max(4, paths/4))`
+  GARCH-t preset paths, or a block bootstrap of real hourly data, over `hour_horizon_years`. Prices
+  come from the ideal oracle kernel at 2 sub-steps, and medians are memoised per window, so ±1-step
+  designs cost about 0.2 s per set.
+- **price-halt hours/yr**: NO_PRICE or HALT-3 set in hour mode, after warm-up.
+- **false activation-halt hours/yr**: the G5 analytic estimator at the policy's enforcing share.
+- **oracle attack share**: the minimum over the three windows of the V16 exact binomial
+  `min_attack_share`, at the policy tagging share.
+
+Classes whose terms do not fit the horizon are left out of the mean.
+**Reason.** PLAN §5.10 names these four. The study-grade evaluators are far too slow for a Saltelli
+design. This model is for *ranking* sensitivity, not for deciding values.
+
+## D-WP8-3 (2026-10-03, WP-8) — "insensitive" labels, it does not override
+
+**Decision.** PLAN §5.10 says an insensitive parameter should "KEEP the current value". The joint
+pass instead labels it (`rec.sensitivity["insensitive"]` and the joint sentence). It adds a note
+when the label sits on a changed value, and it never changes the verdict.
+**Reason.** The four system metrics do not read most G6/G8/G9 parameters at all (their total-order
+index is structurally 0). Overriding would discard every study's own evidence for, say, `kSlack` or
+`pinMinTags`.
+
+## D-WP8-4 (2026-10-03, WP-8) — sensitivity design: ±1 step, grouping, admissible moves
+
+**Decision.**
+- Factors take the offsets −1/0/+1 registry step around the recommended value.
+- When the Saltelli design `n·(k+2)` exceeds `20·budget.sobol_samples`, the factors are study
+  groups, and one factor moves every parameter of its group by the same offset. At quick, that is
+  72 parameters in 9 factors.
+- Moves are coupled where a rule ties two values: `classMin[i+1] = classMax[i] + 1`, and
+  `abandonBlocks ≥ grace`.
+- A move that still fails an invariant is applied greedily, keeping each member only while the set
+  stays admissible (for example, `mSelect + kSlack ≤ bundleMax`).
+- The tornado is ±1 step per parameter, alone.
+- Inside a sensitive group, a parameter is insensitive when its tornado share is below the
+  threshold for every metric.
+
+**Reason.** Without coupling and greedy repair, 80 % of the grouped Saltelli rows were inadmissible
+(class contiguity, `vol_step_divides`, `bundle_size`). Per-parameter Sobol on the full set is out of
+reach at quick. `ybcal sensitivity --params …` gives per-parameter indices on a subset.
+
+## D-WP8-5 (2026-10-03, WP-8) — patch layout and the vendored params.cpp
+
+**Decision.**
+- `params.cpp.patch` holds the locked changes, the derived and per-release changes (the
+  `MainParams()` start and sunset lines), and `attestMaxAge` (locked via k, D-3). It changes only
+  lines inside `SetCommon()` / `MainParams()`. Each changed line gains a
+  `ybcal: name old -> new (report §3.n)` comment, appended after any existing comment with `|`.
+- Excluded field changes go to `params-patch-release.patch`.
+- Header constants (`DEFAULT_REF_LAG`, params.h) are listed, never patched.
+- Because `SetCommon()` is shared with testnet, `recommended.json`'s `test` column receives the same
+  field changes, and its `regtest` column stays the shipped column.
+- The pinned `params.cpp` is vendored as `params/params_cpp_7702d22.json` (text + sha256), so
+  patches can be generated without a clone.
+- `check_patch` runs `git apply --check` in `devnet.worktree.temp_worktree` under the work dir.
+
+## D-WP8-6 (2026-10-03, WP-8) — PIN-1/PIN-2 fixed point in the engine (D-WP5-3 item 2)
+
+**Decision.** `simulate_blocks` iterates attest, then PIN-1, then the medians, until the PIN-2
+trigger mask computed from xMint stops changing, after at most `MAX_PIN_PASSES` = 8 passes. Pass 1
+keeps its old behaviour (no pMint, so no PIN-2). Attestation reads pMint only through that mask,
+and the coupled system is causal, so a stable mask is the unique solution. Only runs with
+`inputs.attest` and `attest_mode="auto"` are affected. Hooks are not re-run. `extras["pin_passes"]`
+and `["pin_fixed_point"]` record the result.
+**Consequence.** No existing `tests/sim` result changed (no test runs the engine with attestation
+and a moving pMint). `tests/sim/test_engine_pin_fixed_point.py` checks the fixed-point property
+(attest re-run on the final xMint and the re-medianed prices both reproduce the engine), the
+single-pass case and the pass limit.
+
+## D-WP8-7 (2026-10-03, WP-8) — robust selection is left to the studies
+
+**Decision.** PLAN §5.10 item 3 asks for robust (minimax-regret) final selection. The joint pass
+does not run a second, cross-group robust selection. Each study already aggregates over its
+scenario ensemble (`optimize.robust`), and ties break toward the current value through
+`decide_with_materiality`.
+**Reason.** A cross-group regret table needs every group's metrics on one scenario grid, which the
+Study protocol does not provide.
+
+## D-WP8-8 (2026-10-03, WP-8) — CLI wiring
+
+**Decision.**
+- `ybcal sensitivity` lives in `ybcal.optimize.cli` (the WP-6 route; resolves D-WP6-7). It takes
+  `--set` (a report directory, a `recommended.json` or a ParamSet JSON; default the shipped set),
+  plus `--params`, `--grouping`, `--workers` and `--out`.
+- `ybcal study G` is a one-round joint pass over one group with a mini report.
+- `ybcal recommend` adds `--groups`, `--workers`, `--ycash6`, `--max-rounds`, `--cache`,
+  `--no-sensitivity` and `--sensitivity-method`, and replays a run with `--manifest`.
+- `ybcal report open DIR [--serve --port]`.
+- `--data` accepts directories, and each file's kind is sniffed from its header.
+
+## D-WP8-9 (2026-10-03, WP-8) — runtime of the joint pass
+
+**Finding.** Cache keys are digests of the whole set, so a group re-evaluates in round 2 whenever
+any other group moved, even when it reads none of the moved values. With the four merged studies,
+`recommend --budget quick` takes about 6 min on 4 cores (two rounds of 117 s, sensitivity 119 s).
+Once G3/G4/G6/G7/G9 land, quick may exceed the 10-minute target. The owner then sets
+`max_rounds_joint = 1` in the policy or passes `--max-rounds 1`, and the coupling is reported as
+not iterated.
+**Not done.** Projecting cache keys onto the parameters a study actually reads would need
+instrumented ParamSets. That was judged too fragile to do here.

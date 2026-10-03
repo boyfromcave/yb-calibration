@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yellowback parameter report {{ run_id|e }}</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f6f6f4; --surface: #fcfcfb; --surface-2: #f0efeb; --border: #dedcd6;
+  --text: #0b0b0b; --text-2: #52514e; --text-3: #75746f; --accent: #2a78d6;
+  --keep: #1d6b45; --keep-bg: #e3f2e9; --change: #1f5ea8; --change-bg: #e2edfa;
+  --prov: #8a5a00; --prov-bg: #fbf0d9; --blocked: #a32b2b; --blocked-bg: #fbe4e3;
+  --notrun: #52514e; --notrun-bg: #ebeae6; --code-bg: #f0efeb;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --border: #34332f;
+    --text: #f4f4f2; --text-2: #c3c2b7; --text-3: #9a998f; --accent: #3987e5;
+    --keep: #7fd3a5; --keep-bg: #183326; --change: #8fbcf2; --change-bg: #172a40;
+    --prov: #f0c46a; --prov-bg: #3a2d10; --blocked: #f19a99; --blocked-bg: #3d1a1a;
+    --notrun: #c3c2b7; --notrun-bg: #2a2a27; --code-bg: #232321;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --border: #34332f;
+  --text: #f4f4f2; --text-2: #c3c2b7; --text-3: #9a998f; --accent: #3987e5;
+  --keep: #7fd3a5; --keep-bg: #183326; --change: #8fbcf2; --change-bg: #172a40;
+  --prov: #f0c46a; --prov-bg: #3a2d10; --blocked: #f19a99; --blocked-bg: #3d1a1a;
+  --notrun: #c3c2b7; --notrun-bg: #2a2a27; --code-bg: #232321;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+main { max-width: 1120px; margin: 0 auto; padding: 32px 16px 80px; }
+h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -0.01em; }
+h2 { font-size: 21px; margin: 48px 0 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+h3 { font-size: 17px; margin: 32px 0 8px; }
+h4 { font-size: 15px; margin: 0 0 4px; }
+p, li { color: var(--text); }
+.meta, .muted { color: var(--text-2); font-size: 13px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+code { background: var(--code-bg); padding: 1px 4px; border-radius: 4px; }
+pre { background: var(--code-bg); padding: 12px; border-radius: 8px; overflow-x: auto; line-height: 1.45; }
+.callout { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 16px 0; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+.tile .n { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.tile .l { font-size: 12px; color: var(--text-2); }
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--text-2); font-weight: 600; background: var(--surface-2); position: sticky; top: 0; }
+tr:last-child td { border-bottom: none; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.moved { font-weight: 650; }
+.badge { display: inline-block; font-size: 11px; font-weight: 650; letter-spacing: 0.02em; padding: 1px 7px;
+  border-radius: 999px; white-space: nowrap; border: 1px solid transparent; }
+.v-KEEP { color: var(--keep); background: var(--keep-bg); }
+.v-CHANGE { color: var(--change); background: var(--change-bg); }
+.v-PROVISIONAL { color: var(--prov); background: var(--prov-bg); }
+.v-BLOCKED { color: var(--blocked); background: var(--blocked-bg); }
+.v-NOT-RUN { color: var(--notrun); background: var(--notrun-bg); }
+.ok { color: var(--keep); font-weight: 650; } .fail { color: var(--blocked); font-weight: 650; }
+.param { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px;
+  margin: 14px 0; }
+.param .head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; justify-content: space-between; }
+.param .values { font-size: 16px; margin: 6px 0 10px; font-variant-numeric: tabular-nums; }
+.param dl { display: grid; grid-template-columns: minmax(120px, 190px) 1fr; gap: 4px 14px; margin: 8px 0; }
+.param dt { color: var(--text-2); font-size: 13px; }
+.param dd { margin: 0; font-size: 14px; }
+.explain { white-space: pre-wrap; font-size: 14px; color: var(--text); margin: 10px 0; }
+figure { margin: 14px 0; }
+figure .card { background: #fcfcfb; border-radius: 8px; padding: 8px; display: inline-block; max-width: 100%;
+  border: 1px solid var(--border); }
+figure img { max-width: 100%; height: auto; display: block; }
+figcaption { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+details { margin: 8px 0; } summary { cursor: pointer; color: var(--text-2); font-size: 13px; }
+nav.toc { columns: 2 260px; font-size: 13px; }
+nav.toc a { display: block; padding: 1px 0; }
+@media (max-width: 640px) { .param dl { grid-template-columns: 1fr; } h1 { font-size: 23px; } }
+</style>
+</head>
+<body>
+<main>
+<h1>{{ title|e }}</h1>
+<div class="meta">Run <code>{{ run_id|e }}</code> · {{ now|e }} · ybcal {{ version|e }} · ycash6 <code>{{ pin|e }}</code> · budget <b>{{ budget.name|e }}</b> · seed {{ seed }} · data <b>{{ provenance|e }}</b></div>
+<p class="callout">A proposal for the owner, generated by <code>ybcal recommend</code>. Nothing in it is applied to ycash6. <code>docs/report-guide.md</code> explains how to read it.</p>
+
+<nav class="toc"><a href="#s1">1. Executive summary</a><a href="#s2">2. Policy and data provenance</a><a href="#s3">3. Parameters</a><a href="#s4">4. Joint sensitivity</a><a href="#s5">5. Design notes</a><a href="#s6">6. Devnet validation</a><a href="#s7">7. Lock-readiness checklist</a><a href="#aA">A. Non-tunable parameters</a><a href="#aB">B. Joint pass</a><a href="#aC">C. params.cpp patch</a></nav>
+
+<h2 id="s1">1. Executive summary</h2>
+<div class="tiles">
+{% for v in verdict_order %}<div class="tile"><div class="n">{{ counts[v] }}</div><div class="l"><span class="badge v-{{ v|replace(' ', '-') }}">{{ v }}</span></div></div>
+{% endfor %}<div class="tile"><div class="n">{{ moved }}</div><div class="l">values move off the shipped set</div></div>
+<div class="tile"><div class="n {{ 'ok' if ready else 'fail' }}">{{ "yes" if ready else "no" }}</div><div class="l">lock-ready (§7)</div></div>
+</div>
+<h3>Top remaining risks</h3>
+<ol>{% for r in risks %}<li>{{ r|e }}</li>{% else %}<li>None identified.</li>{% endfor %}</ol>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Parameter</th><th>Current</th><th>Recommended</th><th>Verdict</th><th>Class / change path</th><th>Confidence</th><th>Provenance</th></tr></thead>
+<tbody>
+{% for r in rows %}<tr><td><a href="#{{ r.anchor }}">{{ r.number }}</a></td><td><code>{{ r.param|e }}</code></td><td class="num">{{ r.current|e }}</td><td class="num{{ ' moved' if r.changed }}">{{ r.recommended|e }}</td><td><span class="badge v-{{ r.verdict|replace(' ', '-') }}">{{ r.verdict }}</span></td><td>{{ r.klass }} / {{ r.change_path }}</td><td>{{ r.confidence }}</td><td>{{ r.provenance|e }}</td></tr>
+{% endfor %}
+</tbody></table></div>
+<p class="muted">{% for v in verdict_order %}<b>{{ v }}</b> — {{ verdicts[v]|e }}{{ ". " }}{% endfor %}Non-tunable parameters are in Appendix A.</p>
+
+<h2 id="s2">2. Policy and data provenance</h2>
+<p>Policy <code>{{ policy_path|e }}</code> (parsed-policy sha256 <code>{{ manifest.policy_hash[:16] }}…</code>), used verbatim:</p>
+<details><summary>Show the policy file</summary><pre>{{ policy_text|e }}</pre></details>
+<div class="table-wrap"><table>
+<thead><tr><th>Input</th><th>Kind</th><th>sha256</th><th>Rows</th><th>Span</th><th>Gaps</th></tr></thead><tbody>
+{% for d in data_info %}<tr><td><code>{{ d.path|e }}</code></td><td>{{ d.kind|e }}</td><td><code>{{ d.sha256[:12] }}</code></td><td class="num">{{ d.rows or "" }}</td><td>{{ d.span|e }}</td><td>{{ d.gaps|e }}</td></tr>
+{% endfor %}</tbody></table></div>
+{% if provenance != "real-data" %}<p>No real data was supplied: price paths are the WP-2 synthetic presets (GARCH-t, Merton, regime switch, GBM; about 120 % annualised volatility) and the scenario library above. Every recommendation is therefore PROVISIONAL.</p>{% endif %}
+
+<h2 id="s3">3. Parameters</h2>
+{% for g in groups %}{% if g.params %}
+<h3>{{ g.group }} — {{ g.title|e }}</h3>
+<p class="muted">Study status: <b>{{ g.status|e }}</b>{% if g.reason %} ({{ g.reason|e }}){% endif %}{% if g.summary %} · {{ g.summary|e }}{% endif %}</p>
+{% for s in g.params %}
+<section class="param" id="{{ s.anchor }}">
+<div class="head"><h4>{{ s.number }} <code>{{ s.param|e }}</code></h4><span class="badge v-{{ s.verdict|replace(' ', '-') }}">{{ s.verdict }}</span></div>
+<div class="values">{{ s.current|e }} → <span class="{{ 'moved' if s.changed }}">{{ s.recommended|e }}</span> <span class="muted">· {{ s.klass }} / {{ s.change_path }} · confidence {{ s.confidence }} · {{ s.provenance|e }}{% if s.insensitive %} · insensitive{% endif %}</span></div>
+<dl>
+<dt>What it controls</dt><dd>{{ s.controls|e }}</dd>
+<dt>Decision rule</dt><dd>{{ s.rule|e }}</dd>
+<dt>Binding constraint</dt><dd>{{ s.binding|e }}</dd>
+<dt>Sensitivity</dt><dd>{{ s.sensitivity|e }}</dd>
+<dt>Why not the neighbours</dt><dd>{{ s.neighbours|e }}</dd>
+<dt>Change path</dt><dd>{{ s.locked_note|e }}</dd>
+{% for k, v in s.extra %}<dt>{{ k|e }}</dt><dd>{{ v|e }}</dd>{% endfor %}
+</dl>
+{% if s.metrics %}<div class="table-wrap"><table><thead><tr><th>Metric</th><th>Current</th><th>Recommended</th></tr></thead><tbody>
+{% for m in s.metrics %}<tr><td>{{ m.name|e }}</td><td class="num">{{ m.current|e }}</td><td class="num{{ ' moved' if m.changed }}">{{ m.recommended|e }}</td></tr>
+{% endfor %}</tbody></table></div>{% endif %}
+{% if s.explanation %}<div class="explain">{{ s.explanation|e }}</div>{% endif %}
+{% for f in s.figures %}{% if figure_owner.get(f) == s.param %}<figure><div class="card"><img alt="Figure {{ figure_no[f] }}: {{ s.param|e }} evidence" src="{{ img(f) }}"></div><figcaption>Figure {{ figure_no[f] }} · <code>{{ f|e }}</code></figcaption></figure>
+{% else %}<p class="muted">See <a href="#{{ sections_by_param[figure_owner[f]].anchor }}">Figure {{ figure_no[f] }}</a>.</p>
+{% endif %}{% endfor %}
+{% if s.tables %}<p class="muted">Evidence: {% for t in s.tables %}<code>{{ t|e }}</code>{{ ", " if not loop.last }}{% endfor %}</p>{% endif %}
+{% if s.notes %}<details><summary>Notes ({{ s.notes|length }})</summary><ul>{% for n in s.notes %}<li>{{ n|e }}</li>{% endfor %}</ul></details>{% endif %}
+</section>
+{% endfor %}{% endif %}{% endfor %}
+
+<h2 id="s4">4. Joint sensitivity</h2>
+{% if sens %}
+<p>Method <b>{{ sens.result.method }}</b> at ±1 registry step around the recommended set{% if sens.result.grouped %}, factors grouped by study group{% endif %}; {{ sens.result.n_evals }} evaluations; insensitive threshold {{ sens.result.threshold }} ({{ sens.key }}). {% for n in sens.result.notes %}{{ n|e }} {% endfor %}</p>
+<div class="table-wrap"><table><thead><tr><th>Factor</th><th>Params</th>{% for m in sens.metric_labels %}<th>{{ m|e }}</th>{% endfor %}</tr></thead><tbody>
+{% for r in sens.rows %}<tr><td>{{ r.factor|e }}{% if r.insensitive %} <span class="badge v-NOT-RUN">insensitive</span>{% endif %}</td><td class="num">{{ r.params }}</td>{% for v in r.vals %}<td class="num">{{ v }}</td>{% endfor %}</tr>
+{% endfor %}<tr><td><i>value at the recommended set</i></td><td></td>{% for v in sens.base %}<td class="num">{{ v }}</td>{% endfor %}</tr>
+</tbody></table></div>
+<p>Insensitive parameters ({{ sens.insensitive|length }}): {{ sens.insensitive|join(", ")|e or "none" }}.</p>
+<p class="muted">A parameter is labelled insensitive when its factor's index is below the threshold for every metric (or, inside a sensitive group, its own ±1-step tornado share is). The label does not override a study's verdict: the four metrics are system-level and do not read every parameter.</p>
+{% for f in sens.figures %}<figure><div class="card"><img alt="Figure {{ figure_no[f] }}" src="{{ img(f) }}"></div><figcaption>Figure {{ figure_no[f] }} · <code>{{ f|e }}</code></figcaption></figure>
+{% endfor %}
+{% else %}<p>Not run{% if sensitivity_error %}: {{ sensitivity_error|e }}{% endif %}.</p>{% endif %}
+
+<h2 id="s5">5. Design notes</h2>
+<ol>{% for d in design_notes %}<li>{{ d.text|e }} <span class="muted">({{ d.groups|join(", ") }}{% if d.params and d.params|length <= 3 %}: {{ d.params|join(", ")|e }}{% endif %})</span></li>{% else %}<li>No design notes were raised by the studies that ran.</li>{% endfor %}</ol>
+
+<h2 id="s6">6. Devnet validation</h2>
+<p>Status: <b>{{ devnet.status|e }}</b> — {{ devnet.reason|e }}</p>
+
+<h2 id="s7">7. Lock-readiness checklist</h2>
+<p>Lock-ready: <b class="{{ 'ok' if ready else 'fail' }}">{{ "yes" if ready else "no" }}</b></p>
+<div class="table-wrap"><table><thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead><tbody>
+{% for c in checklist %}<tr><td>{{ c.name|e }}{% if not c.required %} <span class="muted">(advisory)</span>{% endif %}</td><td>{% if c.ok %}<span class="ok">pass</span>{% elif c.ok is none %}<span class="muted">—</span>{% else %}<span class="fail">FAIL</span>{% endif %}</td><td>{{ c.detail|e }}</td></tr>
+{% endfor %}</tbody></table></div>
+
+<h2 id="aA">Appendix A — non-tunable parameters</h2>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Class</th><th>Group</th><th>Current</th><th>Recommended</th><th>How it is set</th></tr></thead><tbody>
+{% for r in appendix %}<tr><td><code>{{ r.param|e }}</code></td><td>{{ r.klass }}</td><td>{{ r.group }}</td><td class="num">{{ r.current|e }}</td><td class="num{{ ' moved' if r.changed }}">{{ r.recommended|e }}</td><td>{{ r.how|e }}</td></tr>
+{% endfor %}</tbody></table></div>
+
+<h2 id="aB">Appendix B — joint pass</h2>
+<p>Converged: <b>{{ "yes" if joint.converged else "no" }}</b> after {{ joint.rounds|length }} round(s) ({{ "%.1f"|format(joint.seconds) }} s).</p>
+<ul>{% for r in joint.rounds %}<li>Round {{ r.index }} ({{ "%.1f"|format(r.seconds) }} s): {% if r.moves %}moved {% for k, v in r.moves.items() %}<code>{{ k|e }}</code> {{ v[0]|e }} → {{ v[1]|e }}{{ ", " if not loop.last }}{% endfor %}{% else %}no move{% endif %}.</li>{% endfor %}</ul>
+<div class="table-wrap"><table><thead><tr><th>Group</th><th>Status</th><th>Detail</th></tr></thead><tbody>
+{% for g in groups %}<tr><td>{{ g.group }} {{ g.title|e }}</td><td>{{ g.status|e }}</td><td>{{ (g.summary or g.reason)|e }}</td></tr>
+{% endfor %}</tbody></table></div>
+{% if joint.warnings %}<details><summary>Warnings ({{ joint.warnings|length }})</summary><pre>{% for w in joint.warnings %}{{ w|e }}
+{% endfor %}</pre></details>{% endif %}
+
+<h2 id="aC">Appendix C — params.cpp patch</h2>
+<p><code>params.cpp.patch</code>: {{ patch.summary()|e }}; <code>git apply --check</code>: <b>{{ patch_check.status|e }}</b> — {{ patch_check.detail|e }}.</p>
+{% if patch.release_changes %}<p>Excluded (patch-release) field changes are in <code>params-patch-release.patch</code> (check: {{ patch_check_release.status|e }}): {% for c in patch.release_changes %}<code>{{ c.param|e }}</code> {{ c.current|e }} → {{ c.recommended|e }}{{ ", " if not loop.last }}{% endfor %}.</p>{% endif %}
+{% if patch.header_changes %}<p>Header constants (params.h, not patched): {% for c in patch.header_changes %}<code>{{ c.param|e }}</code> {{ c.current|e }} → {{ c.recommended|e }} ({{ c.change_path|e }}){{ ", " if not loop.last }}{% endfor %}.</p>{% endif %}
+{% if patch_text %}<pre>{{ patch_text|e }}</pre>{% else %}<p>No locked or per-release change.</p>{% endif %}
+
+<h2>Appendix D — reproduce</h2>
+<pre>{{ manifest.command|join(" ")|e }}</pre>
+<p class="muted">Timings: {% for k, v in timings.items() %}{{ k }} {{ "%.1f"|format(v) }} s{{ ", " if not loop.last }}{% endfor %}. Re-run with <code>ybcal recommend --manifest {{ run_id|e }}/manifest.json</code>.</p>
+</main>
+</body>
+</html>
