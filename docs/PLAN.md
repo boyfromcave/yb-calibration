@@ -1,12 +1,76 @@
 # yb-calibration — implementation plan
 
-**Status:** plan, revision 1 (2026-10-03). Nothing below is built yet.
+**Status:** plan, revision 1 (2026-10-03), **implemented** through WP-10 — see
+[Status (implementation)](#status-implementation) below. The plan text that follows is kept as
+written; where the build deviates, the status section names the decision.
 **Audience:** the subagent team that builds this repo, and the owner who signs off the
 recommended parameter set.
 **Subject:** the mainnet `yellowback::Params` set in
 `boyfromcave/ycash6`, branch `feature/yellowback`, file `src/yellowback/params.cpp`
 (pinned for this plan at commit **`7702d22`**, "docs: trust statement and spec copy at plan v3
 revision 4").
+
+---
+
+## Status (implementation)
+
+*Updated by WP-10, 2026-10-03.*
+
+### Built
+
+| WP | Delivered | Where |
+|---|---|---|
+| WP-0 | registry of all 96 entries (87 `Params` fields + `params.h` constants), extraction from source or the committed snapshot, drift check, every §1.4 invariant, frozen types, policy loader, run manifest, CLI dispatch | `params/`, `config.py`, `cli.py`, `studies/base.py` |
+| WP-1 | vendored reference model + golden vector with pin headers, exact scalar and vectorised kernels, `ybcal verify` (126 checks: golden replay, the 97 C++ worked examples, parity sample, vendoring hashes) | `model/` |
+| WP-2 | CoinGecko / tickers / nonkyc fetchers (fixture-tested), importers for price, spreads, pool shares, depth; GBM, Merton, GARCH-t, regime switch, block bootstrap with `--calibrate`; 36-scenario library | `data/`, `scenarios/` |
+| WP-3, WP-4, WP-5 | block-mode engine exact against the reference per height; hour mode with a calibrated oracle transfer kernel; vault book with exact verdicts and personas; ACT-1..7 and the full attestation layer; performance targets met (1,000 paths × 90 days ≈ 90 s on 4 cores) | `sim/` |
+| WP-6 | grid / LHS / successive halving, CRN evaluation with cache and workers, CVaR / minimax regret, Pareto, OAT / Morris / Sobol (validated on Ishigami) | `optimize/` |
+| WP-7a/b/c/d | all ten studies (G1–G9, release) with a recommendation, rule and explanation for every owned parameter; per-group docs | `studies/`, `docs/studies/` |
+| WP-8 | joint pass, joint sensitivity, `params.cpp.patch` with `git apply --check`, `recommended.json`, HTML/Markdown report, `study` / `sensitivity` / `recommend` / `report open` | `optimize/joint.py`, `params/emit.py`, `report/` |
+| WP-9 | time scaling, worktree + overlay + build (or CI artifact), minimal 3-pool launcher, replay, scrape, differential suite with honest "skipped" | `params/scaling.py`, `devnet/` |
+| WP-10 | README quickstart and real-data workflow, methodology, policy reference (with a completeness test), architecture overview, decision index, this section | `README.md`, `docs/` |
+
+Milestones: **M1–M5 done** (M5 = `recommend --budget quick --synthetic` produces a full report
+with explanations, PROVISIONAL tags and the patch, in about 9–10 minutes on 4 cores). The
+definition of done for the request (M5 + documentation) is met.
+
+### Deviations from the plan
+
+| Plan | As built | Decision |
+|---|---|---|
+| §3.3 rolling median by sliding sorted window | wavelet-matrix range quantiles, O(n log n) independent of W | D-WP1-4 |
+| §5.2 σ̂ on the true price | σ̂ measured on simulated pFast (what the node does) | D-WP3-6, D-WP7a-5 |
+| §5.3 class boundaries searched | verified only; heterogeneity raised as a design note (three classes are fixed in the rules) | D-WP7b-3 |
+| §5.3 P(bad debt) from the full book everywhere | G3/G4 use WP-4's fast vectorised P(bad debt) on a shared hour ensemble; the book run is the cross-check | D-WP7b-1 |
+| §5.5, §5.8 one search per group | G5, G6, G7, G8 decide each parameter as a *family* of one-at-a-time rules (optimize / verify / rule) | D-WP7c-1, D-WP7d-1 |
+| §5.9 G9 optimised | admissible-range "verify" rules (KEEP inside the range) | D-WP7b-5 |
+| §5.10 insensitive ⇒ KEEP | *insensitive* is a label; it never overrides a study's verdict | D-WP8-3 |
+| §5.10 per-parameter Sobol | per study group at quick budget, with per-parameter tornado; per-parameter via `ybcal sensitivity --params` | D-WP8-4 |
+| §5.10 item 3 cross-group robust selection | robust selection inside each study only | D-WP8-7 |
+| §5.10 four system metrics from the studies | fast top-risk model for ranking only | D-WP8-2 |
+| §6.2 drive `yellowback-devnet` | own minimal launcher (the stock launcher cannot pass runtime flags); `--launcher` keeps the stock path | D-WP9-4 |
+| §6.2 build only | also `--from-ci-run` (download a CI artifact), with a version-skew refusal | D-WP9-6 |
+| §8 CI runs `recommend --budget quick --synthetic` | CI (`.github/workflows/ci.yml`) runs ruff, pytest, `params doc --check` and `params check`; the quick report run is `make quick`, not yet a CI step | — (open) |
+| §3.2 CLI | extra flags (`--groups`, `--workers`, `--max-rounds`, `--cache`, `--no-sensitivity`, `--set`, `--params`, devnet `--dry-run`, …) | D-WP8-8, WP-2/WP-9 `configure_*` hooks |
+| §1.3 `abandonBlocks` | locked (K10 wording), reference model's stale 4,032 ignored | D-2, D-WP1-5 |
+
+### What remains
+
+- **M6 — devnet live run.** The devnet layer is complete but has never run against a node: this
+  sandbox cannot build `ycashd` (depends hosts blocked), and the only prebuilt binary (CI run
+  37081639884) is from `94bafa4`, eight commits before the pin (W20 soft cap missing, mainnet
+  `abandonBlocks` 4,032). On a networked machine: `ybcal devnet build --ycash6 PATH` then
+  `ybcal devnet validate` (see `docs/devnet.md`).
+- **M7 — real data.** Fetch ≥ 1 year of hourly YEC/USD and ≥ 2 weeks of `spreads.py` logs on a
+  networked machine (`data/README.md`), set `yec_daily_volume_p10_usd`, confirm the policy
+  placeholders (`docs/policy.md`), then `ybcal recommend --budget standard` (or `deep`). Until then
+  every price-driven verdict is PROVISIONAL and the lock-readiness checklist fails by design.
+- **Owner decisions** (§12): the risk tolerances, materiality, and what to do with the design
+  notes (early supply cap, no liquidation before `claimHeight`, fee on collateral, RED-5/RED-4(b)).
+- **Small open items:** `diverge_spread_multiplier` is not wired into the ported spreads analysis
+  (default 3.0 only); `hour_kernel_tolerance_bps` is not read by a study; cache keys are whole-set
+  digests, so later joint rounds re-evaluate unchanged groups (D-WP8-9); the quick report run is
+  not in CI.
 
 ---
 

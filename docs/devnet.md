@@ -313,7 +313,8 @@ state, with an allowlist (`"field"`, `"field@h"`, `"field@lo-hi"`) only for beha
 simulator does not model. Each field reports its first mismatching height and its counts.
 
 Each scenario ends in one status:
-- `pending WP-3..5` until `ybcal.sim.engine.simulate_devnet` exists (the contract is in D-WP9-5);
+- `pending WP-3..5` only if `ybcal.sim.engine.simulate_devnet` cannot be imported (it exists since
+  WP-3, D-WP3-7; the contract is in D-WP9-5);
 - `skipped: <reason>` without a binary;
 - `pass`, `fail` or `error`.
 

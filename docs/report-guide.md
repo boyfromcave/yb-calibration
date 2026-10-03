@@ -25,7 +25,7 @@ the directory on `http://127.0.0.1:8000/`.
    three most important remaining risks, worst first: BLOCKED parameters, a solvency gap in the fast
    model, studies that did not run, synthetic-only evidence, design notes, missing devnet
    validation, and a joint pass that did not converge.
-2. **Policy and data provenance.** The policy file is printed verbatim, with the hash of the parsed
+2. **Policy and data provenance.** The policy file ([policy.md](policy.md)) is printed verbatim, with the hash of the parsed
    policy. Each data file is listed with its sha256, row count, time span and gap summary. The
    scenario library files are listed too. With no data files, the run is **synthetic**.
 3. **Parameters.** One subsection per tunable parameter, grouped by study (G1 → G9, then the release

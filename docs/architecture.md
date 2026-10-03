@@ -1,8 +1,55 @@
 # ybcal architecture
 
 How the code is laid out, which contracts are frozen, and the conventions every work package
-follows. The plan is [PLAN.md](PLAN.md); the parameter table is [parameters.md](parameters.md)
-(generated); decisions are logged in [decisions.md](decisions.md).
+follows. The plan is [PLAN.md](PLAN.md); the reasoning is [methodology.md](methodology.md); the
+parameter table is [parameters.md](parameters.md) (generated); the policy keys are
+[policy.md](policy.md); decisions are logged in [decisions.md](decisions.md).
+
+## Overview
+
+`ybcal` is one Python package (`src/ybcal/`, Python ≥ 3.11, numpy/scipy/matplotlib/jinja2) with
+one console script. All work packages WP-0 … WP-9 are merged; every command in `ROUTES` resolves to
+an implementation. Data flows in one direction:
+
+```
+ycash6 @ 7702d22 ──(git show)──► params/ registry, extract, invariants ──► ParamSet (shipped set)
+                                  model/ vendored reference + exact kernels (ybcal verify)
+data/local/*.csv ─► data/ loaders ─┐
+synthetic presets, scenarios/*.toml ├─► Env (policy, budget, seed, data, scenarios)
+policy/*.toml ─► config.Policy ────┘
+                                        │
+         studies/ G1…G9, R  ◄── sim/ (block mode: engine, oracle, sigma, supply, activation,
+            │                         attest; hour mode: vaults, agents, fees, metrics)
+            │   space → evaluate → decide → explain   (optimize/ search, evaluate, robust, runner)
+            ▼
+   optimize/joint.py  coordinate descent over groups, joint sensitivity (optimize/sensitivity.py)
+            ▼
+   report/ build, explain, plots ─► reports/<run>/ report.html|md, recommended.json,
+   params/emit.py                    params.cpp.patch, manifest.json, evidence/
+            ▼
+   devnet/ (optional) worktree + overlay + build + run + scrape + diff against sim.engine.simulate_devnet
+```
+
+Nothing is ever written to ycash6: it is read with `git show` at the pin, and devnet builds use a
+throwaway detached worktree under `.work/`.
+
+## Contents
+
+- [Module map and owners](#module-map-and-owners)
+- [Frozen contracts (WP-0)](#frozen-contracts-wp-0): parameters, studies, policy and manifests
+- [CLI dispatch convention](#cli-dispatch-convention)
+- [Conventions](#conventions)
+- [Optimizer (WP-6)](#optimizer-wp-6)
+- [Model and kernels (WP-1)](#model-and-kernels-wp-1)
+- [Data (WP-2)](#data-wp-2)
+- [Devnet (WP-9)](#devnet-wp-9)
+- [Simulator core (WP-3)](#simulator-core-wp-3)
+- [Activation & attestation simulator (WP-5)](#activation--attestation-simulator-wp-5)
+- [Vaults, agents and fees (WP-4)](#vaults-agents-and-fees-wp-4)
+- [Report & joint pass (WP-8)](#report--joint-pass-wp-8)
+
+Sections were written by each work package when it landed and tidied by WP-10; where a later
+integrator note in decisions.md changed a contract, the text below states the current behaviour.
 
 ## Module map and owners
 
@@ -33,7 +80,13 @@ follows. The plan is [PLAN.md](PLAN.md); the parameter table is [parameters.md](
 | `devnet/` | WP-9 | worktree, overlay, build, run, scrape, differential check |
 | `report/` | WP-8 | report assembly, explanations, plots, templates |
 
-Every stub module carries a docstring and `OWNER_WP = "WP-n"`. A WP edits only its own files;
+The module map also lists `sim/metrics.py` (WP-4), `studies/cli.py`, `optimize/cli.py` and
+`report/cli.py` (WP-8 CLI handlers, D-WP8-8) and `studies/_g8_ports.py` (WP-7c ports of
+`spreads.py`/`pinrate.py`).
+
+Modules that WP-0 created as stubs for later packages carry `OWNER_WP = "WP-n"`; WP-0's own
+modules name their owner in the docstring; vendored files carry a pin header instead. A WP edits
+only its own files;
 anything shared goes through the WP-0 types. If a WP needs a change to a frozen contract, it records
 the request in `docs/decisions.md` rather than editing another WP's file.
 
@@ -101,7 +154,8 @@ class Study(Protocol):
     def explain(self, rec: Recommendation, results: ResultTable) -> str
 Budget(name, paths, block_horizon_days, hour_horizon_years, grid_points, lhs_samples,
        halving_rounds, scenario_set, morris_trajectories, sobol_samples, max_minutes); BUDGETS
-Env(policy, budget, seed, data={}, scenarios={}, provenance="synthetic"); .rng; .rng_for(*keys); .price()
+Env(policy, budget, seed, data={}, scenarios={}, provenance="synthetic", out_dir=None)
+    .rng; .rng_for(*keys); .price()      # out_dir = evidence root (integrator, after WP-7a)
 Metrics(values, primary, minimize=True, constraints={}, provenance="synthetic", meta={})
 ResultRow(delta, params, metrics)
 ResultTable(base): add, filter, feasible, current, distance, argmin, argmax, best, column,
@@ -124,7 +178,10 @@ choice `bundleCarrier`, protocol constants) get verification rows from the repor
 ### Policy and manifests (`ybcal.config`)
 
 `Policy` is a frozen dataclass whose defaults equal `policy/default.toml` (a test enforces it).
-TOML sections are organisational only; keys are unique; unknown keys raise. Use
+TOML sections are organisational only; keys are unique; unknown keys raise. Every key is documented
+in [policy.md](policy.md) (`tests/test_docs_policy.py` enforces it). Keys were added after WP-0 by
+the integrator notes in decisions.md (G1/G2, G3/G4/G9/release, G5/G8, G6/G7, `[agents]`,
+`hour_kernel_tolerance_bps`). Use
 `Policy.load(path)`, `policy.replace(...)`, `policy.digest()`, `policy.max_bad_debt(cls)`.
 `RunManifest.create(budget=, seed=, policy=, data_files=, …).save(path)` / `RunManifest.load(path)`.
 
@@ -137,7 +194,7 @@ TOML sections are organisational only; keys are unique; unknown keys raise. Use
 | `params show/extract/check/doc` | `ybcal.params.cli.cli_<sub>` | WP-0 |
 | `data fetch/import/synth/describe` | `ybcal.data.cli.cli_<sub>` | WP-2 |
 | `verify` | `ybcal.model.cli.cli_verify` | WP-1 |
-| `sensitivity` | `ybcal.optimize.cli.cli_sensitivity` | WP-6 |
+| `sensitivity` | `ybcal.optimize.cli.cli_sensitivity` | route WP-6; implemented by WP-8 (D-WP6-7, D-WP8-8) |
 | `study`, `recommend`, `report open` | `ybcal.studies.cli.cli_study`, `ybcal.report.cli.cli_recommend` / `cli_open` | WP-8 |
 | `devnet build/run/validate` | `ybcal.devnet.cli.cli_<sub>` | WP-9 |
 
@@ -149,11 +206,12 @@ Rules:
    when the parser is built. Do not edit `cli.py`.
 3. While the module or function is missing, the command prints
    `ybcal <cmd>: not implemented yet (WP-n)` and exits **2**. An `ImportError` raised *inside* an
-   existing module is not swallowed.
+   existing module is not swallowed. Since WP-8 every route resolves; the fallback remains for
+   future commands.
 4. `args.command_path` holds the command words (e.g. `["data", "fetch"]`).
 
-WP-7 study agents test through the library (`load_study`, `ResultTable`, …); the `study` command's
-driver lands with WP-8.
+WP-7 study agents tested through the library (`load_study`, `ResultTable`, …); the `study` command's
+driver is `ybcal.studies.cli.cli_study` (WP-8): a one-round joint pass over one group with a mini report.
 
 ## Conventions
 
@@ -219,7 +277,8 @@ run.recommendations)` until nothing moves (`policy.max_rounds_joint`); the Sobol
 `sobol(ParamSetObjective(fn, env, current, names, metric=m), factors_for_params(current, names,
 k_steps=1), env.budget.sobol_samples)` with `SobolResult.insensitive(policy.insensitive_total_order)`;
 the robust pass is `robust_select(ScenarioTable.from_tables(per_scenario_tables), metric,
-constraints=[Constraint.from_policy(...)], current=current)`.
+constraints=[Constraint.from_policy(...)], current=current)`. (As built, WP-8 runs the robust
+selection inside each study only; there is no cross-group robust pass, D-WP8-7.)
 
 ## Model and kernels (WP-1)
 
@@ -424,7 +483,8 @@ ParamSet, path: PricePath, schedule: Schedule) -> list[dict]`, one record per bl
 `startHeight` with the `HISTORY_FIELDS` names and integer types (`None` for undefined prices,
 `haltMask` as the §3.6 bit integer, `activationCode` 0/1/2). `schedule` carries the replay semantics
 (`ReplayStep`): price 0 = no quote, per-pool bias/weights, signalling share, the funding/activation
-bootstrap. `ybcal devnet validate` reports `pending` until this function exists.
+bootstrap. It exists since WP-3 (D-WP3-7), so `ybcal devnet validate` now reports `skipped` (no node) rather
+than `pending`.
 
 **CLI exit codes** (devnet only): 0 done or skipped (3 with `--strict`), 1 error / failed suite,
 4 refused (version or parameter skew without `--allow-version-skew`, or a compiled overlay on a
@@ -643,7 +703,8 @@ iid / exact forward recursion for Markov outages), `false_dormancy_per_year` (un
    H − 1 − pinWindow. PIN-1 at H needs the BundleLog rows before H. The two layers are mutually
    dependent only through pinned heights: run oracle → attest → recompute the medians at the
    `pin1_triggered` heights with the scalar path (PIN-1 key exclusion) → if any pMint changed, run
-   attest again (a fixed point; usually one pass, since triggers are rare).
+   attest again (a fixed point; usually one pass, since triggers are rare). Implemented in the
+   engine by WP-8 (D-WP8-6, "Engine: PIN fixed point" below).
 3. WP-4 supplies bundle demand as `demand_counts` (or explicit `demands` with adversarial
    `ref_height`s); a demand is counted only if the transaction would be mined (the node logs a
    verified bundle even when the MINT later fails another check).

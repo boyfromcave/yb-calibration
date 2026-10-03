@@ -30,7 +30,7 @@ verify:  ## kernel parity vs reference model + C++ worked examples (WP-1)
 params-check:  ## drift vs registry + invariants (YCASH6=path to read live source)
 	$(YBCAL) params check $(if $(YCASH6),--ycash6 $(YCASH6))
 
-quick:  ## recommend --budget quick --synthetic (CI smoke, <= 10 min)
+quick:  ## recommend --budget quick --synthetic (smoke run, <= 10 min on 4 cores; OUT=dir)
 	$(YBCAL) recommend --budget quick --synthetic $(if $(OUT),--out $(OUT))
 
 recommend:  ## full recommendation run (BUDGET=quick|standard|deep, OUT=dir)

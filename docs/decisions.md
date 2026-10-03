@@ -3,6 +3,113 @@
 One entry per decision that shapes results or contracts. Newest last. Format: id, date, owner,
 decision, reason, consequences.
 
+## Index
+
+Every entry below, in log order (newest last). Integrator notes record how a request or
+contract change from a work package was resolved; they supersede the entry they name.
+
+| ID | Owner | Decision |
+|---|---|---|
+| [D-1](#d-1-2026-10-03-wp-0--locked--excluded-vocabulary-mapping) | WP-0 | "locked" / "excluded" vocabulary mapping |
+| [D-2](#d-2-2026-10-03-wp-0--abandonblocks-is-locked) | WP-0 | `abandonBlocks` is locked |
+| [D-3](#d-3-2026-10-03-wp-0--attestmaxage-is-derived-from-k-but-locked) | WP-0 | `attestMaxAge` is derived from `k` but locked |
+| [D-4](#d-4-2026-10-03-wp-0--volperiodsperyear-derivation-is-network-aware) | WP-0 | `volPeriodsPerYear` derivation is network-aware |
+| [D-5](#d-5-2026-10-03-wp-0--regtest-column-and-scale-dependent-invariants) | WP-0 | regtest column and scale-dependent invariants |
+| [D-6](#d-6-2026-10-03-wp-0--default_ref_lag-is-excluded-other-header-constants-are-constants) | WP-0 | `DEFAULT_REF_LAG` is excluded, other header constants are constants |
+| [D-7](#d-7-2026-10-03-wp-0--policy-dependent-invariants-and-defaults) | WP-0 | policy-dependent invariants and defaults |
+| [D-8](#d-8-2026-10-03-wp-0--study--recommend--report-cli-owned-by-wp-8) | WP-0 | `study` / `recommend` / `report` CLI owned by WP-8 |
+| [D-WP6-1](#d-wp6-1-2026-10-03-wp-6--per-candidate-rng-common-random-numbers-by-default) | WP-6 | per-candidate RNG: common random numbers by default |
+| [D-WP6-2](#d-wp6-2-2026-10-03-wp-6--search-axes-are-anchored-on-the-current-value) | WP-6 | search axes are anchored on the current value |
+| [D-WP6-3](#d-wp6-3-2026-10-03-wp-6--successive-halving-over-monte-carlo-paths-hyperband-lite) | WP-6 | successive halving over Monte-Carlo paths ("Hyperband-lite") |
+| [D-WP6-4](#d-wp6-4-2026-10-03-wp-6--rejected-candidates-are-counted-base-is-always-evaluated) | WP-6 | rejected candidates are counted, base is always evaluated |
+| [D-WP6-5](#d-wp6-5-2026-10-03-wp-6--robust-selection-and-tie-breaking) | WP-6 | robust selection and tie-breaking |
+| [D-WP6-6](#d-wp6-6-2026-10-03-wp-6--sensitivity-estimators) | WP-6 | sensitivity estimators |
+| [D-WP6-7](#d-wp6-7-2026-10-03-wp-6--ybcal-sensitivity-cli-deferred) | WP-6 | `ybcal sensitivity` CLI deferred (resolved by D-WP8-8) |
+| [D-WP1-1](#d-wp1-1-2026-10-03-wp-1--how-the-reference-model-is-vendored) | WP-1 | how the reference model is vendored |
+| [D-WP1-2](#d-wp1-2-2026-10-03-wp-1--kernels-follow-the-c-where-the-reference-model-differs) | WP-1 | kernels follow the C++ where the reference model differs |
+| [D-WP1-3](#d-wp1-3-2026-10-03-wp-1--undefined-encodings) | WP-1 | undefined encodings |
+| [D-WP1-4](#d-wp1-4-2026-10-03-wp-1--rolling-medians-by-wavelet-matrix) | WP-1 | rolling medians by wavelet matrix |
+| [D-WP1-5](#d-wp1-5-2026-10-03-wp-1--reference-models-stale-mainnet-abandon_blocks) | WP-1 | reference model's stale mainnet `abandon_blocks` |
+| [D-WP2-1](#d-wp2-1-2026-10-03-wp-2--pricepath-stays-in-ybcaltypes-helpers-in-ybcaldatapricepath) | WP-2 | `PricePath` stays in `ybcal.types`; helpers in `ybcal.data.pricepath` |
+| [D-WP2-2](#d-wp2-2-2026-10-03-wp-2--loaders-last-duplicate-wins-as-of-resampling-with-a-filled-mask) | WP-2 | loaders: last duplicate wins, as-of resampling with a filled mask |
+| [D-WP2-3](#d-wp2-3-2026-10-03-wp-2--fetch-chunked-hourly-history-explicit-network-blocked-error) | WP-2 | fetch: chunked hourly history, explicit network-blocked error |
+| [D-WP2-4](#d-wp2-4-2026-10-03-wp-2--synthetic-presets-are-placeholders-fitting-methods) | WP-2 | synthetic presets are placeholders; fitting methods |
+| [D-WP2-5](#d-wp2-5-2026-10-03-wp-2--scenario-bases-are-centred-families-via-variants) | WP-2 | scenario bases are centred; families via `[[variants]]` |
+| [D-WP2-6](#d-wp2-6-2026-10-03-wp-2----kind-hashrate-is-the-pool-share-csv) | WP-2 | `--kind hashrate` is the pool-share CSV |
+| [D-WP9-1](#d-wp9-1-2026-10-03-wp-9--time-scaling-rules) | WP-9 | time-scaling rules |
+| [D-WP9-2](#d-wp9-2-2026-10-03-wp-9--bondmin-on-a-scaled-set-is-the-regtest-10-yec) | WP-9 | `bondMin` on a scaled set is the regtest 10 YEC |
+| [D-WP9-3](#d-wp9-3-2026-10-03-wp-9--contract-note-the-sunset-invariant-at-regtest-scale) | WP-9 | contract note: the `sunset` invariant at regtest scale (resolved below) |
+| [D-WP9-4](#d-wp9-4-2026-10-03-wp-9--own-minimal-launcher-beside-yellowback-devnet) | WP-9 | own minimal launcher beside `yellowback-devnet` |
+| [D-WP9-5](#d-wp9-5-2026-10-03-wp-9--differential-contract-and-pass-criterion) | WP-9 | differential contract and pass criterion (simulator delivered, D-WP3-7) |
+| [D-WP9-6](#d-wp9-6-2026-10-03-wp-9--version-skew-policy) | WP-9 | version-skew policy |
+| [note](#d-wp9-3-resolution-2026-10-03-integrator) | integrator | D-WP9-3 resolution |
+| [D-WP3-1](#d-wp3-1-2026-10-03-wp-3--engine-stages-two-hook-only-additions) | WP-3 | engine stages: two hook-only additions |
+| [D-WP3-2](#d-wp3-2-2026-10-03-wp-3--internal-activation-is-exact-not-always-active) | WP-3 | internal activation is exact, not "always ACTIVE" |
+| [D-WP3-3](#d-wp3-3-2026-10-03-wp-3--pin-1-lives-in-the-engine-pinned-keys-are-pool-ids) | WP-3 | PIN-1 lives in the engine; pinned keys are pool ids |
+| [D-WP3-4](#d-wp3-4-2026-10-03-wp-3--ycash-subsidy-schedule-and-issuedzat-origin) | WP-3 | Ycash subsidy schedule and issuedZat origin |
+| [D-WP3-5](#d-wp3-5-2026-10-03-wp-3--hour-mode-kernel-tolerance-request-to-wp-0wp-8) | WP-3 | hour-mode kernel tolerance (request to WP-0/WP-8; resolved below) |
+| [D-WP3-6](#d-wp3-6-2026-10-03-wp-3--oracle-model-choices) | WP-3 | oracle model choices |
+| [D-WP3-7](#d-wp3-7-2026-10-03-wp-3--simulate_devnet-and-a-wp-9-test-adjustment) | WP-3 | `simulate_devnet` and a WP-9 test adjustment |
+| [note](#d-wp3-5-resolution-2026-10-03-integrator) | integrator | D-WP3-5 resolution |
+| [D-WP5-1](#d-wp5-1-2026-10-03-wp-5--attestation-walk-segments-of-constant-status--sparse-points) | WP-5 | attestation walk: segments of constant status + sparse points |
+| [D-WP5-2](#d-wp5-2-2026-10-03-wp-5--attestor-behaviour-and-bundle-assembly-model) | WP-5 | attestor behaviour and bundle assembly model |
+| [D-WP5-3](#d-wp5-3-2026-10-03-wp-5--pin-coupling-with-the-oracle-engine) | WP-5 | PIN coupling with the oracle engine (item 2 done in D-WP8-6) |
+| [D-WP5-4](#d-wp5-4-2026-10-03-wp-5--mid-chain-starts-and-height-frames) | WP-5 | mid-chain starts and height frames |
+| [D-WP5-5](#d-wp5-5-2026-10-03-wp-5--g5-analytic-estimators) | WP-5 | G5 analytic estimators |
+| [D-WP5-6](#d-wp5-6-2026-10-03-wp-5--g8-analytic-estimators) | WP-5 | G8 analytic estimators |
+| [note](#integration-of-wp-3-and-wp-5-2026-10-03-integrator) | integrator | Integration of WP-3 and WP-5 |
+| [D-WP7a-1](#d-wp7a-1-2026-10-03-wp-7a--g1-objective-is-normalised-by-the-current-windows) | WP-7a | G1 objective is normalised by the current windows |
+| [D-WP7a-2](#d-wp7a-2-2026-10-03-wp-7a--g1-manipulation-constraint-analytic-v16-plus-a-simulated-check) | WP-7a | G1 manipulation constraint: analytic V16 plus a simulated check |
+| [D-WP7a-3](#d-wp7a-3-2026-10-03-wp-7a--g1g2-pool-outage-model-and-no_price-availability) | WP-7a | G1/G2 pool-outage model and NO_PRICE availability |
+| [D-WP7a-4](#d-wp7a-4-2026-10-03-wp-7a--g1-keeps-halt-3-working-recall-constraint-on-crash-70-1d) | WP-7a | G1 keeps HALT-3 working: recall constraint on crash-70-1d |
+| [D-WP7a-5](#d-wp7a-5-2026-10-03-wp-7a--g2-window-rule-also-bounds-the-k12-trap-responsiveness-on-σ) | WP-7a | G2 window rule also bounds the K12 trap; responsiveness on σ̂ |
+| [D-WP7a-6](#d-wp7a-6-2026-10-03-wp-7a--sigmarefbps-round-down-keep-inside-the-m14-band) | WP-7a | sigmaRefBps: round down; KEEP inside the M14 band |
+| [D-WP7a-7](#d-wp7a-7-2026-10-03-wp-7a--evidence-directory-and-shared-realisations) | WP-7a | evidence directory and shared realisations |
+| [note](#contract-changes-from-wp-7a-2026-10-03-integrator) | integrator | Contract changes from WP-7a |
+| [D-WP7c-1](#d-wp7c-1-2026-10-03-wp-7c--g5g8-as-families-of-one-at-a-time-rules) | WP-7c | G5/G8 as families of one-at-a-time rules |
+| [D-WP7c-2](#d-wp7c-2-2026-10-03-wp-7c--judgement-constants-requested-policy-keys) | WP-7c | judgement constants; requested policy keys |
+| [D-WP7c-3](#d-wp7c-3-2026-10-03-wp-7c--g5-objective-false-halts-detection-as-a-constraint) | WP-7c | G5 objective: false halts, detection as a constraint |
+| [D-WP7c-4](#d-wp7c-4-2026-10-03-wp-7c--g8-capture-is-evaluated-at-bundle-level) | WP-7c | G8 capture is evaluated at bundle level |
+| [D-WP7c-5](#d-wp7c-5-2026-10-03-wp-7c--ported-spreadspypinratepy-the-200300-reading) | WP-7c | ported spreads.py/pinrate.py; the "200–300" reading |
+| [D-WP7c-6](#d-wp7c-6-2026-10-03-wp-7c--attestsimulate-notes-found-while-confirming-g8) | WP-7c | attest.simulate notes found while confirming G8 |
+| [note](#contract-changes-from-wp-7c-2026-10-03-integrator) | integrator | Contract changes from WP-7c |
+| [D-WP4-1](#d-wp4-1-2026-10-03-wp-4--vault-book--vectorised-lifecycle-plan--exact-sequential-pass) | WP-4 | vault book = vectorised lifecycle plan + exact sequential pass |
+| [D-WP4-2](#d-wp4-2-2026-10-03-wp-4--wallet-preflight-refusals-and-voids-order-inside-a-step) | WP-4 | wallet preflight, refusals and VOIDs; order inside a step |
+| [D-WP4-3](#d-wp4-3-2026-10-03-wp-4--personas) | WP-4 | personas (policy keys: resolution below) |
+| [D-WP4-4](#d-wp4-4-2026-10-03-wp-4--hour-mode-conventions-and-the-default-kernel) | WP-4 | hour-mode conventions and the default kernel |
+| [D-WP4-5](#d-wp4-5-2026-10-03-wp-4--bad-debt-definitions) | WP-4 | bad-debt definitions |
+| [D-WP4-6](#d-wp4-6-2026-10-03-wp-4--findings-for-the-owner-design-notes-not-parameter-changes) | WP-4 | findings for the owner (design notes, not parameter changes) |
+| [D-WP4-7](#d-wp4-7-2026-10-03-wp-4--contract-notes) | WP-4 | contract notes |
+| [note](#d-wp4-3-resolution-2026-10-03-integrator) | integrator | D-WP4-3 resolution |
+| [D-WP7b-1](#d-wp7b-1-2026-10-03-wp-7b--g3g4-share-one-hour-ensemble-pbad-debt-is-wp-4s-fast-path) | WP-7b | G3/G4 share one hour ensemble; P(bad debt) is WP-4's fast path |
+| [D-WP7b-2](#d-wp7b-2-2026-10-03-wp-7b--g3-ratio-rule-materiality-on-the-ratio-blocked--least-violating) | WP-7b | G3 ratio rule: materiality on the ratio; BLOCKED → least violating |
+| [D-WP7b-3](#d-wp7b-3-2026-10-03-wp-7b--class-boundaries-are-verified-heterogeneity-is-a-design-note) | WP-7b | class boundaries are verified; heterogeneity is a design note |
+| [D-WP7b-4](#d-wp7b-4-2026-10-03-wp-7b--g4-grace-the-debt-side-enters-through-j-only) | WP-7b | G4 grace: the debt side enters through J only |
+| [D-WP7b-5](#d-wp7b-5-2026-10-03-wp-7b--g9-rules-are-admissible-ranges-with-a-verify-rule) | WP-7b | G9 rules are admissible ranges with a verify rule |
+| [D-WP7b-6](#d-wp7b-6-2026-10-03-wp-7b--release-study-inputs-and-rounding) | WP-7b | release study inputs and rounding |
+| [D-WP7b-7](#d-wp7b-7-2026-10-03-wp-7b--design-note-format-and-requested-policy-keys) | WP-7b | design-note format and requested policy keys |
+| [note](#contract-changes-from-wp-7b-2026-10-03-integrator) | integrator | Contract changes from WP-7b |
+| [D-WP7d-1](#d-wp7d-1-2026-10-03-wp-7d--g6-judgement-model-and-rule-readings) | WP-7d | G6 judgement model and rule readings |
+| [D-WP7d-2](#d-wp7d-2-2026-10-03-wp-7d--g6-fee-model-and-the-blocked-fallback) | WP-7d | G6 fee model and the BLOCKED fallback |
+| [D-WP7d-3](#d-wp7d-3-2026-10-03-wp-7d--affordability-system-tolerance-halt-2-horizon) | WP-7d | affordability, system tolerance, HALT-2 horizon |
+| [D-WP7d-4](#d-wp7d-4-2026-10-03-wp-7d--supplycapbps-judged-on-cap-bound-liquidation-demand) | WP-7d | supplyCapBps judged on cap-bound liquidation demand |
+| [D-WP7d-5](#d-wp7d-5-2026-10-03-wp-7d--halt-2-timeliness-and-halt-3-classification) | WP-7d | HALT-2 timeliness and HALT-3 classification |
+| [D-WP7d-6](#d-wp7d-6-2026-10-03-wp-7d--requested-policy-keys) | WP-7d | requested policy keys |
+| [D-WP7d-7](#d-wp7d-7-2026-10-03-wp-7d--excluded-l6-values-and-payeewindow) | WP-7d | excluded L6 values and payeeWindow |
+| [note](#contract-changes-from-wp-7d-2026-10-03-integrator) | integrator | Contract changes from WP-7d |
+| [D-WP8-1](#d-wp8-1-2026-10-03-wp-8--joint-pass-re-statement-against-the-shipped-set) | WP-8 | joint pass: re-statement against the shipped set |
+| [D-WP8-2](#d-wp8-2-2026-10-03-wp-8--the-four-top-level-risk-metrics-fast-model) | WP-8 | the four top-level risk metrics (fast model) |
+| [D-WP8-3](#d-wp8-3-2026-10-03-wp-8--insensitive-labels-it-does-not-override) | WP-8 | "insensitive" labels, it does not override |
+| [D-WP8-4](#d-wp8-4-2026-10-03-wp-8--sensitivity-design-1-step-grouping-admissible-moves) | WP-8 | sensitivity design: ±1 step, grouping, admissible moves |
+| [D-WP8-5](#d-wp8-5-2026-10-03-wp-8--patch-layout-and-the-vendored-paramscpp) | WP-8 | patch layout and the vendored params.cpp |
+| [D-WP8-6](#d-wp8-6-2026-10-03-wp-8--pin-1pin-2-fixed-point-in-the-engine-d-wp5-3-item-2) | WP-8 | PIN-1/PIN-2 fixed point in the engine (D-WP5-3 item 2) |
+| [D-WP8-7](#d-wp8-7-2026-10-03-wp-8--robust-selection-is-left-to-the-studies) | WP-8 | robust selection is left to the studies |
+| [D-WP8-8](#d-wp8-8-2026-10-03-wp-8--cli-wiring) | WP-8 | CLI wiring |
+| [D-WP8-9](#d-wp8-9-2026-10-03-wp-8--runtime-of-the-joint-pass) | WP-8 | runtime of the joint pass |
+| [D-WP8-10](#d-wp8-10-2026-10-03-wp-8--rich-design-notes-blocked-rendering-late-round-failures) | WP-8 | rich design notes, BLOCKED rendering, late-round failures (G6 bug fixed in the last note) |
+| [note](#g6-undefined-honest-p99-2026-10-03-integrator) | integrator | G6 undefined honest p99 |
+| [D-WP10-1](#d-wp10-1-2026-10-03-wp-10--documentation-integration-policy-reference-is-tested) | WP-10 | documentation integration; policy reference is tested |
+
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
 **Decision.** The tool uses the owner's words and records how they map onto the plan's terms
@@ -1080,3 +1187,21 @@ round-1 result with a note.
 
 `judge.dev_target` is NaN (like `acc_target`) when no honest quote is evaluated, instead of raising
 on `math.ceil(nan)`; this was the round-2 joint-pass failure reported in WP-8.
+
+## D-WP10-1 (2026-10-03, WP-10) — documentation integration; policy reference is tested
+
+**Decision.**
+- `docs/policy.md` documents every `Policy` field (meaning, unit, default, readers, guidance), and
+  `tests/test_docs_policy.py` fails when a field has no table row or a row names no field. The
+  "read by" column was taken from the code (`policy.<key>` / `getattr(policy, "<key>")`), not from
+  the TOML comments.
+- `docs/methodology.md` is the single reasoning document (WP-6's section kept as §7);
+  `docs/architecture.md` gains an overview and contents, and its stale statements now describe the
+  built system; this log gains an index; `docs/PLAN.md` gains an implementation status section.
+**Findings (reported, not fixed: `src/` belongs to the owning WPs).**
+- `diverge_spread_multiplier` is not wired: `g8_attestation.spreads_inputs` calls
+  `_g8_ports.analyze_spreads` with its default `multiple=3.0`, so changing the key has no effect.
+- `hour_kernel_tolerance_bps` (D-WP3-5 resolution) is not read by any study; the engine constant
+  `KERNEL_TOLERANCE_P95_BPS` (same value) is what the kernel tests use.
+- CI does not run `recommend --budget quick --synthetic` (PLAN §8); `make quick` is the manual
+  smoke run.
