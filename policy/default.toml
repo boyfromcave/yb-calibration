@@ -37,6 +37,7 @@ max_sigma_lag_blocks = 4032        # max blocks for σ multiplier to reach 90 % 
 sigma_ref_round_bps = 500          # sigmaRefBps rounding step (§5.2)
 sigma_mult_cap_pctl = 99           # percentile of the turbulent multiplier the cap must cover (§5.2)
 sigma_accept_band = [1.0, 1.5]     # M14 acceptance band for the median multiplier at realised volatility (§5.2)
+hour_kernel_tolerance_bps = 300.0  # max p95 relative error (bps) of the hour-mode oracle kernel vs block mode (§3.3)
 
 [activation]
 max_false_halt_hours_per_year = 24.0  # max expected hours/year of false PARTICIPATION/ENFORCEMENT halts (§5.5, §12.1)

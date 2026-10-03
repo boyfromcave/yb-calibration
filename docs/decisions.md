@@ -416,3 +416,9 @@ step's price is 0, dark miner untagged, block i = height 1 + i). Its runner defa
 **Consequence.** `ybcal devnet validate` now finds a simulator, so scenarios report SKIPPED (no
 ycashd) instead of PENDING; `tests/devnet/test_diff_cli.py::test_cli_validate_pending` was relaxed
 by one line to accept either (WP-9's file — flagged for the integrator).
+
+## D-WP3-5 resolution (2026-10-03, integrator)
+
+Added `Policy.hour_kernel_tolerance_bps` (default 300) and the matching `policy/default.toml` key;
+`engine.KERNEL_TOLERANCE_P95_BPS` stays as the library default. D-WP3-7 (WP-9 test accepting
+SKIPPED as well as PENDING) is accepted as is.

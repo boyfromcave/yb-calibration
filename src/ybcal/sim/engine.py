@@ -1161,8 +1161,8 @@ def simulate_devnet(
     return series_records(series)
 
 
-#: Default acceptance for :func:`kernel_error` (p95 relative error of pMint / pClaim, bps). Not a
-#: policy key yet (requested in decisions.md, D-WP3-5).
+#: Default acceptance for :func:`kernel_error` (p95 relative error of pMint / pClaim, bps); mirrors
+#: ``Policy.hour_kernel_tolerance_bps`` (D-WP3-5), which studies should prefer.
 KERNEL_TOLERANCE_P95_BPS: float = 300.0
 
 __all__ = [

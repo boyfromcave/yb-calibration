@@ -59,6 +59,7 @@ class Policy:
     pump_overpricing_lambda: float = 0.5
     crash_lag_cvar_alpha: float = 0.95
     max_sigma_lag_blocks: int = 4032
+    hour_kernel_tolerance_bps: float = 300.0
     sigma_ref_round_bps: int = 500
     sigma_mult_cap_pctl: int = 99
     sigma_accept_band: tuple[float, float] = (1.0, 1.5)
