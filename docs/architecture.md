@@ -429,3 +429,123 @@ bootstrap. `ybcal devnet validate` reports `pending` until this function exists.
 **CLI exit codes** (devnet only): 0 done or skipped (3 with `--strict`), 1 error / failed suite,
 4 refused (version or parameter skew without `--allow-version-skew`, or a compiled overlay on a
 prebuilt binary).
+
+## Simulator core (WP-3)
+
+`src/ybcal/sim/{engine,oracle,sigma,supply}.py`: block mode (exact against the node's integer
+rules), hour-mode scaffolding, and the devnet differential entry point. Tests: `tests/sim/`.
+
+### Engine contract (`ybcal.sim.engine`, agreed with WP-5)
+
+```python
+BlockInputs(true_price, tag_present, tag_price, tag_pool, signal_bit, start_height,
+            attest=None, subsidy_zat=None, meta={})          # (paths, n); column j = start_height + j
+    .perfect(true_price, start_height) / .slice_paths(sl) / .heights
+BlockSeries  # (paths, n): p_fast p_mid p_slow x_mint x_claim sigma_mult_bps halt_mask(uint16)
+             # activation_status(int8) signal_count participation_halt enforcement_halt issued_zat
+             # supply_cap_cents supply_cents collateral_zat global_ratio_bps pin1_triggered
+             # pinned_pools(uint64 bitmask of pool ids) a_mint a_claim armed; pinned_seqs, attest,
+             # activation_source, attest_source, pinned_recomputed, extras, rng
+    .pinned / .combined_prices() / .snapshot(path, j) / BlockSeries.concat(parts)
+simulate_blocks(params, inputs, *, hooks=(), rng=None, workers=1, chunk_paths=None,
+                activation_mode="auto"|"internal"|"always_active", attest_mode="auto"|"unarmed") -> BlockSeries
+run_paths(params, make_inputs(rng, n, chunk_idx), n_paths, *, reducer(series, inputs), hooks=(),
+          seed=0, chunk_paths=16, workers=1, ...) -> list          # streaming; identical for any workers
+paths_for_budget(budget, *, days=None, workers=None, fraction=1.0) -> int
+STAGES = ("judge", "activation", "attest", "pin", "price", "sigma", "supply", "halts", "vaults", "dormancy")
+HALT_NOT_ACTIVE=1, HALT_NO_PRICE=2, HALT_PARTICIPATION=4, HALT_GLOBAL_RATIO=8, HALT_DIVERGENCE=16,
+HALT_ENFORCEMENT=32  (view.h:565-571);  SIGNALING, LOCKED_IN, ACTIVE = 0, 1, 2
+```
+
+Undefined prices and ratios are `-1` (`vkernels.UNDEF`). Stages run once each over the whole
+`(paths, n)` arrays, in SNAP order (state.cpp:1074-1281); after each stage's built-in step every hook
+`hook(stage, params, inputs, series)` runs and may mutate `series` (later stages read it).
+
+| Stage | Built-in step | Plug-in |
+|---|---|---|
+| `judge` | none (REG-4 is first in SNAP) | hook only |
+| `activation` | `activation.simulate(params, signal_bit, start_height) -> (status, signal_count, participation_halt, enforcement_halt)` if WP-5 provides it, else the exact internal ACT-1..3/ACT-4/6 kernels; `"always_active"` = flag for price-only studies | WP-5 |
+| `attest` | `attest.simulate(params, inputs, series) -> AttestSeries(a_mint, a_claim, armed, pinned_seqs, …)` if present; else unarmed | WP-5 |
+| `pin` | PIN-1: `AttestSeries.pin1_triggered`, or the trigger computed from `bundle_present` / `bundle_a_mint` (on the AttestSeries or in `inputs.attest`); keys = pools with ≥ `pinMinTags` identical quotes in `[H − pinWindow, H − 1]` | WP-5 |
+| `price` | PRICE-1/2 via `vkernels.RollingMedian`; heights with pinned keys are recomputed exactly without those pools' quote tags | |
+| `sigma` | `vkernels.sigma_mult_series` | |
+| `supply` | `issuedZat` = Σ `GetBlockSubsidy` since `startHeight`; MINT-6 cap at xMint | |
+| `halts` | haltMask (all six bits; HALT-2 from `supply_cents`/`collateral_zat`) | |
+| `vaults` | after the hooks, `global_ratio_bps` and HALT-2 recomputed from the arrays the hook filled | WP-4 |
+| `dormancy` | none (last in SNAP) | hook only (WP-5) |
+
+`PricePath` adapter: `engine.prices_from(obj)` / `supply._price_blocks(obj)` duck-type `.prices`
+and `.resolution`, so WP-2's `ybcal.types.PricePath` works unchanged.
+
+### Oracle (`ybcal.sim.oracle`)
+
+`Pool(share, tags, quotes, signals, twap_blocks=12, noise_bps=30, bias_bps, refresh_blocks,
+outage_rate_per_day, outage_mean_hours, outage_mode="signal"|"untagged"|"stale")`,
+`Attack(pools, bias_bps, start, end, mode="bias"|"withhold"|"untagged")`,
+`OracleConfig(pools, attacks)` (`.honest(n, tagging_share)`, `.from_policy(policy)`,
+`.with_coalition(share, bias_bps, start=, end=)`); the stock untagged share is `1 − Σ share`; pool
+id = PIN-1 key (≤ 64 pools). `generate_block_inputs(true_price, config, *, rng, start_height)`.
+`price_series(params, tag_price, valid, *, tag_pool, pinned_pools) -> PriceSeries(p_fast, p_mid,
+p_slow, x_mint, x_claim, halt3, no_price)`. Analytics: `attack_success_prob(share, W, fill, *,
+honest_share, direction)` (exact binomial), `min_attack_share(W, fill, …)`, `min_attack_quotes`,
+`attack_effect(share, bias_bps, params, …) -> AttackEffect` (CRN against the clean run),
+`no_price_hours_per_year`, `tracking_lag_blocks`.
+
+### σ (`ybcal.sim.sigma`) and supply (`ybcal.sim.supply`)
+
+`sigma_series(params, p_fast)`, `undefined_sample_mask` (K12), `multiplier_stats(...) ->
+MultiplierStats` (quantiles, time at cap split into undefined-sample vs volatility),
+`time_at_cap`, `sigma_hat_bps` (unclamped σ̂), `estimator_cv`, `responsiveness_blocks`,
+`k12_trap_blocks`.
+
+`SubsidySchedule` with `MAINNET` (slow start 20,000, halving 840,000 / 1,680,000, Blossom
+1,100,000; chainparams.cpp:94-96, 134), `TESTNET` (Blossom 661,610), `REGTEST` (144 / 288, Blossom
+at 1 = `reference.regtest_subsidy`); `.subsidy(h)` = `GetBlockSubsidy` (consensus/params.cpp:125),
+`.subsidy_array`, `.halving`, `.halving_height`; `issued_zat_series(start, n, sched)`,
+`issued_between(a, b, sched)` (closed form), `supply_cap_cents`, `cap_admits` (W20 soft cap),
+`global_ratio_bps`, `halt2_mask`, `days_until_cap_admits(cents, params, price_path, …)`,
+`days_until_cap_admits_const`. At the current `startHeight` 3,075,000 the subsidy is 1.5625 YEC
+(halving index 2) until 3,960,000, so `issuedZat` reaches 657,000 YEC after one sunset year; at
+$1/YEC and `supplyCapBps` 1,500 a $10,000 cap-bound mint waits ≈ 37 days.
+
+### Hour mode
+
+`OracleTransferKernel(fast, mid, slow: WindowFit(window_blocks, span, lag, bias, noise_sd,
+no_price_prob), substeps=12)`: each median = rolling lower median (wavelet kernel) of the
+log-linearly interpolated hourly true path over the window, at a fitted lag, × exp(bias + noise).
+`calibrate_kernel(params, scenarios_block_paths, *, oracle, seed)` fits it from block-mode runs;
+`simulate_hours(params, hourly_true, kernel, *, rng, noise) -> HourSeries(p_fast, p_mid, p_slow,
+p_mint, p_claim, sigma_mult_bps, halt_mask[NO_PRICE|DIVERGENCE])` (σ is exact on hourly pFast when
+`volStep` is a multiple of 48); `kernel_error(kernel, block_series) -> {series: {p50, p95, max}}`.
+Measured on held-out GBM paths (calibrated on σ = 120 %, tested on 150 %): pMint p95 ≈ 50 bps,
+pClaim ≈ 42 bps against `KERNEL_TOLERANCE_P95_BPS` = 300.
+
+### Devnet (WP-9 contract)
+
+`simulate_devnet(params, path, schedule, *, n_pools=3, jitter_bps=10, seed=None) -> list[dict]`
+rebuilds the replay's tag stream with WP-9's own `block_miners` / `jittered_quote` (same RNG
+order), so its records (`series_records`, `HISTORY_FIELDS` names) are comparable field by field.
+`devnet_inputs(...)` exposes the `BlockInputs`.
+
+### Exactness coverage (`tests/sim/test_engine_exact.py`)
+
+Per-height equality with `YellowbackModel.feed_block` (real coinbase tags through `find_tag`) of
+pFast/pMid/pSlow/pMint/pClaim, σ multiplier, the full haltMask, activation status, signal count,
+issuedZat, global ratio and the PIN-1 key set, on: six random streams (sparse tags, signal rates,
+outages, crashes, TAG-2-invalid prices, varied startHeight / sigmaRefBps), fill boundaries,
+outage → NO_PRICE + K12 cap + HALT-3, ACT-4/ACT-6 hysteresis, and PIN-1 armed through BundleLog
+rows (masked medians on the scalar path). HALT-2 is checked against the scalar kernels through a
+`vaults` hook; chunked and 3-worker runs equal the serial run array for array.
+
+### Performance (this sandbox, 4 cores, numpy 2.4)
+
+| Run | Time |
+|---|---|
+| 1,000 paths × 90 days, mainnet windows, oracle generation + full engine, `run_paths(workers=4)` | **89 s** (target ≤ 5 min) |
+| same, one core (64 paths measured) | 0.35 s per path → ≈ 6 min per 1,000 |
+| 1 path × 90 days | ≈ 0.45 s |
+
+≈ 60 % of the time is the three rolling medians (WP-1's wavelet kernel), ≈ 20 % quote generation.
+`SECONDS_PER_PATH_DAY = 0.0045` (measured 0.0039 + headroom) drives `paths_for_budget`; the
+`quick` budget (64 paths × 30 days) costs ≈ 8 core-seconds per candidate. Memory: `run_paths`
+holds `chunk_paths` (16) paths per worker (≈ 0.3 GB at 90 days).

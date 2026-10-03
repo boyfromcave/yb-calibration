@@ -159,7 +159,8 @@ def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 def test_cli_validate_pending(env: Path, capsys: pytest.CaptureFixture[str]):
     assert cli.main(["devnet", "validate", "--scenario", "calm"]) == 0
     out = capsys.readouterr().out
-    assert "PENDING" in out and "NOT VALIDATED" in out
+    # PENDING until WP-3's simulate_devnet exists, SKIPPED (no ycashd) once it does
+    assert ("PENDING" in out or "SKIPPED" in out) and "NOT VALIDATED" in out
     reports = list((env / "work" / "devnet").glob("validate-*.json"))
     assert len(reports) == 1 and json.loads(reports[0].read_text())["validated"] is False
     assert cli.main(["devnet", "validate", "--scenario", "calm", "--strict"]) == 3

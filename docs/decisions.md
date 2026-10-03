@@ -354,3 +354,65 @@ scaled mainnet overlay's 1,500 bps.
 `invariants._sunset` now applies the `startHeight + BLOCKS_PER_YEAR` clause at mainnet scale only;
 at regtest scale a non-zero sunset must merely lie after `startHeight`. `scaling.check_regtest`'s
 filter is now redundant but harmless and is kept.
+
+## D-WP3-1 (2026-10-03, WP-3) — engine stages: two hook-only additions
+
+**Decision.** The stage list agreed with WP-5 (`activation, attest, pin, price, sigma, supply,
+halts, vaults`) is kept and extended with `judge` (first; REG-4 runs first in SNAP) and `dormancy`
+(last). Neither has a built-in step. Hooks run after each stage's built-in step and may mutate the
+series. After the `vaults` hooks the engine recomputes `global_ratio_bps` and the HALT-2 bit from
+`supply_cents` / `collateral_zat`, so WP-4 only has to fill those arrays.
+**Consequence.** Additive; hooks that ignore unknown stages are unaffected.
+
+## D-WP3-2 (2026-10-03, WP-3) — internal activation is exact, not "always ACTIVE"
+
+**Decision.** When WP-5's `activation.simulate` is absent the engine uses the exact ACT-1..3 and
+ACT-4/6 kernels (`vkernels.signal_counts` / `hysteresis` series), tested equal to the reference
+model; the "always ACTIVE, no ACT halts" behaviour is an explicit flag (`activation_mode=
+"always_active"`) for price-only studies. `series.activation_source` records which ran.
+
+## D-WP3-3 (2026-10-03, WP-3) — PIN-1 lives in the engine; pinned keys are pool ids
+
+**Decision.** The `pin` stage computes PIN-1 itself from BundleLog rows (`pin1_triggered`, or
+`bundle_present` + `bundle_a_mint` on WP-5's AttestSeries / in `inputs.attest`) and the quote tags;
+pinned keys are pool ids stored as a uint64 bitmask (≤ 64 pools). PIN-2 (`pinned_seqs`) stays WP-5's.
+Heights with pinned keys take the exact scalar median path (D-WP1-4); others the wavelet fast path.
+
+## D-WP3-4 (2026-10-03, WP-3) — Ycash subsidy schedule and issuedZat origin
+
+**Decision.** `issuedZat` = Σ `GetBlockSubsidy(h)` over `[startHeight, H]` (state.cpp:1224; the
+virtual snapshot carries 0). Mainnet schedule from ycash6 @ 7702d22: slow start 20,000, halving
+840,000 pre-Blossom / 1,680,000 post, Blossom 1,100,000, `UPGRADE_YCASH` 570,000 changes nothing in
+the subsidy (the YDF is paid out of it), no funding streams. Regtest uses Blossom at 1 (the
+functional tests' `nuparams`, `reference.regtest_subsidy`).
+**Consequence.** At `startHeight` 3,075,000: 1.5625 YEC/block until 3,960,000 → 657,000 YEC per
+sunset year. Feeds fact 1.5-2 / G7.
+
+## D-WP3-5 (2026-10-03, WP-3) — hour-mode kernel tolerance (request to WP-0/WP-8)
+
+**Decision.** `engine.KERNEL_TOLERANCE_P95_BPS = 300` (p95 relative error of hourly pMint/pClaim vs
+block mode) is the default acceptance; measured ≈ 50 bps on held-out GBM paths.
+**Request.** Add a policy key (e.g. `kernel_tolerance_p95_bps`) so the owner sets it; WP-3 did not
+edit `config.py` / `policy/default.toml` (WP-0 files).
+
+## D-WP3-6 (2026-10-03, WP-3) — oracle model choices
+
+**Decision.** A pool's quote is the integer TWAP of the true price over `twap_blocks` (default 12 ≈
+15 min) × (1 + (bias + noise·z)/10^4), clamped to [PRICE_MIN, PRICE_MAX]; stale feeds repeat a
+quote for `refresh_blocks`; outages are Poisson starts with exponential lengths. Floats are used
+only to generate behaviour; the stream handed to the rules is integers. `BlockInputs` applies TAG-2:
+a quote outside the price range makes the whole tag absent (as `find_tag` does).
+**Finding for G2 (WP-7a).** The σ estimate SIGMA-1 sees is measured on pFast (a 96-block median of
+TWAP quotes), which smooths returns: on GBM at 120 % true volatility the median σ̂ is ≈ 8,200 bps
+against ≈ 11,900 bps measured on the true price. `sigmaRefBps` should be calibrated against σ̂ of
+simulated/real *pFast*, not raw price volatility (`sigma.sigma_hat_bps` on `series.p_fast`).
+
+## D-WP3-7 (2026-10-03, WP-3) — `simulate_devnet` and a WP-9 test adjustment
+
+**Decision.** Implemented WP-9's contract (D-WP9-5) as `engine.simulate_devnet`, reusing WP-9's
+`block_miners` / `jittered_quote` so the replayed tag stream is identical (pools signal-only while a
+step's price is 0, dark miner untagged, block i = height 1 + i). Its runner defaults (3 pools,
+10 bps jitter, run seed = schedule seed) are keyword arguments and must match the devnet run.
+**Consequence.** `ybcal devnet validate` now finds a simulator, so scenarios report SKIPPED (no
+ycashd) instead of PENDING; `tests/devnet/test_diff_cli.py::test_cli_validate_pending` was relaxed
+by one line to accept either (WP-9's file — flagged for the integrator).
