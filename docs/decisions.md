@@ -738,3 +738,91 @@ public engine fields (`BlockSeries` arrays, `series.rng`, `extras["vaults"]`); W
 
 Policy keys `yed_premium_bps`, `claimant_slippage_bps`, `defector_share`, `lost_key_prob` added
 (`[agents]` in `policy/default.toml`). Studies build `AgentsConfig` from them.
+
+## D-WP7b-1 (2026-10-03, WP-7b) — G3/G4 share one hour ensemble; P(bad debt) is WP-4's fast path
+
+**Decision.** G3 and G4 score every candidate on one per-process hour ensemble
+(`g3_collateral.ensemble`): the four synthetic presets (or, with a real price, a block bootstrap of
+its hourly returns plus the history itself) through `OracleTransferKernel.ideal` at 4 sub-steps
+(D-WP4-4). P(bad debt) is `metrics.p_bad_debt_fast` per member and class, memoised on exactly the
+fields it reads, so a ratio sweep costs one fast-path call per new value and G4's grace curve is one
+call per member with every grace. Members are aggregated with `optimize.robust.aggregate` under the
+policy key `ensemble_agg` (read with `getattr`, default `"worst"` = minimax over the presets).
+**Reason.** The ensemble does not depend on G3/G4 parameters; common random numbers make the
+materiality comparisons meaningful; `"worst"` is the robust default of `optimize.robust.Constraint`.
+**Consequence.** quick G3 ≈ 50 s serial (35 s of it building the ensemble); the strictest preset
+(usually `regime`) decides under the default aggregate.
+
+## D-WP7b-2 (2026-10-03, WP-7b) — G3 ratio rule: materiality on the ratio; BLOCKED → least violating
+
+**Decision.** `baseRatioBps[c]` uses `decide_with_materiality` with the ratio itself as the primary
+(minimise) and `pbad.c ≤ max_bad_debt_prob[c]` as the constraint: a feasible current value is kept
+unless the smallest feasible ratio frees more than `materiality` of the collateral; a violating one
+moves to the smallest feasible ratio; with no feasible ratio inside the registry bounds the verdict is
+BLOCKED and the recommended value is the least-violating one (lowest aggregate P(bad debt)), with the
+trade-off curve in the Recommendation and `g3_tradeoff.csv`. The claim threshold uses the same shape
+(primary θ, constraint = claimant margin ≥ `claimant_min_profit_bps`).
+**Reason.** PLAN §5.3 "smallest ratio meeting the tolerance" plus PLAN §2.3 minimal change; the
+instructions require BLOCKED with the least-violating value rather than a silent cap.
+
+## D-WP7b-3 (2026-10-03, WP-7b) — class boundaries are verified; heterogeneity is a design note
+
+**Decision.** Heterogeneity of a class = (mean P(bad debt) over the longest quarter of its term grid −
+mean over the shortest quarter) / class mean, worst member. The internal boundaries are *checked*:
+KEEP while MINT-2 contiguity and the CLTV bound hold. Heterogeneity above `class_heterogeneity_max`
+raises PLAN §5.3's split/merge suggestion as design note G3-DN6 (the class count is fixed by the
+rules), and shifted partitions are scored as evidence only.
+**Reason.** Drawdown risk rises with the term in every class (A 2.3, B 1.2, C 0.6 at quick against
+0.5): a boundary move only shifts the problem between classes, and PLAN §5.3 says the study
+"recommends splitting or merging", which is a rule change, not a parameter value.
+
+## D-WP7b-4 (2026-10-03, WP-7b) — G4 grace: the debt side enters through J only
+
+**Decision.** grace = argmin `J = w_owner·P(miss) + w_debt·ΔP̄` subject to `P(miss) ≤
+max_owner_miss_prob`, with `ΔP̄ = 0.4·ΔP_A + 0.4·ΔP_B + 0.2·ΔP_C` (the default demand mix). "ΔP_c >
+max_bad_debt_prob[c]" is a reported flag (and design note G4-DN2), not a constraint.
+**Reason.** PLAN §5.4 asks for "both under policy", but the policy's bad-debt tolerance is on the
+*total* P(bad debt), which G3 meets through the ratios; as a per-grace constraint it is infeasible at
+every grace on synthetic data (B's increment exceeds 1 % at 12 days while the owner tolerance needs
+≥ 14 days), which would block grace for a reason grace cannot fix.
+**Consequence.** abandonBlocks is computed in `decide` at the *recommended* grace (W21), as the closed
+form of PLAN §5.4 (smallest whole-day value ≥ max(grace, runbook) with P(false abandon) ≤ policy);
+when grace moves, abandonBlocks inherits grace's provenance. Optional policy key
+`dev_absence_tolerance_days` (default 0) adds tolerated developer absence to the runbook.
+
+## D-WP7b-5 (2026-10-03, WP-7b) — G9 rules are admissible ranges with a verify rule
+
+**Decision.** Each G9 parameter gets a closed-form admissible range (docs/studies/g9.md); the current
+value is kept while inside it, else moved to the nearest admissible lattice value; an empty range is
+BLOCKED. `maxMint`'s depth bound is evaluated only with a volume series (`env.data["depth"]`) or the
+policy key `yec_daily_volume_p10_usd`; otherwise the needed volume is reported and the value kept
+(PROVISIONAL). `walletConfirmations` uses Nakamoto's catch-up probability at `reorg_attacker_share`;
+`DEFAULT_REF_LAG` the natural-reorg VOID probability `orphan_rate^(lag+1)` (the attacker's probability
+of voiding a mint is reported, not constrained: a VOID releases the collateral). Judgement constants
+(`dust_spend_multiple` 3, `residual_max_share` 1 %, `carrier_max_share` 0.1 %,
+`mint_inclusion_slack_blocks` 10, `reference_price_usd`) are module constants read through `getattr`.
+**Reason.** PLAN §5.9 calls these constraint-driven; moving a value that already satisfies every
+constraint would violate PLAN §2.3; inventing a YEC volume would make `maxMint` follow a made-up number.
+
+## D-WP7b-6 (2026-10-03, WP-7b) — release study inputs and rounding
+
+**Decision.** The release tip comes from `env.data["release_tip"]`, then `policy.release_tip`, then the
+rc1 tip 3,052,055 recorded in `params.cpp` (2026-10-02); the next upgrade from
+`env.data`/`policy.next_upgrade_height`, else parsed from `chainparams.cpp` at the pin with `git show`
+(none scheduled; recorded as `PINNED_UPGRADES` for runs without a clone). A start that misses the M14
+lead moves to the next multiple of 1,000; the sunset is start + 420,480, capped at a scheduled upgrade.
+Provenance is `judgement` (default tip) or `real-data` (supplied tip), never synthetic.
+
+## D-WP7b-7 (2026-10-03, WP-7b) — design-note format and requested policy keys
+
+**Decision.** Studies G3/G4/G9 expose `design_notes(results, policy) -> list[dict]` with keys
+`id, title, finding, evidence, consequence, fix, params`, and attach to every Recommendation the notes
+whose `params` include it, in `metrics["design_notes"]` (WP-8 deduplicates by `id`).
+**Request to the integrator (optional policy keys; the studies read them with `getattr` and fall back
+to the defaults shown):** `ensemble_agg` ("worst"), `dev_absence_tolerance_days` (0),
+`yec_daily_volume_p10_usd` (none), `reference_price_usd` (none), `dust_spend_multiple` (3),
+`residual_max_share` (0.01), `carrier_max_share` (0.001), `mint_inclusion_slack_blocks` (10),
+`release_tip` (3,052,055), `release_tip_date` ("2026-10-02"), `next_upgrade_height` (none). G3 also
+reads `claim_coverages`, `claim_stride_hours`, `claim_horizon_days`, `emergency_coverages`,
+`emergency_open_hours` the same way (module `JUDGEMENT`). The `[agents]` keys are mapped onto
+`AgentsConfig` by `g3_collateral.agents_from_policy`.
