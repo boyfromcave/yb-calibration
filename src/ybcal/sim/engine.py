@@ -511,6 +511,130 @@ def _issued(params: Mapping, inputs: BlockInputs) -> np.ndarray:
     return SUP.issued_zat_series(inputs.start_height, inputs.n_blocks, SUP.schedule_for(params))
 
 
+#: Maximum oracle → attest → PIN-1 → medians passes when attestation runs (D-WP5-3 item 2). The
+#: coupled system is causal (PIN-2 at H reads pMint < H, PIN-1 at H reads BundleLog rows < H), so its
+#: solution is unique and every pass extends the correct prefix; in practice one or two passes.
+MAX_PIN_PASSES = 8
+
+
+class _PMintView:
+    """The series as ``attest.simulate`` sees it, with ``p_mint`` = a given xMint array."""
+
+    def __init__(self, series: Any, p_mint: np.ndarray) -> None:
+        self._series = series
+        self.p_mint = p_mint
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._series, name)
+
+
+def _apply_attest(s: BlockSeries, att: Any, shape: tuple[int, int]) -> None:
+    s.attest, s.attest_source = att, "wp5"
+    for name in ("a_mint", "a_claim"):
+        v = getattr(att, name, None)
+        if v is not None:
+            setattr(s, name, np.asarray(v, dtype=np.int64).reshape(shape))
+    if getattr(att, "armed", None) is not None:
+        s.armed = np.asarray(att.armed, dtype=bool).reshape(shape)
+    s.pinned_seqs = getattr(att, "pinned_seqs", None)
+
+
+def _apply_pin1(params: Mapping, inputs: BlockInputs, s: BlockSeries, shape: tuple[int, int]) -> None:
+    trig = getattr(s.attest, "pin1_triggered", None) if s.attest is not None else None
+    if trig is None:
+        src = (
+            s.attest
+            if (s.attest is not None and getattr(s.attest, "bundle_present", None) is not None)
+            else None
+        )
+        bp = (
+            getattr(src, "bundle_present", None)
+            if src is not None
+            else (inputs.attest or {}).get("bundle_present")
+        )
+        ba = (
+            getattr(src, "bundle_a_mint", None)
+            if src is not None
+            else (inputs.attest or {}).get("bundle_a_mint")
+        )
+        if bp is not None and ba is not None:
+            trig = pin1_trigger_series(params, np.asarray(bp).reshape(shape), np.asarray(ba).reshape(shape))
+    if trig is not None:
+        s.pin1_triggered = np.asarray(trig, dtype=bool).reshape(shape)
+        s.pinned_pools = pin1_keys(
+            params, s.pin1_triggered, inputs.tag_price, inputs.tag_pool, inputs.tag_present
+        )
+
+
+def _apply_prices(params: Mapping, inputs: BlockInputs, s: BlockSeries) -> None:
+    ps = O.price_series(
+        params, inputs.tag_price, inputs.tag_present, tag_pool=inputs.tag_pool, pinned_pools=s.pinned_pools
+    )
+    s.p_fast, s.p_mid, s.p_slow, s.x_mint, s.x_claim = ps.p_fast, ps.p_mid, ps.p_slow, ps.x_mint, ps.x_claim
+    s.pinned_recomputed = ps.recomputed
+
+
+def pin2_trigger_mask(params: Mapping, p_mint: np.ndarray, height0: int, start: int) -> np.ndarray:
+    """PIN-2's trigger per column from xMint, as ``attest.simulate`` computes it (state.cpp:1151):
+    pMint at H − 1 and H − 1 − pinWindow both defined and differing by more than pinDeltaBps; the
+    only way the attestation layer reads the engine's prices."""
+    pm = np.asarray(p_mint, dtype=np.int64)
+    n = pm.shape[-1]
+    pw = int(params["pinWindow"])
+    delta = max(0, int(params["pinDeltaBps"]))
+    j1 = np.arange(n) - 1
+    j0 = j1 - pw
+    ok = (j0 >= 0) & (j1 >= 0)
+    x1 = np.where(ok, pm[..., np.clip(j1, 0, n - 1)], -1)
+    x0 = np.where(ok, pm[..., np.clip(j0, 0, n - 1)], -1)
+    real = (height0 + np.arange(n) - 1 - pw) >= start
+    lo = np.minimum(x1, x0)
+    hi = np.maximum(x1, x0)
+    return (x1 > 0) & (x0 > 0) & real & ((hi - lo) * 10_000 > delta * lo)
+
+
+def _attest_frame(inputs: BlockInputs, s: BlockSeries) -> tuple[int, int]:
+    """``(height0, start_height)`` exactly as ``attest.simulate`` resolves them for this run."""
+    a = inputs.attest if isinstance(inputs.attest, Mapping) else {}
+
+    def get(obj: Any, name: str, default: Any = None) -> Any:
+        if obj is None:
+            return default
+        if isinstance(obj, Mapping):
+            return obj.get(name, default)
+        return getattr(obj, name, default)
+
+    h0 = int(a.get("height0", get(s, "height0", get(inputs, "height0", 0))))
+    st_default = get(inputs, "start_height", s.params["startHeight"])
+    st = int(a.get("start_height", get(s, "start_height", st_default)))
+    return h0, st
+
+
+def _pin_fixed_point(params: Mapping, inputs: BlockInputs, s: BlockSeries, shape: tuple[int, int],
+                     att_fn: Callable) -> None:
+    """Re-run attestation with the engine's xMint until the PIN-2 trigger mask it reads no longer
+    changes (then attest, PIN-1 and the medians are mutually consistent). The first pass saw no
+    pMint (no PIN-2 trigger). Records ``s.extras["pin_passes"]`` and ``["pin_fixed_point"]``."""
+    h0, st = _attest_frame(inputs, s)
+    fed: np.ndarray | None = None
+    passes = 1
+    converged = False
+    while True:
+        mask = pin2_trigger_mask(params, s.x_mint, h0, st)
+        if (fed is None and not mask.any()) or (fed is not None and np.array_equal(mask, fed)):
+            converged = True
+            break
+        if passes >= MAX_PIN_PASSES:
+            break
+        fed = mask
+        _apply_attest(s, att_fn(params, inputs, _PMintView(s, s.x_mint.copy())), shape)
+        _apply_pin1(params, inputs, s, shape)
+        _apply_prices(params, inputs, s)
+        passes += 1
+    s.extras["pin_passes"] = passes
+    s.extras["pin_fixed_point"] = converged
+
+
 def _simulate_chunk(
     params: Mapping,
     inputs: BlockInputs,
@@ -580,50 +704,18 @@ def _simulate_chunk(
     # maturity, ARM-1/2, bundles (WP-5)
     att_fn = _wp5("attest") if attest_mode == "auto" and inputs.attest else None
     if att_fn is not None:
-        att = att_fn(params, inputs, s)
-        s.attest, s.attest_source = att, "wp5"
-        for name in ("a_mint", "a_claim"):
-            v = getattr(att, name, None)
-            if v is not None:
-                setattr(s, name, np.asarray(v, dtype=np.int64).reshape(shape))
-        if getattr(att, "armed", None) is not None:
-            s.armed = np.asarray(att.armed, dtype=bool).reshape(shape)
-        s.pinned_seqs = getattr(att, "pinned_seqs", None)
+        _apply_attest(s, att_fn(params, inputs, s), shape)
     run_hooks("attest")
 
     # PIN-1
-    trig = getattr(s.attest, "pin1_triggered", None) if s.attest is not None else None
-    if trig is None:
-        src = (
-            s.attest
-            if (s.attest is not None and getattr(s.attest, "bundle_present", None) is not None)
-            else None
-        )
-        bp = (
-            getattr(src, "bundle_present", None)
-            if src is not None
-            else (inputs.attest or {}).get("bundle_present")
-        )
-        ba = (
-            getattr(src, "bundle_a_mint", None)
-            if src is not None
-            else (inputs.attest or {}).get("bundle_a_mint")
-        )
-        if bp is not None and ba is not None:
-            trig = pin1_trigger_series(params, np.asarray(bp).reshape(shape), np.asarray(ba).reshape(shape))
-    if trig is not None:
-        s.pin1_triggered = np.asarray(trig, dtype=bool).reshape(shape)
-        s.pinned_pools = pin1_keys(
-            params, s.pin1_triggered, inputs.tag_price, inputs.tag_pool, inputs.tag_present
-        )
+    _apply_pin1(params, inputs, s, shape)
     run_hooks("pin")
 
     # PRICE-1/2
-    ps = O.price_series(
-        params, inputs.tag_price, inputs.tag_present, tag_pool=inputs.tag_pool, pinned_pools=s.pinned_pools
-    )
-    s.p_fast, s.p_mid, s.p_slow, s.x_mint, s.x_claim = ps.p_fast, ps.p_mid, ps.p_slow, ps.x_mint, ps.x_claim
-    s.pinned_recomputed = ps.recomputed
+    _apply_prices(params, inputs, s)
+    # PIN-1/PIN-2 coupling (D-WP5-3 item 2): iterate oracle → attest → PIN-1 → medians to the fixed point
+    if att_fn is not None:
+        _pin_fixed_point(params, inputs, s, shape, att_fn)
     run_hooks("price")
 
     # SIGMA-1

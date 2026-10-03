@@ -864,3 +864,86 @@ The 4-sub-step kernel moved the 200-path P(bad debt) by < 0.1 percentage point a
    $150/YEC (D-7).
 7. **Owner absence** at the policy defaults (7-day median, σ 1, one spell a year): P(miss) is
    0.43 % at 30 days of grace (3.1 % at 0, 1.0 % at 14 days, 0.14 % at 60); simulated 0.43 %.
+
+## Report & joint pass (WP-8)
+
+`ybcal recommend` = load data → joint pass → joint sensitivity → devnet status → report. Code:
+`optimize/joint.py`, `params/emit.py`, `report/{build,explain,plots,cli}.py` + `report/templates/`,
+`studies/cli.py` (`ybcal study`), `optimize/cli.py` (`ybcal sensitivity`, D-WP6-7). Reader's guide:
+[report-guide.md](report-guide.md).
+
+### API
+
+```python
+# ybcal.optimize.joint
+joint_pass(base, env, *, groups=None, max_rounds=None, cache=None, workers=None, loader=load_study,
+           method="space", context=None, on_event=None) -> JointResult
+JointResult(base, recommended: ParamSet, recommendations: {param: Recommendation}, outcomes: {group:
+            GroupOutcome}, rounds: [RoundRecord], converged, design_notes: [DesignNote], warnings, cache)
+GroupOutcome(group, status "ok"|"not-run"|"error", reason, run: GroupRun, seconds, round, applied,
+             design_notes, rec_metrics)
+collect_design_notes(outcomes)          # metrics["design_notes"] of every rec + module design_notes(table)
+TOP_METRICS; TopRiskModel(n_terms=4, start_stride_h=24)(cand, env) -> Metrics   # the four system metrics
+joint_sensitivity(base, env, *, method="sobol"|"morris", params=None, metrics=None, fn=None,
+                  grouping="auto"|"param"|"group", max_evals=None, n=None, workers=None, cache=None,
+                  context=None, tornado=True) -> SensitivityResult(indices, tornado, per_param, …)
+attach_sensitivity(recs, sens); build_move(base, changes, context) -> ParamSet | None
+
+# ybcal.params.emit
+params_cpp_source(ycash6=None, ref=PIN) -> Source; vendored_params_cpp()   # params_cpp_7702d22.json
+recommended_document(rec, base=, extra=) / write_recommended(path, rec, base=, extra=)   # ybcal-extract/1
+make_patch(recommended, base, *, sections=None, source=None) -> PatchResult(locked, patch_release,
+           changes, release_changes, header_changes, unpatched)
+check_patch(text, ycash6=None, commit=PIN) -> PatchCheck(status applies|fails|skipped|empty, detail)
+
+# ybcal.report.build
+RecommendConfig(budget, policy, policy_path, seed, data_files, out, workers, groups, sensitivity,
+                sensitivity_method, sensitivity_params, ycash6, command, max_rounds, cache_dir, title, mini)
+run_recommend(cfg, *, loader=None, on_event=None, sensitivity_fn=None) -> RecommendResult
+write_report(ReportContext, out) -> {name: Path}; load_data(files) -> (env.data, provenance, [DataInfo])
+lock_readiness(...), top_risks(...), devnet_status(...), tunable_params(), section_numbers()
+```
+
+### Flow
+
+1. **Data.** `--data` files or directories (default `data/local/` unless `--synthetic`). Each file is
+   sniffed: a spreads log → `env.data["spreads"]`, a pool-share CSV → `["pool_shares"]`, a depth
+   CSV → `["depth"]`, anything else is a price series resampled to an hourly real `PricePath` →
+   `["price"]`. `Env.out_dir = <out>/evidence`, so studies write their evidence straight into the
+   report.
+2. **Joint pass.** Groups run in `GROUP_ORDER`, each with `run_group(study, current, env,
+   cache=shared)`. After each group, `current = recommended_set(current, recs)`, unless that set
+   violates an invariant: then the group is not applied and the outcome says so. Rounds repeat until
+   nothing moves, at most `policy.max_rounds_joint` times. A study that cannot be loaded is
+   `not-run`; one that raises is `error`. Neither stops the run. At the end every Recommendation is
+   restated against the shipped set (D-WP8-1).
+3. **Sensitivity.** `joint_sensitivity(recommended, env)` on `TopRiskModel` (D-WP8-2): Sobol over
+   per-parameter factors when `n·(k+2) ≤ 20·sobol_samples`, otherwise one factor per study group
+   (D-WP8-4), plus a ±1-step tornado per parameter. The results go into
+   `rec.sensitivity["joint"]`; the verdict is left alone (D-WP8-3).
+4. **Outputs.** The page contract is in report-guide.md. `params.cpp.patch` is checked with
+   `git apply --check` in a temporary detached worktree (`devnet.worktree.temp_worktree`, under
+   `$YBCAL_WORK` or `.work/`), which is removed and pruned afterwards. `manifest.json` is the
+   `RunManifest` plus counts, joint history, patch check, devnet status and timings;
+   `--manifest FILE` replays it.
+5. **`ybcal study G`.** A one-round joint pass over group G only, with a mini report restricted to
+   G's parameters. `ybcal study all` runs every group, one round, as a full report without
+   sensitivity.
+
+### Engine: PIN fixed point (D-WP5-3 item 2, D-WP8-6)
+
+When `attest.simulate` runs inside `simulate_blocks`, the engine iterates: attest (pass 1 has no
+pMint, so no PIN-2), then PIN-1, then the medians, then attest again with `p_mint = xMint`. It
+stops when the PIN-2 trigger mask that attestation reads (`engine.pin2_trigger_mask`, the same
+formula as `attest._pin2_trigger_mask`) no longer changes, after at most `MAX_PIN_PASSES` (8)
+passes. `series.extras["pin_passes"]` and `["pin_fixed_point"]` record the outcome. Runs without
+attestation are unchanged. Hooks run once, on the first pass for `attest` and `pin` and on the
+final prices for `price`.
+
+### Measured runtime (this sandbox, 4 workers, `--budget quick --synthetic`)
+
+With all ten studies: 2 rounds of 499 s together (round 1 ≈ 232 s, round 2 ≈ 267 s; G3 ≈ 78 s and
+G1 ≈ 57 s per round dominate). Sensitivity (Sobol over grouped factors, TopRiskModel) takes 57 s and
+the report a few seconds, so **≈ 9.3 min in total**, just inside the 10-minute target. Round 2
+re-evaluates every group whose inputs moved, because cache keys are whole-set digests (D-WP8-9).
+`--max-rounds 1` halves the joint pass.
