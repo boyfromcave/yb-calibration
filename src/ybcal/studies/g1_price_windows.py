@@ -142,7 +142,9 @@ def evidence_dir(meta_out: str | None, group: str) -> Path:
 
 
 def out_dir_of(env: Env) -> str | None:
-    """``env.data["out_dir"]`` (or ``"workdir"``) as a string, if set."""
+    """``env.out_dir``, else ``env.data["out_dir"]`` (or ``"workdir"``), as a string, if set."""
+    if getattr(env, "out_dir", None):
+        return str(env.out_dir)
     for k in ("out_dir", "workdir"):
         v = env.data.get(k) if isinstance(env.data, Mapping) else None
         if v:
@@ -316,8 +318,8 @@ def realise(
     marks = _marks(scen, n, sched)
     cfg = O.OracleConfig.from_policy(
         pol,
-        outage_rate_per_day=POOL_OUTAGE_RATE_PER_DAY,
-        outage_mean_hours=POOL_OUTAGE_MEAN_HOURS,
+        outage_rate_per_day=float(getattr(pol, "pool_outage_rate_per_day", POOL_OUTAGE_RATE_PER_DAY)),
+        outage_mean_hours=float(getattr(pol, "pool_outage_mean_hours", POOL_OUTAGE_MEAN_HOURS)),
         outage_mode="signal",
     )
     tagging = cfg.tagging_share
@@ -656,7 +658,7 @@ class G1Study:
 
         constraints = {
             "attack_share_min": bool(v["attack_share_min"] >= float(pol.attack_share_min))
-            and harmful <= ATTACK_MOVED_TOL,
+            and harmful <= float(getattr(pol, "attack_moved_tol", ATTACK_MOVED_TOL)),
             "max_no_price_hours": bool(v["no_price_h_per_year"] <= float(pol.max_no_price_hours)),
             "halt_recall_floor": bool(v.get("halt3_recall_crash70", 1.0) >= float(pol.halt_recall_floor)),
         }

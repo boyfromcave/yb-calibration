@@ -58,6 +58,9 @@ class Policy:
     max_no_price_hours: float = 6.0
     pump_overpricing_lambda: float = 0.5
     crash_lag_cvar_alpha: float = 0.95
+    attack_moved_tol: float = 0.05
+    pool_outage_rate_per_day: float = 0.033333333333333
+    pool_outage_mean_hours: float = 4.0
     max_sigma_lag_blocks: int = 4032
     hour_kernel_tolerance_bps: float = 300.0
     sigma_ref_round_bps: int = 500

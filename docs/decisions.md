@@ -573,3 +573,10 @@ a fresh temp dir. `decide()` has no `Env`, so `evaluate` puts `out_dir` (and the
 (`g1_price_windows.realise` / `median`), keyed by seed, scenario, paths, horizon, data hash and the
 policy's pool parameters.
 **Request to WP-0/WP-8.** An `Env.out_dir` field would make this explicit.
+
+## Contract changes from WP-7a (2026-10-03, integrator)
+
+- `Policy` gains `attack_moved_tol` (0.05), `pool_outage_rate_per_day` (1/30) and
+  `pool_outage_mean_hours` (4.0); G1/G2 read them (module constants remain as fallbacks).
+  `feed_outages_per_year` was not added: the all-feeds outage stays reported per event (D-WP7a-3).
+- `Env.out_dir` added; `g1_price_windows.out_dir_of` prefers it over `env.data["out_dir"]`.

@@ -118,6 +118,7 @@ class Env:
     data: dict[str, Any] = field(default_factory=dict)
     scenarios: dict[str, Any] = field(default_factory=dict)
     provenance: Provenance = "synthetic"
+    out_dir: str | None = None  #: evidence root; studies write to ``<out_dir>/<group>/``
     rng: np.random.Generator = field(init=False)
 
     def __post_init__(self) -> None:

@@ -155,8 +155,8 @@ def realise_ensemble(env: Env, kind: str, P: int, days: float) -> G1.ScenarioRea
     true, label = ensemble_prices(env, kind, P, n)
     cfg = O.OracleConfig.from_policy(
         pol,
-        outage_rate_per_day=G1.POOL_OUTAGE_RATE_PER_DAY,
-        outage_mean_hours=G1.POOL_OUTAGE_MEAN_HOURS,
+        outage_rate_per_day=float(getattr(pol, "pool_outage_rate_per_day", G1.POOL_OUTAGE_RATE_PER_DAY)),
+        outage_mean_hours=float(getattr(pol, "pool_outage_mean_hours", G1.POOL_OUTAGE_MEAN_HOURS)),
         outage_mode="signal",
     )
     inp = O.generate_block_inputs(true, cfg, rng=env.rng_for("G2", "oracle", kind, P, n))
