@@ -649,3 +649,218 @@ iid / exact forward recursion for Markov outages), `false_dormancy_per_year` (un
    verified bundle even when the MINT later fails another check).
 4. Heights in the outputs use −1 for "never"; run the series at heights ≥ 0 (relative heights are
    fine: `effective_enforce_until` and `start_height` re-base the rules).
+
+## Vaults, agents and fees (WP-4)
+
+`src/ybcal/sim/{vaults,agents,fees,metrics}.py`: the vault book with the node's exact verdicts, the
+personas that drive it, fees and revenue, and the metrics the G3/G4/G6/G7/G9 studies call.
+Tests: `tests/sim/test_vault_verdicts.py`, `test_vault_book_replay.py`, `test_agents_fees.py`,
+`test_vault_metrics.py` (helpers in `tests/sim/refbuild.py`).
+
+### API
+
+```python
+# ybcal.sim.vaults — rule layer (Python ints, None = undefined; state.cpp @ 7702d22)
+RuleParams.of(params)                     # the ints the vault rules read (+ .fee(c), .attest_fee(c))
+Snap(height, active, halt_mask, x_mint, x_claim, p_fast, sigma_mult_bps, issued_zat, armed, eligible)
+Bundle(a_mint, a_claim, ok=True, reason="", carrier_present=True);  NO_BUNDLE
+MintTx(term_class, cents, lock_height, ref_height, collateral_zat, fee_zat=None, bundle=None,
+       attest_fee_zat=None, structure="ok", token_output_ok=True)
+SpendTx(path "owner"|"claim"|None, ref_height, yed_in=0, assigned=(), redeem_payload=True,
+        single_vault=True, fee_zat=None, fee_payee_ok=True, bundle=None, attest_fee_zat=None, owner_paid_zat=0)
+mint_verdict(rp, height, tx, snap, supply_cents) -> str               # MintVerdict 293-381
+red_verdict(rp, height, vault, tx, snap, notice_ref_height=None) -> RedOutcome(verdict, claim_path, residual_zat, p_claim, p_emerg)
+notice_verdict(rp, height, vault, ref, snap, bundle, standing_height=None) -> bool   # NOT-1
+path_open(vault, height, "owner"|"claim") -> bool                      # CLTV: height > lock / claim
+wallet_collateral(rp, cents, cls, sigma, p_mint, buffer_bps=0) -> int64 array   # txbuilder 1095-1103
+wallet_collateral_int(...) -> int                                      # scalar twin (-1 = unsatisfiable)
+VaultRecord, Totals, VaultBook(params).mint / .spend(enforcing=) / .void_release / .notice
+# book runner and engine integration
+Timeline(...); timeline_from_blocks(params, inputs, series, path); timeline_from_hours(params, hs, path,
+         hourly_true, *, issued_zat, options, rng=None, attacker=None)
+BookOptions(emergency=True, supply_cap=True, record_events=False, traj_every=1, max_ref_tries=40)
+run_book(params, timeline, attempts, agents=None, *, options=None) -> PathBook(vaults, traj_steps,
+         supply_cents, collateral_zat, unbacked_cents, counters, events, totals)
+VaultHook(agents=AgentsConfig(), options=BookOptions(), seed=None, attempts=None)   # WP-3 "vaults" hook
+HourOptions(start_offset_blocks=0, activation_blocks=None, assume_renewal=True, armed=False,
+            attest_lag_hours=0, attest_noise_bps=0.0, enforcement_halt=None, book=BookOptions(traj_every=24))
+simulate_vault_book_hours(params, price_paths, agents_cfg=None, kernel=None, rng=None, *, options=None,
+                          workers=1, chunk_paths=8) -> VaultBookResult
+VaultBookResult(vaults: dict[str, array] (+ "path"), supply_cents, collateral_zat, unbacked_cents,
+                traj_steps, traj_heights, true_price, resolution, step_blocks, n_steps, params, counters, meta)
+    .accepted() .column(name, mask) .days; from_books(...), concat(parts)
+hourly_issued_zat(params, n_hours, start_offset_blocks=0); DEFAULT_HOUR_SUBSTEPS = 4
+
+# ybcal.sim.agents
+MinterConfig(mints_per_day, size_dist, size_lo/hi_cents, fixed_cents, class_weights, term_distribution,
+             buffer_bps_lo/hi, ref_choice "adversarial"|"wallet", ref_lag, start_after_blocks)
+OwnerConfig(absence_rate_per_year, absence_median_days, absence_sigma, lost_key_prob, defector_share,
+            sweep_on_abandon, redeem_slippage_bps)
+ClaimantConfig(enabled, min_profit_bps, slippage_bps, depth_usd, impact_bps_at_depth, use_emergency,
+               thief_when_unenforced)
+YedMarket(premium_bps); AttackerConfig(share, bias_bps, start_block, end_block, mode)
+    .oracle_config(base OracleConfig) .apply_to_hours(p, quoting_share)
+AgentsConfig(minter, owner, claimant, market, attacker, tx_fee_zat=1000).from_policy(policy, adoption=None)
+MintAttempts(step, cents, term_class, lock_blocks, buffer_bps, owner_kind, owner_delay_blocks).from_rows(rows)
+sample_mint_attempts(rng, params, agents, n_steps, step_blocks=1) -> MintAttempts
+sample_lock_blocks / term_grid / sample_sizes / owner_kinds / owner_return_delay_blocks
+p_owner_miss(grace_blocks, owner_cfg) -> float; adversarial_ref(p_mint, ok); ref_preference(...)
+claim_profit_usd(...), claim_price_floor(...), redeem_price_floor(...), slippage_bps(...), zat_value_usd(...)
+
+# ybcal.sim.fees
+tx_fees(params, collateral, *, armed, eligible, owner_path) -> FeeBreakdown(pool_zat, attest_zat)
+fees_zat(...) (vectorised); min_collateral_floor(params)
+eligible_payees(params, tag_pool, tag_price, r, pinned=0); eligible_nonempty_series(params, tag_price,
+    tag_present, tag_pool=None, pinned_pools=None)
+judgement_series(params, tag_price, tag_present) -> JudgementSeries(evaluated, in_band, penalized)   # REG-4
+fee_w_weights(params, tag_pool, tag_price, judgements, r, *, pinned, n_penalty, accuracy_window,
+              payee_tilt_bps) -> {pool: share}                          # FEE-W (L6 params)
+pool_revenue(...), attestor_revenue_month(...), fee_share_of_value(...), fee_usd(...)
+redemption_affordability(params, cents, cls, p_mint, crash_price) -> Affordability; fee_table(...)
+
+# ybcal.sim.metrics
+bad_debt_prob(res, at="claim_open"|"lock"); incremental_bad_debt_from_grace(res); owner_miss(res, params, owner)
+claimant_profit(res); capital_efficiency(res); liquidation_volume(res, depth_usd=None)
+emergency_recovery(res); emergency_benefit(res_on, res_off); system_shortfall(res); supply_trajectory(res)
+refusal_breakdown(res); fee_revenue(res, *, payee_share, n_pools, n_seated); time_until_cap_admits(params, pmint_path, cents)
+p_bad_debt_fast(params, hourly_true, *, hour_series=None, kernel=None, rng=None, classes=(0,1,2),
+                n_terms=16, term_distribution="uniform", sigma="series"|"median"|"p90"|int,
+                cents=100_000, graces=None, start_stride=1, skip_hours=None, chunk_paths=32) -> FastBadDebt
+```
+
+### How the book works
+
+1. **Rules.** `mint_verdict` / `red_verdict` / `notice_verdict` are the C++ in the C++'s order, on an
+   abstract transaction: MINT-3 (outputs, owner key, vault script) and MINT-7 are a `structure` /
+   `token_output_ok` field, fee outputs are "a valid output paying an `E(R)` member worth X". A
+   wallet-built mint whose verdict fails is **VOID** (`vout[0]` is P2SH); a spend that fails RED is
+   *mined* only when ACT-5 enforcement is off at that height, and then closes the vault with
+   `unbacked = burned < minted` and `unbackedCents += minted − burned` (IN-3).
+2. **Timeline.** One path's snapshot fields per step plus `conf[t]`, the confirmation height of a
+   transaction at step `t`, whose refHeight candidates are steps `[t − ref_steps, t − 1]`. The book
+   adds HALT-2 to `base_halt` from its own totals (`Snapshots[R]` holds the totals after block R's
+   transactions), exactly as `ComputeSnapshot` does.
+3. **Planning (vectorised).** For every mint attempt: the candidate snapshots ordered by the
+   persona (adversarial: admissible ones by descending pMint, newest first on ties; wallet:
+   `tip − REF_LAG`), the wallet collateral at the preferred one, and the vault's lifecycle, which
+   does not depend on other vaults — first passages over sparse tables (`_Lift`, O(log n) numpy
+   steps for all vaults): the owner's redeem (first step ≥ owner presence with `(collateral − FEE-1
+   − tx fee) · price ≥ debt · YED price`), sweeps (defector: first step with ACT-5 off; honest owner:
+   the abandonment predicate), RED-4(a) claims (first step ≥ claim open where the window's lowest
+   pClaim is below the underwater level **and** the true price clears the claimant's profit floor —
+   alternating the two searches), RED-4(b) (per vault, when ARMED: NOT-1 posted as soon as pEmerg
+   is under the emergency level, then the first persisted, profitable R), thieves (claim path while
+   ACT-5 is off). Earliest wins; ties go owner, sweep, claim, thief (a defector prefers its sweep).
+4. **Sequential pass (exact).** Attempts in step order; closures due at or before a step are
+   applied first (within a step: closures, then mints in arrival order). The minter **preflights**
+   each candidate against the tip state (`totals` after step `t − 1`, HALT-2 at R from the totals
+   history; a vectorised MINT-6 pre-screen skips candidates the cap rejects) and sends the first
+   that passes; nothing passes → *refused* (no transaction; the reason is the preferred
+   candidate's verdict). The sent mint is then judged against the **live** totals (same-step
+   earlier mints included, MINT-6 W20) → ACTIVE or VOID. Every closure goes through `VaultBook.spend`
+   with the exact verdict; a planned honest spend the rules refuse would be counted in
+   `counters["plan_mismatch"]` (0 in every test and benchmark).
+5. **Block mode** (`VaultHook`): the timeline is the engine's `BlockSeries` (HALT-2 stripped, E(R)
+   from the tags and PIN-1 bitmask, ACT-5 and abandonment from `activation_status` /
+   `enforcement_halt`, `enforceUntilHeight`); the hook writes `supply_cents` / `collateral_zat` and
+   the engine's `refresh_halt2` then equals the book's HALT-2 at every height (replay-tested).
+   `attempts=` overrides sampling per path index — use it only with unchunked runs.
+6. **Hour mode** (`simulate_vault_book_hours`): step `t` = the snapshot at the last block of hour
+   `t` (`start + offset + 48t + 47`); a transaction at step `t` reads `R = heights[t − 1]` and
+   confirms at `R + DEFAULT_REF_LAG + 1`, so MINT-2's window holds; the 40-block refHeight choice is
+   below the resolution and collapses to that snapshot (the kernel's noise covers it). ACTIVE from
+   `startHeight + signalWindow − 1 + activationDelay` unless set; E(R) always non-empty; ACT-5 never
+   lapses unless `assume_renewal=False` (then the sunset opens sweeps and thefts); `issuedZat` exact
+   from `supply.issued_zat_series`. ARMED studies use a bundle proxy (`aMint = aClaim` = the true
+   price `attest_lag_hours` earlier, with optional noise).
+
+### Metric definitions
+
+| Metric | Definition |
+|---|---|
+| `bad_at_claim_open` (per vault) | ACTIVE vault whose claim path opened in the horizon; `collateralZat · P < mintedCents · 10^12` with P the **true** price at the first block above `claimHeight` (exact integers via `is_underwater(c, P, cents, 10^4)`) |
+| `bad_at_lock` | the same at the first block above `lockHeight` |
+| `bad_debt_prob(res)` | per class and all: share of bad vaults among accepted vaults with the event inside the horizon (censored ones excluded) |
+| `incremental_bad_debt_from_grace` | `P(bad at claim open) − P(bad at lock)` on the vaults where both are observed |
+| `p_bad_debt_fast` | no agents/cap/HALT-2: every (start hour after the σ/slow-median warm-up, path, grid term of the class) mints `cents` at hour-mode pMint with the wallet collateral at the σ multiplier (`series`, or the path's median / p90, or fixed); bad iff collateral at the true price at hour `s + ceil((T + grace + 1)/48)` < debt; censored ends dropped; `p` = mean over the equal-probability term grid; `p_lock`, `increment`, `by_grace` likewise |
+| `system_shortfall` | per path and trajectory sample: `unbackedCents` (sweeps, thefts) + `Σ max(0, debt − collateral value)` over vaults still ACTIVE; `p_any` = share of paths ever positive |
+| `owner_miss` | `analytic`: P(absent through `[lock, lock + grace]`) = `1 − exp(−λ·E[(D − G)^+])` (log-normal D; lost keys added); `simulated`: share of accepted non-lost vaults whose return delay > grace; `loss`: share claimed/stolen while the owner was away |
+| `claimant_profit` | over executed claims: `(received − FEE-1 − AFEE-1 − tx fee)` YEC at the true price less slippage, minus the YED burned at the market price; USD and bps of debt quantiles; share via RED-4(b) |
+| `capital_efficiency` | debt / collateral value at the mint (YED per USD locked) and YED per YEC, mean/median per class |
+| `liquidation_volume` | per path and day: Σ collateral received by claimants × true price; max, p99, and max ÷ ±2 % depth |
+| `emergency_recovery` / `emergency_benefit` | RED-4(b) claims: count, collateral value and residual returned; benefit = final shortfall with (b) off − on (CRN) |
+| `fee_revenue` | FEE-1 per path-day (YEC, USD at the true price of each payment), per pool by payee share, AFEE-1 per seated attestor per 30 days, median fee / debt per class |
+| `refusal_breakdown` | attempts, accepted, VOID and refusal reasons per class |
+| `time_until_cap_admits` | days after `startHeight` until MINT-6 admits `cents` per class (W20 gate: a class at ≥ `recapRatioBps` → 0) |
+| `supply_trajectory` | YED supply (USD) per sample and its quantiles over paths |
+
+### Exactness coverage
+
+* **Verdicts** (`test_vault_verdicts.py`, 40 cases) against the vendored model's `_mint_verdict`,
+  `_red_verdict` and `_apply_notice` on crafted states with real transactions: every MINT failure
+  reason (class, amount both bounds, ref window three ways, lock range/ordering, NOT_ACTIVE,
+  NO_PRICE, PARTICIPATION/ENFORCEMENT, GLOBAL_RATIO with the W16 recap exemption at its exact
+  boundary — class C at σ 16,667 vs 16,666 — DIVERGENCE, unknown bit, MINT-5 at the boundary, the
+  `4·feeMin` floor, K14 unsatisfiable, MINT-6 at the cap and one cent over, the W20 exemption for A
+  and for σ-lifted C, MINT-8 missing/short fee and FEE-0, ARMED: no bundle, bad bundle, no
+  statistic, AFEE-1, MINT-5 at `min(xMint, aMint)`, MINT-10 at its ±15 % boundary, MINT-6 before
+  MINT-9); RED-1 malformed four ways, RED-2 short/missing burn with assignments, RED-3 fee/payee/
+  FEE-0, RED-4(a) at the 18,333 µUSD worked-example boundary and +1, undefined pClaim, RED-5
+  (zero under (a) — see findings — and the residual under (b) with margin 10^4), ARMED RED-1
+  bundle reasons, AFEE-1, RED-4(b) at `emergencyPersist − 1 / persist / ttl / ttl + 1`, pEmerg ±1,
+  (b) unarmed; NOT-1 five ways; the CLTV path rule; wallet collateral = txbuilder's formula.
+* **End to end** (`test_vault_book_replay.py`): three 640-block regtest chains (cap + claims +
+  HALT-2; ENFORCEMENT halt with defectors' sweeps and thefts; wallet refHeight) and a same-block
+  cap race, every book event rebuilt as a real transaction and fed to `YellowbackModel.feed_block`:
+  per-height supply, collateral, unbacked and the full haltMask (HALT-2 included) equal, every
+  transaction verdict equal, final vault statuses equal, no BLK-1 violation, claims only above
+  `claimHeight`, owner spends only above `lockHeight`.
+* **ARMED book** (`test_vault_metrics.py::test_armed_book_notices_and_red4b`): NOT-1 notices and
+  RED-4(b) claims go through the exact verdicts with zero plan mismatches; notice persistence is
+  inside `[emergencyPersist, emergencyNoticeTtl]`. (The reference cannot verify bundles without
+  attestor signatures; the ARMED rule order is covered by the crafted cases.)
+
+### Performance (this sandbox, 4 cores)
+
+| Run | Time |
+|---|---|
+| hour mode, 200 GARCH paths × 5 years, low adoption (2 mints/day ≈ 730k attempts), `workers=4`, default 4-sub-step kernel | **44 s** wall (172 CPU-s; target ≤ 2 min) |
+| same with WP-3's 12-sub-step kernel | 90 s wall (346 CPU-s) |
+| book alone, one 5-year path (≈ 3,650 attempts) | ≈ 0.4 s |
+| block mode, mainnet, 90 days, 50 mints/day: engine 0.27 s + book 0.31 s | 0.58 s per path |
+| `p_bad_debt_fast`, 64 paths × 6 years, stride 6 h, 3 classes × 16 terms × 6 graces | ≈ 13 s (+ the hour series, ≈ 0.45 s per path) |
+
+The 4-sub-step kernel moved the 200-path P(bad debt) by < 0.1 percentage point against 12 sub-steps
+(A 0.68 % vs 0.67 %, B 6.31 % vs 6.26 %, C 22.97 % vs 22.73 %).
+
+### Findings at the shipped mainnet values (synthetic, PROVISIONAL)
+
+1. **P(bad debt) at the claim-path opening** (fast path, 64 paths × 6 years per preset, σ series):
+   GARCH-t A 0.52 % / B 6.9 % / C 27 %; regime switch 2.1 % / 18 % / 63 %; Merton 0.84 % / 16 % /
+   72 %; GBM 0.71 % / 16 % / 68 % — against the policy's 0.5 / 1 / 2 %. Only class A is near its
+   tolerance; B and C are an order of magnitude off (fact 1.5-1: no liquidation before
+   `claimHeight`, so the base ratio must cover the whole term's drawdown). Grace adds A +0.26 pp
+   (GARCH) to +1.3 pp (regime), B +1–2.7 pp. The book run (200 × 5 y GARCH, agents) agrees: A 0.68 %,
+   B 6.3 %, C 23 %.
+2. **The σ multiplier does not help**: on the presets its median is exactly 1× (σ̂ on the smoothed
+   pFast stays below `sigmaRefBps` = 10,000, D-WP3-6) and p90 1.0–1.4×.
+3. **Claimants barely exist**: pClaim (max of the mid and slow medians) lags a falling price, so by
+   the time a vault is underwater at 110 % its collateral is worth about the debt at the true price;
+   48 paths × 5 years: 8 profitable claims against ~1,500 vaults bad at claim opening (most wait
+   for a recovery and are redeemed later; ~400 stay open and under water at the horizon).
+4. **RED-5 residual is always 0 under RED-4(a)** (the claimant cap uses the same threshold that
+   made the vault underwater), and **RED-4(b) never pays a claimant who buys YED at par**: under (b)
+   the claimant receives the debt's worth at pClaim — the *higher* of the two prices — so it is a
+   loss at the market. (b) recovers collateral only when YED trades at a discount (it acts as a
+   par exit for YED holders); with YED at $0.80 the ARMED test chain runs 79 (b) claims, at par 0.
+5. **The early supply cap closes B and C for good under the default demand**: from `startHeight`
+   with 2 mints/day (200 paths × 5 years), MINT-6 refuses 70 % of B and 74 % of C attempts; on 48
+   paths only 24 % of B / 20 % of C attempts are accepted from `startHeight` and 27 % / 23 % when the
+   window starts a year later. Class A at σ = 1 is exactly `recapRatioBps` and bypasses the soft cap
+   (W16/W20), its supply alone outgrows the cap, and the cap counts **all** supply.
+6. **FEE-1 is on the collateral**, so the round-trip fee share of the *debt* is `2 · feeBps · ratio`
+   regardless of size: A 2.5 %, B 2.0 %, C 1.5 % (+ AFEE-1 when ARMED) — class A breaches
+   `max_fee_share_small` (2 %) at every size. The `4·feeMin` floor never binds for `minMint` below
+   $150/YEC (D-7).
+7. **Owner absence** at the policy defaults (7-day median, σ 1, one spell a year): P(miss) is
+   0.43 % at 30 days of grace (3.1 % at 0, 1.0 % at 14 days, 0.14 % at 60); simulated 0.43 %.
