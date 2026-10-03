@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from ybcal.config import DEFAULT_POLICY_PATH, Policy, RunManifest
@@ -25,7 +27,11 @@ def test_default_toml_sets_every_field():
                 walk(v)
 
     walk(tomllib.loads(DEFAULT_POLICY_PATH.read_text()))
-    assert seen == set(Policy.field_names())
+    # Optional (None-default) fields cannot be written in TOML; they must be documented as comments.
+    text = DEFAULT_POLICY_PATH.read_text()
+    optional = {f.name for f in dataclasses.fields(Policy) if f.default is None}
+    assert all(f"# {k} =" in text for k in optional)
+    assert seen | optional == set(Policy.field_names())
 
 
 def test_plan_tolerances():

@@ -826,3 +826,10 @@ to the defaults shown):** `ensemble_agg` ("worst"), `dev_absence_tolerance_days`
 reads `claim_coverages`, `claim_stride_hours`, `claim_horizon_days`, `emergency_coverages`,
 `emergency_open_hours` the same way (module `JUDGEMENT`). The `[agents]` keys are mapped onto
 `AgentsConfig` by `g3_collateral.agents_from_policy`.
+
+## Contract changes from WP-7b (2026-10-03, integrator)
+
+The G3/G4/G9/release assumption keys are `Policy` fields (`[studies_g3_g4_g9]` in
+`policy/default.toml`). `yec_daily_volume_p10_usd`, `reference_price_usd` and `next_upgrade_height`
+default to None (unknown); TOML cannot express null, so they are documented as commented-out keys
+and `test_default_toml_sets_every_field` accepts None-default fields documented that way.

@@ -68,6 +68,17 @@ class Policy:
     registration_notice_blocks: int = 8064
     min_capture_days: int = 90
     max_newcomer_seat_days: int = 365
+    ensemble_agg: str = "worst"
+    dev_absence_tolerance_days: float = 0
+    dust_spend_multiple: float = 3
+    residual_max_share: float = 0.01
+    carrier_max_share: float = 0.001
+    mint_inclusion_slack_blocks: int = 10
+    release_tip: int = 3052055
+    release_tip_date: str = "2026-10-02"
+    yec_daily_volume_p10_usd: float | None = None
+    reference_price_usd: float | None = None
+    next_upgrade_height: int | None = None
     yed_premium_bps: int = 0
     claimant_slippage_bps: int = 100
     defector_share: float = 0.0

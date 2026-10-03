@@ -132,3 +132,17 @@ yed_premium_bps = 0                # premium (+) or discount (-) of YED vs $1 wh
 claimant_slippage_bps = 100        # base slippage a claimant pays selling seized YEC, bps
 defector_share = 0.0               # fraction of owners who sweep without burning when enforcement is off
 lost_key_prob = 0.0                # probability an owner's key is lost for good
+
+[studies_g3_g4_g9]  # assumptions of the G3/G4/G9/release studies (D-WP7b); "" or omitted = unknown
+ensemble_agg = "worst"             # how G3 aggregates bad-debt probability across synthetic presets: worst | mean
+dev_absence_tolerance_days = 0     # developer absence the abandonment window must tolerate beyond the runbook, days
+dust_spend_multiple = 3            # residual/output must be >= this many times the cost of spending it
+residual_max_share = 0.01          # max share of a vault's collateral left unpaid below residualMinZat
+carrier_max_share = 0.001          # max carrier value as a share of a minMint vault
+mint_inclusion_slack_blocks = 10   # blocks a mint may wait for inclusion when choosing DEFAULT_REF_LAG
+release_tip = 3052055              # mainnet tip at the release (M14 lead is counted from here)
+release_tip_date = "2026-10-02"    # date of release_tip
+# Optional, unset by default (TOML has no null; add the key to set it):
+# yec_daily_volume_p10_usd = 150000.0   # p10 daily YEC trading volume, USD — enables the maxMint/supply-cap depth checks
+# reference_price_usd = 0.40            # YEC/USD reference price for fee/bond judgements (default: from data)
+# next_upgrade_height = 3500000         # next scheduled Ycash network upgrade (default: read from chainparams; none scheduled)
