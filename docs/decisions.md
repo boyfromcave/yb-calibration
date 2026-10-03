@@ -422,3 +422,81 @@ by one line to accept either (WP-9's file — flagged for the integrator).
 Added `Policy.hour_kernel_tolerance_bps` (default 300) and the matching `policy/default.toml` key;
 `engine.KERNEL_TOLERANCE_P95_BPS` stays as the library default. D-WP3-7 (WP-9 test accepting
 SKIPPED as well as PENDING) is accepted as is.
+
+## D-WP4-1 (2026-10-03, WP-4) — vault book = vectorised lifecycle plan + exact sequential pass
+
+**Decision.** Each vault's lifecycle (owner redeem, sweeps, RED-4(a)/(b) claims, thefts, NOT-1
+notices) is planned vectorised with first-passage searches (sparse tables), because it does not
+depend on other vaults; everything order-dependent — refHeight choice, HALT-2 at R from the book's
+own totals, MINT-6 against the live supply, VOID — runs sequentially through `mint_verdict` /
+`red_verdict` / `notice_verdict`, transcribed from state.cpp and tested verdict-for-verdict against
+the vendored model. A planned honest spend the rules refuse is counted (`plan_mismatch`), never
+silently applied.
+**Reason.** Exactness where the node is exact, and ~0.4 s per 5-year path instead of a per-block
+Python loop.
+
+## D-WP4-2 (2026-10-03, WP-4) — wallet preflight, refusals and VOIDs; order inside a step
+
+**Decision.** A minter preflights candidate snapshots against the tip (totals after the previous
+step) and sends the first that passes; if none passes the attempt is *refused* (no transaction,
+reason = the preferred candidate's verdict). The transaction is judged at confirmation against the
+live totals: a mint whose MINT-6 fails only because of a mint earlier in the same block is VOID.
+Inside a step, closures are applied before mints, mints in arrival order. Spends confirm only in a
+block above `nLockTime` (IsFinalTx): owner path from `lockHeight + 1`, claim path from
+`claimHeight + 1`.
+**Consequence.** VOIDs in the simulator are cap races (and, in hour mode, nothing else); reorg VOIDs
+(`DEFAULT_REF_LAG`, G9) are not modelled.
+
+## D-WP4-3 (2026-10-03, WP-4) — personas
+
+**Decision.** Owner: redeems at the first step with `(collateral − FEE-1 − tx fee) · price ≥ debt ·
+YED price` once present (absence: Poisson spells, log-normal lengths; lost keys never return).
+Defector persona: sweeps without burning as soon as ACT-5 is off (prefers its sweep to a redeem).
+Honest owner: sweeps only under the abandonment predicate and only when it would not redeem first.
+Thief: takes the claim path without burning when ACT-5 is off. Claimant: rational, claims at the
+first step with the vault underwater at some R of the window (lowest pClaim) **and** profit ≥
+`min_profit_bps` of the debt (base slippage; a depth model re-checks); under ARMED it posts NOT-1
+when pEmerg is underwater and claims under RED-4(b) at the first persisted, profitable R (lowest
+pClaim). Minter: adversarial refHeight = highest admissible pMint (fact 1.5-5) or wallet
+`tip − REF_LAG`. Everyone burning YED pays `$1 · (1 + premium_bps)`.
+**Request (WP-0 / integrator).** Policy keys for `yed_premium_bps`, `claimant_slippage_bps`,
+`defector_share` and `lost_key_prob` would let the owner set them; until then they are
+`AgentsConfig` fields with neutral defaults (0, 100 bps, 0, 0).
+
+## D-WP4-4 (2026-10-03, WP-4) — hour-mode conventions and the default kernel
+
+**Decision.** Step `t` = snapshot at the last block of hour `t`; a transaction at step `t` reads
+`R = heights[t − 1]` and confirms at `R + DEFAULT_REF_LAG + 1` (the refWindow choice collapses to
+one snapshot). Defaults: ACTIVE after the fastest activation, E(R) non-empty, the set renewed at
+its sunset (`assume_renewal=True`; W18), unarmed (a bundle proxy is optional). The default kernel
+of `simulate_vault_book_hours` is `OracleTransferKernel.ideal(params, substeps=4)`
+(`DEFAULT_HOUR_SUBSTEPS`): 44 s instead of 90 s for 200 paths × 5 years on 4 cores, P(bad debt)
+within 0.1 pp of WP-3's 12 sub-steps. A calibrated kernel (`calibrate_kernel(..., substeps=4)`)
+can be passed instead.
+
+## D-WP4-5 (2026-10-03, WP-4) — bad-debt definitions
+
+**Decision.** Vault-level bad debt is the exact integer test `collateralZat · truePrice <
+mintedCents · 10^12` at the first block above `claimHeight` (G3 core, fact 1.5-1) and, for the
+grace increment, above `lockHeight`; events beyond the horizon are censored. System-level: unbacked
+YED (sweeps, thefts: `Totals.unbackedCents`) plus the uncovered debt of vaults still ACTIVE. The fast
+path drops agents, the cap and HALT-2 and equal-weights a 16-point quantile grid of the class's term
+distribution.
+
+## D-WP4-6 (2026-10-03, WP-4) — findings for the owner (design notes, not parameter changes)
+
+**Finding.** (1) RED-5's residual is identically 0 under RED-4(a); (2) RED-4(b) pays the claimant
+the debt's worth at `max(xClaim, aClaim)`, so it is never profitable to a claimant buying YED at par
+— it recovers collateral only as a par exit for YED holders when YED trades at a discount;
+(3) pClaim's lag consumes the 10 % claim margin in a steady decline, so profitable claims are rare;
+(4) the soft cap counts class-A supply (which bypasses it at σ = 1, W16/W20), so B/C stay closed
+whenever A demand alone outruns the cap; (5) FEE-1 on the collateral makes the round-trip fee 2.5 %
+of the debt for class A at any size. G3/G6/G7 should report these (docs/architecture.md, WP-4
+findings) rather than tune around them.
+
+## D-WP4-7 (2026-10-03, WP-4) — contract notes
+
+No frozen contract changed. Notes for other WPs: `VaultHook(attempts=...)` is indexed by path
+*within a chunk* (use unchunked `simulate_blocks` when overriding attempts); the hook uses only
+public engine fields (`BlockSeries` arrays, `series.rng`, `extras["vaults"]`); WP-5's
+`AttestSeries` feeds the book through `series.armed / a_mint / a_claim` with no further glue.
