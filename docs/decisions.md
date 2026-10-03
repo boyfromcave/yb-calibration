@@ -733,3 +733,8 @@ No frozen contract changed. Notes for other WPs: `VaultHook(attempts=...)` is in
 *within a chunk* (use unchunked `simulate_blocks` when overriding attempts); the hook uses only
 public engine fields (`BlockSeries` arrays, `series.rng`, `extras["vaults"]`); WP-5's
 `AttestSeries` feeds the book through `series.armed / a_mint / a_claim` with no further glue.
+
+## D-WP4-3 resolution (2026-10-03, integrator)
+
+Policy keys `yed_premium_bps`, `claimant_slippage_bps`, `defector_share`, `lost_key_prob` added
+(`[agents]` in `policy/default.toml`). Studies build `AgentsConfig` from them.

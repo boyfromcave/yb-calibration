@@ -68,6 +68,10 @@ class Policy:
     registration_notice_blocks: int = 8064
     min_capture_days: int = 90
     max_newcomer_seat_days: int = 365
+    yed_premium_bps: int = 0
+    claimant_slippage_bps: int = 100
+    defector_share: float = 0.0
+    lost_key_prob: float = 0.0
     attack_moved_tol: float = 0.05
     pool_outage_rate_per_day: float = 0.033333333333333
     pool_outage_mean_hours: float = 4.0

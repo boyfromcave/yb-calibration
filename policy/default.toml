@@ -126,3 +126,9 @@ claim_reaction_blocks = 576                  # blocks a claimant needs to react 
 registration_notice_blocks = 8064                 # public notice before arming, blocks (G8)
 min_capture_days = 90                   # min days for a new large bond to reach capture weight (G8)
 max_newcomer_seat_days = 365                  # max days for a new honest bond to win a seat (G8)
+
+[agents]  # behavioural assumptions of the vault-book personas (D-WP4-3); studies map these onto AgentsConfig
+yed_premium_bps = 0                # premium (+) or discount (-) of YED vs $1 when burners buy it, bps
+claimant_slippage_bps = 100        # base slippage a claimant pays selling seized YEC, bps
+defector_share = 0.0               # fraction of owners who sweep without burning when enforcement is off
+lost_key_prob = 0.0                # probability an owner's key is lost for good
