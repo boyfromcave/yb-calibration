@@ -500,3 +500,76 @@ against the simulator's own bundle success rate.
   streams stay exact.
 - D-WP5-3 item 2 (iterating PIN-1/PIN-2 coupling to a fixed point) is not yet done: the engine runs
   one pass (oracle → attest → PIN-1 → medians). Assigned to WP-8.
+
+## D-WP7a-1 (2026-10-03, WP-7a) — G1 objective is normalised by the current windows
+
+**Decision.** PLAN §5.1's "crash-lag CVaR₉₅ plus λ × pump overpricing" adds hours to bps, so λ would
+mean nothing. The study uses J = CVaR₉₅(pClaim 90 % crash lag)/current + λ · E[pMint − true | pump-dump]/current,
+both normalised by the current windows' values; λ = `pump_overpricing_lambda` is then a relative
+weight (0.5: half a crash lag's worth of relative change). The crash-lag term is the **pClaim** 90 %
+lag (pClaim = max(pMid, pSlow) is the price that lags a fall); pMint lags are reported.
+**Consequence.** J(current) = 1 + λ; materiality applies to J.
+
+## D-WP7a-2 (2026-10-03, WP-7a) — G1 manipulation constraint: analytic V16 plus a simulated check
+
+**Decision.** `attack_share_min` holds when (a) every window's V16 threshold (smallest coalition
+share whose quotes are the lower median with probability ≥ ½, exact binomial, coalition carved out of
+the tagging share) is ≥ `attack_share_min`, and (b) a coalition of exactly that share, biasing ±10 %,
+moves pMint up or pClaim down by ≥ half its bias in ≤ 5 % of attack blocks (`ATTACK_MOVED_TOL`).
+**Reason.** (a) is nearly window-independent (≈ 40 % of hash at 80 % tagging), so on its own it never
+discriminates; (b) catches the rank-shift effect (a minority pushes the lower median up the honest
+quotes, whose spread grows with the window). Only the harmful directions count (over-minting,
+premature claims); griefing moves are reported.
+**Request to WP-0.** Add a policy key `attack_moved_tol` (default 0.05) so the owner sets (b).
+
+## D-WP7a-3 (2026-10-03, WP-7a) — G1/G2 pool-outage model and NO_PRICE availability
+
+**Decision.** Background availability (`no_price_h_per_year`, the `max_no_price_hours` constraint)
+is measured in calm with independent per-pool feed outages: each of the policy's equal pools has
+1 outage per 30 days, exponential length with mean 4 h, signal-only tags while out. A 6-hour outage of
+every feed is reported per event (`no_price_h_per_feed_outage`), not annualised.
+**Reason.** The policy has no outage frequency; annualising the all-feeds event at any assumed rate
+≥ 1/yr makes every window set infeasible (≥ 6 h per event), which says nothing about windows.
+**Finding.** At 80 % tagging with 6 equal pools, one pool out leaves a 66.7 % tag rate — exactly the
+⌈2W/3⌉ fill — so pMid at 576 blocks flickers to NO_PRICE during long single-pool outages
+(≈ 16–20 h/yr under this model; 1,152 blocks ≈ 0.4–4 h/yr). The constraint, and with it the G1
+recommendation, rests on this placeholder; measured pool tagging data should replace it.
+**Request to WP-0.** Policy keys `pool_outage_rate_per_day` / `pool_outage_mean_hours` (and
+optionally `feed_outages_per_year`).
+
+## D-WP7a-4 (2026-10-03, WP-7a) — G1 keeps HALT-3 working: recall constraint on crash-70-1d
+
+**Decision.** A window set must keep HALT-3 firing within one day of the crash start on ≥
+`halt_recall_floor` of `crash-70-1d` paths at the current `divergenceBps`.
+**Reason.** HALT-3 compares the medians, so G1 can silently disable it (G7 coupling). The slow
+30-day `crash-90-30d` never trips HALT-3 at 20 % divergence for any window set; its recall is
+reported, not constrained (that is G7's question).
+
+## D-WP7a-5 (2026-10-03, WP-7a) — G2 window rule also bounds the K12 trap; responsiveness on σ̂
+
+**Decision.** volWindow/volStep must keep both the regime-shift responsiveness and the K12 cap trap
+after a 6-hour feed outage (blocks with an undefined sample after the feeds return, ≈ volWindow +
+pFast recovery) within `max_sigma_lag_blocks`. Responsiveness is measured on the unclamped σ̂ (median
+over paths), not the clamped multiplier, which is flat at 1× whenever both regimes sit below the
+reference.
+**Reason.** The trap is the other way the multiplier fails to reflect the market (fact 1.5-3), with
+the same lag tolerance; without it the CV rule always prefers the longest admissible window.
+
+## D-WP7a-6 (2026-10-03, WP-7a) — sigmaRefBps: round down; KEEP inside the M14 band
+
+**Decision.** The rule value is the realised median pFast-based σ̂ rounded **down** to 500 bps (so
+the unclamped median multiplier is ≥ 1×, inside the M14 band); the band test uses the unclamped
+ratio σ̂₅₀/sigmaRef (the clamped median is ≥ 1× by construction). The current value is kept while that
+ratio lies in `sigma_accept_band` and the rule value is within `materiality`; the cap is kept while it
+covers the p99 turbulent multiplier and is within `materiality` above the rule value.
+**Reason.** PLAN §2.3 (minimal change) applied to rules that compute a value directly rather than
+search for one.
+
+## D-WP7a-7 (2026-10-03, WP-7a) — evidence directory and shared realisations
+
+**Decision.** Studies write evidence to `env.data["out_dir"]/<group>/` (or `env.data["workdir"]`), else
+a fresh temp dir. `decide()` has no `Env`, so `evaluate` puts `out_dir` (and the budget name) into
+`Metrics.meta`. G1 and G2 share one per-process memo of scenario realisations and medians
+(`g1_price_windows.realise` / `median`), keyed by seed, scenario, paths, horizon, data hash and the
+policy's pool parameters.
+**Request to WP-0/WP-8.** An `Env.out_dir` field would make this explicit.
