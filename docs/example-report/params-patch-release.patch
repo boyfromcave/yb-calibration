@@ -1,0 +1,21 @@
+diff --git a/src/yellowback/params.cpp b/src/yellowback/params.cpp
+--- a/src/yellowback/params.cpp
++++ b/src/yellowback/params.cpp
+@@ -59,7 +59,7 @@
+     p.sigmaRefBps       = 10000;
+     p.sigmaMultMaxBps   = 30000;
+ 
+-    p.nPenalty       = 288;         // L6 wallet defaults
++    p.nPenalty       = 144;         // L6 wallet defaults | ybcal patch-release: nPenalty 288 -> 144 (report §3.39)
+     p.accuracyWindow = 576;
+     p.payeeTiltBps   = 10000;
+ 
+@@ -97,7 +97,7 @@
+     p.dormancyCheck       = 48;     // S15
+     p.carrierValue        = 10000;  // wallet policy
+     p.attestInterval      = 10;     // k, agent policy
+-    p.walletConfirmations = 6;      // wallet policy
++    p.walletConfirmations = 24;      // wallet policy | ybcal patch-release: walletConfirmations 6 -> 24 (report §3.71)
+ }
+ 
+ } // namespace

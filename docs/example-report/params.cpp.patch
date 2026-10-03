@@ -1,0 +1,91 @@
+diff --git a/src/yellowback/params.cpp b/src/yellowback/params.cpp
+--- a/src/yellowback/params.cpp
++++ b/src/yellowback/params.cpp
+@@ -20,8 +20,8 @@
+     p.tokenValue = TOKEN_VALUE;
+     p.refWindow  = REF_WINDOW;
+ 
+-    p.pFastWindow = 96;   p.pFastMinFill = 48;     // ceil(W/2)
+-    p.pMidWindow  = 576;  p.pMidMinFill  = 384;    // ceil(2W/3) (L9)
++    p.pFastWindow = 48;   p.pFastMinFill = 24;     // ceil(W/2) | ybcal: pFastWindow 96 -> 48 (report §3.1); pFastMinFill 48 -> 24 (report §3.1)
++    p.pMidWindow  = 1152;  p.pMidMinFill  = 768;    // ceil(2W/3) (L9) | ybcal: pMidWindow 576 -> 1152 (report §3.2); pMidMinFill 384 -> 768 (report §3.2)
+     p.pSlowWindow = 2016; p.pSlowMinFill = 1344;
+ 
+     p.signalWindow        = 2016;
+@@ -35,28 +35,28 @@
+ 
+     p.nReg            = 576;
+     p.peerLag         = 10;
+-    p.peerMin         = 5;
+-    p.deviationBps    = 1000;
+-    p.accuracyBandBps = 300;
++    p.peerMin         = 12;  // ybcal: peerMin 5 -> 12 (report §3.33)
++    p.deviationBps    = 500;  // ybcal: deviationBps 1000 -> 500 (report §3.34)
++    p.accuracyBandBps = 100;  // ybcal: accuracyBandBps 300 -> 100 (report §3.35)
+     p.payeeWindow     = 100;
+ 
+     p.feeMin = 50000000;            // 0.5 YEC (V10)
+-    p.feeBps = 25;
++    p.feeBps = 10;  // ybcal: feeBps 25 -> 10 (report §3.38)
+ 
+     p.grace              = 34560;   // 30 d
+     p.claimThresholdBps  = 11000;
+-    p.supplyCapBps       = 1500;    // 15 % of market cap (V21)
++    p.supplyCapBps       = 5000;    // 15 % of market cap (V21) | ybcal: supplyCapBps 1500 -> 5000 (report §3.28)
+     p.globalRatioHaltBps = 25000;
+     p.recapRatioBps      = 50000;       // W16: twice the halt floor; on every network only class A (500 %) mints through a halt
+-    p.divergenceBps      = 2000;
+-    p.classMin[0] = 34560;  p.classMax[0] = 103680;  p.baseRatioBps[0] = 50000;   // A: 30-90 d
+-    p.classMin[1] = 103681; p.classMax[1] = 420480;  p.baseRatioBps[1] = 40000;   // B: 90-365 d
+-    p.classMin[2] = 420481; p.classMax[2] = 2102400; p.baseRatioBps[2] = 30000;   // C: 1-5 y (MAX_LOCK, V19)
+-
+-    p.volWindow         = 2016;
+-    p.volStep           = 48;
+-    p.volPeriodsPerYear = 8760;     // K13: equal on every network
+-    p.sigmaRefBps       = 10000;
++    p.divergenceBps      = 1000;  // ybcal: divergenceBps 2000 -> 1000 (report §3.30)
++    p.classMin[0] = 34560;  p.classMax[0] = 103680;  p.baseRatioBps[0] = 72500;   // A: 30-90 d | ybcal: baseRatioBps[0] 50000 -> 72500 (report §3.22)
++    p.classMin[1] = 103681; p.classMax[1] = 420480;  p.baseRatioBps[1] = 70000;   // B: 90-365 d | ybcal: baseRatioBps[1] 40000 -> 70000 (report §3.23, BLOCKED: least-violating value)
++    p.classMin[2] = 420481; p.classMax[2] = 2102400; p.baseRatioBps[2] = 60000;   // C: 1-5 y (MAX_LOCK, V19) | ybcal: baseRatioBps[2] 30000 -> 60000 (report §3.24, BLOCKED: least-violating value)
++
++    p.volWindow         = 2880;  // ybcal: volWindow 2016 -> 2880 (report §3.4)
++    p.volStep           = 24;  // ybcal: volStep 48 -> 24 (report §3.5)
++    p.volPeriodsPerYear = 17520;     // K13: equal on every network | ybcal: volPeriodsPerYear 8760 -> 17520 (report §3.5)
++    p.sigmaRefBps       = 7000;  // ybcal: sigmaRefBps 10000 -> 7000 (report §3.6)
+     p.sigmaMultMaxBps   = 30000;
+ 
+     p.nPenalty       = 288;         // L6 wallet defaults
+@@ -74,26 +74,26 @@
+     p.mSelect             = 4;
+     p.kSlack              = 2;
+     p.bundleMax           = 6;      // the 520-byte push
+-    p.qLowBps             = 3333;
+-    p.qHighBps            = 6667;
++    p.qLowBps             = 3500;  // ybcal: qLowBps 3333 -> 3500 (report §3.49)
++    p.qHighBps            = 6500;  // ybcal: qHighBps 6667 -> 6500 (report §3.49)
+     p.attestMaxAge        = 20;     // 2 k (R4)
+     p.pinWindow           = 288;    // PIN-1/2
+     p.pinDeltaBps         = 500;
+     p.pinMinTags          = 3;
+     p.pinMinBundles       = 2;
+-    p.divergeBpsAttest    = 1500;   // MINT-10
+-    p.emergencyRatioBps   = 10500;  // NOT-1, RED-4(b)
++    p.divergeBpsAttest    = 1100;   // MINT-10 | ybcal: divergeBpsAttest 1500 -> 1100 (report §3.54)
++    p.emergencyRatioBps   = 10900;  // NOT-1, RED-4(b) | ybcal: emergencyRatioBps 10500 -> 10900 (report §3.25)
+     p.emergencyPersist    = 48;
+     p.emergencyNoticeTtl  = 1152;
+     p.residualMinZat      = 100000; // RED-5
+-    p.attestFeeBps        = 2500;   // AFEE-1 (D-3)
+-    p.bondMin             = 20000 * COIN;
++    p.attestFeeBps        = 3500;   // AFEE-1 (D-3) | ybcal: attestFeeBps 2500 -> 3500 (report §3.42)
++    p.bondMin             = 30000 * COIN;  // ybcal: bondMin 2000000000000 -> 3000000000000 (report §3.57)
+     p.bondMinLock         = 420480; // one year
+     p.bondMaturity        = 16128;  // two weeks
+     p.ageCap              = 207360; // 180 d
+     p.foundingWindow      = 8064;   // 7 d
+     p.dormancyBlocks      = 16128;
+-    p.dormancyMinBundles  = 20;
++    p.dormancyMinBundles  = 12;  // ybcal: dormancyMinBundles 20 -> 12 (report §3.62)
+     p.dormancyCheck       = 48;     // S15
+     p.carrierValue        = 10000;  // wallet policy
+     p.attestInterval      = 10;     // k, agent policy

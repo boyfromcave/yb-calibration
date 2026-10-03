@@ -1074,11 +1074,18 @@ def calibrate_kernel(
 
 
 def kernel_error(
-    kernel: OracleTransferKernel, block_series: BlockSeries, *, params: Mapping | None = None, true_price=None
+    kernel: OracleTransferKernel,
+    block_series: BlockSeries,
+    *,
+    params: Mapping | None = None,
+    true_price=None,
+    tolerance_bps: float | None = None,
 ) -> dict:
     """Hour-mode (deterministic: bias, no noise) versus block mode at every hour mark after the slow
     warm-up. Returns, per series, the p50 / p95 / max absolute relative error in bps, plus the
-    NO_PRICE disagreement rate and the σ multiplier's absolute error (bps of 1×)."""
+    NO_PRICE disagreement rate and the σ multiplier's absolute error (bps of 1×). ``within_tolerance``
+    says whether the pMint and pClaim p95 errors are at most ``tolerance_bps`` (callers pass
+    ``Policy.hour_kernel_tolerance_bps``; default :data:`KERNEL_TOLERANCE_P95_BPS`)."""
     prm = params if params is not None else block_series.params
     tp = _2d(true_price if true_price is not None else block_series.true_price, np.int64)
     ht = _hour_marks(tp)
@@ -1114,6 +1121,9 @@ def kernel_error(
         if d.size
         else {"p50": np.nan, "p95": np.nan, "max": np.nan}
     )
+    tol = KERNEL_TOLERANCE_P95_BPS if tolerance_bps is None else float(tolerance_bps)
+    out["tolerance_bps"] = tol
+    out["within_tolerance"] = bool(out["p_mint"]["p95"] <= tol and out["p_claim"]["p95"] <= tol)
     return out
 
 

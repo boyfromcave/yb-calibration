@@ -80,7 +80,7 @@ The fastest way to see how much a key matters is to rerun one group with a chang
 | `sigma_ref_round_bps` | 500 | bps | Rounding step for the recommended `sigmaRefBps`. | G2 | Presentation only; 500 matches the shipped value's granularity. |
 | `sigma_mult_cap_pctl` | 99 | percentile | Percentile of the turbulent-regime multiplier that `sigmaMultMaxBps` must cover. | G2 | Lower values give a smaller cap (less collateral in a K12 trap) but leave extreme regimes under-collateralised. |
 | `sigma_accept_band` | [1.0, 1.5] | multiplier range | M14 acceptance band for the median multiplier at realised volatility: `sigmaRefBps` is kept while σ̂₅₀ / σref lies inside it. | G2 | The spec's own band; change only with a spec change. |
-| `hour_kernel_tolerance_bps` | 300.0 | bps (p95 relative error) | Tolerance of the hour-mode oracle transfer kernel against block mode (D-WP3-5). | documented contract only: the kernel tests use the library default `engine.KERNEL_TOLERANCE_P95_BPS`; no study reads this key today | Leave as is. Measured error is about 50 bps. |
+| `hour_kernel_tolerance_bps` | 300.0 | bps (p95 relative error) | Tolerance of the hour-mode oracle transfer kernel against block mode (D-WP3-5). | `engine.kernel_error(tolerance_bps=…)` → `within_tolerance`; the kernel test passes it | Leave as is. Measured error is about 50 bps. |
 
 ## `[activation]` — activation and enforcement (G5)
 
@@ -157,7 +157,7 @@ The fastest way to see how much a key matters is to rerun one group with a chang
 | `attestor_outage_correlation` | 0.10 | correlation | Pairwise correlation of attestor outages (beta-binomial liveness). | G8 | Raise it if attestors share hosting or a price source. |
 | `max_attest_unavailability` | 0.01 | probability | Maximum P(minting refuses for want of a bundle). | G8 | A continuity budget once ARMED. |
 | `max_single_entity_weight_share` | 0.25 | fraction of weight | Largest attestor weight share one entity is assumed to hold. `qLowBps` must exceed it (invariant `qlow_vs_entity`). | invariants, G8 | Set from the expected attestor roster. If one entity may hold more than 1/3, the shipped `qLowBps` fails. |
-| `diverge_spread_multiplier` | 3.0 | multiplier | `divergeBpsAttest` = this × the worst source pair's p95 spread (proposal §16). | documented in the G8 rule text; **the ported `spreads.py` analysis currently uses its built-in 3.0**, so changing this key has no effect yet (see "Known gaps" below) | Keep 3.0 (the proposal's value) until the wiring is fixed. |
+| `diverge_spread_multiplier` | 3.0 | multiplier | `divergeBpsAttest` = this × the worst source pair's p95 spread (proposal §16). | G8 (`spreads_inputs` → ported `analyze_spreads(multiple=…)`) | Keep 3.0 (the proposal's value) unless the owner wants more headroom. |
 | `pin_low_move_fraction` | 0.05 | fraction of windows | If fewer `pinWindow` windows than this have a ≥ `pinDeltaBps` move, G8 lowers `pinDeltaBps` to 200–300. | G8 | The proposal's 5 %. |
 | `max_false_pin_prob` | 0.01 | probability/day | Maximum P(an honest pool or attestor is marked pinned) per day. | G8 | Tighter raises `pinMinTags`/`pinMinBundles` (slower detection of frozen feeds). |
 | `max_false_ejection_prob` | 0.01 | probability/year | Maximum P(an honest attestor is ejected for dormancy) per year. | G8 | Ejection costs the honest attestor its seat; 1 %/yr is mild. |
@@ -253,10 +253,8 @@ These keys carry guesses, not measurements, and the report flags the results tha
 
 ## Known gaps
 
-- `diverge_spread_multiplier` is not wired: `g8_attestation.spreads_inputs` calls the ported
-  `analyze_spreads` with its default `multiple=3.0`. Until that is fixed, only the default value is
-  honoured.
-- `hour_kernel_tolerance_bps` is a documented contract (D-WP3-5) that no study reads; the hour-mode
-  kernel test uses the engine's library constant of the same value.
+None open. (Fixed 2026-10-03: `diverge_spread_multiplier` now reaches the ported spreads analysis;
+`hour_kernel_tolerance_bps` is passed to `engine.kernel_error(tolerance_bps=…)`, which reports
+`within_tolerance`.)
 
 `tests/test_docs_policy.py` fails if a `Policy` field is missing from this page.

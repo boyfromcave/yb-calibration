@@ -162,7 +162,12 @@ def spreads_inputs(env: Env) -> dict[str, Any]:
                 ts = 1_700_000_000 + (i * q.shape[2] + np.arange(q.shape[2])) * ports.DEFAULT_INTERVAL
                 rows += ports.rows_from_quotes(ts, q[i], names)
             prov = "synthetic"
-        res = ports.analyze_spreads(rows, ports.DEFAULT_INTERVAL, names=names)
+        res = ports.analyze_spreads(
+            rows,
+            ports.DEFAULT_INTERVAL,
+            multiple=float(getattr(env.policy, "diverge_spread_multiplier", 3.0)),
+            names=names,
+        )
         calm = _row_max_spreads(rows, names)
         crash = _crash_spreads(env, model, rng)
         return {"res": res, "target": res["recommended_bps"], "provenance": prov, "calm": calm,

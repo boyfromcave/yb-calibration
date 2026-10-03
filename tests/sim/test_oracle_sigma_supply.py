@@ -250,9 +250,12 @@ def test_hour_mode_kernel_error_within_tolerance():
     held = gbm(np.random.default_rng(42), 4, 20 * 1_152, vol=1.5)
     inp = O.generate_block_inputs(held, O.OracleConfig.honest(), rng=np.random.default_rng(9))
     bs = E.simulate_blocks(ps, inp, activation_mode="always_active")
-    err = E.kernel_error(kern, bs)
+    from ybcal.config import Policy
+
+    err = E.kernel_error(kern, bs, tolerance_bps=Policy.load().hour_kernel_tolerance_bps)
     for k in ("p_mint", "p_claim"):
         assert err[k]["p95"] <= E.KERNEL_TOLERANCE_P95_BPS, (k, err[k])
+    assert err["within_tolerance"]
     hs = E.simulate_hours(ps, held[:, 47::48], kern, rng=np.random.default_rng(0))
     assert hs.p_mint.shape == (4, 20 * 24) and (hs.halt_mask[:, :2] & E.HALT_NO_PRICE).all()
     assert (hs.sigma_mult_bps[:, :42] == 30_000).all()
