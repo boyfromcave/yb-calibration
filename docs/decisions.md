@@ -348,3 +348,9 @@ W20 soft supply cap (`deff6f5`) and the `mintingAllowed` / `supplyCapReached` RP
 (`a8291a0`). With `-yellowbacksupplycapbps=0` W20 has no effect, so that binary is usable for
 stock-column runs under `--allow-version-skew`. It is not usable for runs with a cap, such as a
 scaled mainnet overlay's 1,500 bps.
+
+## D-WP9-3 resolution (2026-10-03, integrator)
+
+`invariants._sunset` now applies the `startHeight + BLOCKS_PER_YEAR` clause at mainnet scale only;
+at regtest scale a non-zero sunset must merely lie after `startHeight`. `scaling.check_regtest`'s
+filter is now redundant but harmless and is kept.

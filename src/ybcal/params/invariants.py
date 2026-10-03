@@ -189,7 +189,12 @@ def _sunset(ps: ParamSet, ctx: Context) -> list[str]:
     if ps.is_regtest_scale and u == 0:
         return []
     out = []
-    if u != s + BLOCKS_PER_YEAR:
+    # The one-year length is a mainnet-scale clause; a scaled or flag-set regtest sunset is
+    # legitimate as long as it lies after the start (D-WP9-3).
+    if ps.is_regtest_scale:
+        if u <= s:
+            out.append(f"enforceUntilHeight {u} <= startHeight {s}")
+    elif u != s + BLOCKS_PER_YEAR:
         out.append(f"enforceUntilHeight {u} != startHeight + {BLOCKS_PER_YEAR} = {s + BLOCKS_PER_YEAR}")
     if ctx.next_upgrade_height is not None and u > ctx.next_upgrade_height:
         out.append(f"sunset {u} past the next network upgrade at {ctx.next_upgrade_height}")
