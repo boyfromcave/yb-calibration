@@ -355,6 +355,12 @@ def format_description(d: dict[str, Any]) -> str:
             f"(>= 6 h: {fl['runs_ge_6h']})  run p50 {fl['run_p50_hours']:g} h  "
             f"p90 {fl['run_p90_hours']:g} h  max {fl['run_max_hours']:g} h"
         )
+    cl = d.get("meta", {}).get("clamped_points")
+    if cl:
+        lines.append(
+            f"WARNING: {cl} observations lie outside the node's price bounds ($0.0001 .. $100) and were "
+            "clamped: statistics are wrong; rescale the file (--scale) — returns are scale-free"
+        )
     g = d["gaps"]
     lines.append(
         f"gaps: zero steps {g['zero_steps']}  longest {g['longest_gap_hours']:.1f} h  "

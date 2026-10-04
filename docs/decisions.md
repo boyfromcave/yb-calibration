@@ -109,6 +109,11 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-WP8-10](#d-wp8-10-2026-10-03-wp-8--rich-design-notes-blocked-rendering-late-round-failures) | WP-8 | rich design notes, BLOCKED rendering, late-round failures (G6 bug fixed in the last note) |
 | [note](#g6-undefined-honest-p99-2026-10-03-integrator) | integrator | G6 undefined honest p99 |
 | [D-WP10-1](#d-wp10-1-2026-10-03-wp-10--documentation-integration-policy-reference-is-tested) | WP-10 | documentation integration; policy reference is tested |
+| [D-RD-D1](#d-rd-d1-2026-10-03-data--fitted-drift-is-neutralised-by-default) | data (M7) | fitted drift is neutralised by default |
+| [D-RD-D2](#d-rd-d2-2026-10-03-data--long-history-sources-and-the-splice) | data (M7) | long-history sources and the splice |
+| [D-RD-D3](#d-rd-d3-2026-10-03-data--reconstructed-spreads-stand-in-for-the-two-week-log) | data (M7) | reconstructed spreads stand in for the two-week log |
+| [D-RD-D4](#d-rd-d4-2026-10-03-data--stale-runs-regime-embedding-and-garch-at-its-bounds) | data (M7) | stale runs, regime embedding and GARCH at its bounds |
+| [D-RD-D5](#d-rd-d5-2026-10-03-data--data-informed-policy-keys) | data (M7) | data-informed policy keys |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -1205,3 +1210,83 @@ on `math.ceil(nan)`; this was the round-2 joint-pass failure reported in WP-8.
   `KERNEL_TOLERANCE_P95_BPS` (same value) is what the kernel tests use.
 - CI does not run `recommend --budget quick --synthetic` (PLAN §8); `make quick` is the manual
   smoke run.
+
+## D-RD-D1 (2026-10-03, data) — fitted drift is neutralised by default
+
+**Decision.** `synthetic.fit` (and `ybcal data synth --calibrate`) shifts every fitted model's drift
+so its expected log return is zero (`--drift zero`, default; `--drift fitted` keeps the sample's),
+and `BlockBootstrap.fit` returns a demeaned bootstrap. The regime switch keeps the difference
+between its two states' drifts (crash regimes stay crash regimes); only the stationary mean moves.
+**Reason.** On real data the fitted drift is noise that dominates: the CoinGecko year
+2025-10-04..2026-10-04 rose 0.057 → 0.361 USD (+184 %/yr of log drift), so a 5-year bootstrap
+or GBM fitted to it ended at the $100 `PRICE_MAX` clamp in the median, and G3 — which
+bootstrapped real data without demeaning, unlike G1/G2/G6 — would have judged collateral safety
+on a market that only goes up. Drift's standard error over one year at YEC's ≈ 230 % volatility
+is ≈ 230 %/yr: not identifiable. Zero log drift (a flat median) is the no-view choice; a
+martingale (zero arithmetic drift) at 230 % volatility would make the median fall 93 % a year,
+against the 7-year record of ≈ −35 %/yr. Harsher paths are the scenarios' job.
+**Consequences.** G3's real-data ensemble changes (now drift-neutral). The presets keep μ = 0
+(arithmetic) as before.
+
+## D-RD-D2 (2026-10-03, data) — long-history sources and the splice
+
+**Decision.** `yec-hourly.csv` = CoinGecko's hourly year (the attestor's own aggregate) spliced
+over CoinMarketCap hourly (2020-03-26 →); `yec-daily.csv` = CoinMarketCap daily spliced over
+CoinCodex daily (2019-07-20 → 2020-03-25). Raw prices, no rescaling at the cut; the overlap check
+and the splice-step return are recorded in each file's provenance. The pure single-source files
+stay beside them.
+**Reason.** The free CoinGecko plan serves 365 days; CryptoCompare now needs a key; CoinPaprika's
+free plan serves one day of history. CoinMarketCap's public chart API and CoinCodex were the only
+free long sources. Overlap: CoinGecko vs CoinMarketCap hourly median |diff| 68 bps, return
+correlation 0.73 (hourly noise of two aggregators); at 00:00 UTC daily, 57 bps and 0.89.
+**Consequences.** Hourly statistics before 2025-10 are CoinMarketCap's, which has stale runs
+(D-RD-D4) and an unreliable volume field (zero or cents for long stretches): volume comes from
+CoinGecko only. CoinMarketCap's endpoint is unofficial and may change.
+
+## D-RD-D3 (2026-10-03, data) — reconstructed spreads stand in for the two-week log
+
+**Decision.** Until `spreads.py log` has run two weeks (started 2026-10-03, `spreads-live.csv`),
+`spreads-reconstructed.csv` (same columns) is built from hourly data: `coingecko` = CoinGecko's
+hourly point; `safetrade`/`nonkyc` = the venue's last trade at or before it (close of its last
+hourly candle with volume > 0), which is what the attestor's `coingecko_ticker` (SafeTrade
+`converted_last`) and `nonkyc_market` (`lastPriceNumber`) sources read. A second file applies the
+attestor's `max_age = 3600` to the venues.
+**Reason.** The spread model and `divergeBpsAttest` need a distribution now; the venues' own candle
+histories are the attestors' inputs, one hour apart instead of five minutes.
+**Consequences.** Biases (docs/real-data-2026-10.md §4): hourly sampling (fewer, but identically
+distributed, points), CoinGecko's hourly point is itself a smoothed aggregate, venue last trades
+include stale quotes the live agent would still read (SafeTrade traded in 55 % of hours last
+year). The live log supersedes it once it holds two weeks.
+
+## D-RD-D4 (2026-10-03, data) — stale runs, regime embedding and GARCH at its bounds
+
+**Decision.** (1) Fits drop runs of ≥ 6 exactly-zero returns and the return that closes each run.
+(2) The regime switch maps its fitted discrete chain to CTMC rates through the exact two-state
+embedding and simulates with `exp(Q dt)`. (3) A GARCH fit on its bounds (α = 0.5, ν → 2,
+α + β → 1) is flagged and `data synth` warns; the bootstrap is the recommended real-data generator.
+**Reason.** (1) CoinMarketCap held YEC at one price for 359 h in 2025: the GARCH likelihood
+collapsed to ω ≈ 2·10⁻¹¹ (realised vol 0.1 %). (2) The per-state map `q = −ln(1 − p)/dt` is
+exact only when switching is rare per step; YEC's hourly fit switches every few hours, and the
+mismatch left +1.4/yr of log drift (median 5-year price $94 from $0.36). (3) Every YEC GARCH(1,1)-t
+fit (hourly 1 y, hourly 6.5 y, daily 7 y) lands at α = 0.5 and α + β ≈ 0.9999 with ν ≈ 2.3–3: the
+data leave the model family (excess kurtosis 48 hourly, negative lag-1 autocorrelation −0.19).
+**Consequences.** Fitted models differ from the pre-M7 code on any data with these features.
+
+
+## D-RD-D5 (2026-10-03, data) — data-informed policy keys
+
+**Decision.** `policy/real-data-2026-10.toml` = `policy/default.toml` with four keys set from the
+M7 data (docs/real-data-2026-10.md §10): `yec_daily_volume_p10_usd = 700` and
+`p10_daily_volume_usd = 700` (CoinGecko daily 24 h volume p10 over 2025-10-04..2026-10-04: $718),
+`expected_pool_count = 4` (payout keys ≥ 5 % of 70,000 blocks: median 4 per day, minimum 3;
+effective number 2.9), `expected_enforcing_share = 0.70` (ninjaraider 52.0 % + mining-dutch
+13.7 % + dapool 6.1 %). `policy/default.toml` is not changed: the integrator chooses.
+**Reason.** The defaults were placeholders: the volume placeholder (25,000) overstated liquidity
+35×; six tagging pools and 80 % enforcing hash assume a broader pool landscape than mainnet has.
+0.70 is what the three identified operators deliver; 0.80 also needs an unidentified 21 % payout
+key. `diverge_spread_multiplier` stays 3.0 (the data change its input: worst-pair p95 1,906 bps
+reconstructed, so `divergeBpsAttest` ≈ 5,800 bps, provisional until the live log has two weeks).
+`attack_share_min` is a goal, not a measurement, and is left alone — but the measured top-1 share
+(0.52) exceeds it, which the owner should see.
+**Consequences.** G5 should also be read at 0.48 (the ceiling without the top pool); G7/G9 depth
+checks become binding at ~$70/day of liquidation volume (`max_depth_fraction` × $700).

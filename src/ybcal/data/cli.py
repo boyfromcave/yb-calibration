@@ -367,7 +367,12 @@ def configure_import(p: argparse.ArgumentParser) -> None:
         default=None,
         help="price: a grid point older than this since its last observation becomes a gap (0)",
     )
-    p.add_argument("--interval", type=int, default=300, help="spreads: the logging interval in seconds")
+    p.add_argument(
+        "--interval",
+        type=int,
+        default=None,
+        help="spreads: the logging interval in seconds (default: the log's modal spacing; spreads.py: 300)",
+    )
 
 
 def cli_import(args: argparse.Namespace) -> int:
@@ -399,7 +404,8 @@ def cli_import(args: argparse.Namespace) -> int:
             f"spreads: {len(obj)} rows ({obj.rows_skipped} skipped, {obj.duplicates} duplicates); "
             f"missing per source: {obj.missing()}"
         )
-        print(obj.gaps(getattr(args, "interval", 300)).summary())
+        interval = getattr(args, "interval", None) or loaders.infer_step(obj.ts)
+        print(obj.gaps(interval).summary())
         for (a, b), xs in obj.pair_spreads_bps().items():
             if len(xs):
                 print(
@@ -407,7 +413,7 @@ def cli_import(args: argparse.Namespace) -> int:
                     f"max={xs.max():.0f} bps"
                 )
         try:
-            m = synthetic.SpreadModel.fit(obj, getattr(args, "interval", None))
+            m = synthetic.SpreadModel.fit(obj, interval)
             print("fitted spread model: " + json.dumps(synthetic.describe_model(m), default=float))
         except ValueError as e:
             print(f"spread model not fitted: {e}")
@@ -454,6 +460,7 @@ def configure_synth(p: argparse.ArgumentParser) -> None:
         "--resolution", choices=("hour", "block"), default="hour", help="output grid (default hour)"
     )
     p.add_argument("--p0-usd", type=float, default=synthetic.DEFAULT_P0 / 1e6, help="start price in USD")
+    _add_scale(p)
     p.add_argument(
         "--drift",
         choices=synthetic.DRIFTS,
@@ -469,8 +476,11 @@ def configure_synth(p: argparse.ArgumentParser) -> None:
     )
 
 
-def _load_price(path: str) -> pricepath.PricePath:
-    """A PricePath from ``.npz`` / our CSV / any price CSV (hour grid, with the filled mask)."""
+def _load_price(path: str, scale: float = 1.0) -> pricepath.PricePath:
+    """A PricePath from ``.npz`` / our CSV / any price CSV (hour grid, with the filled mask).
+
+    ``scale`` multiplies a price CSV's prices before they meet the node's µUSD bounds — for a
+    proxy asset priced above $100 (ZEC), whose returns are what matter."""
     if path.endswith(".npz"):
         return pricepath.from_npz(path)
     if Path(path + ".meta.json").exists():  # written by pricepath.to_csv
@@ -479,7 +489,21 @@ def _load_price(path: str) -> pricepath.PricePath:
         series = loaders.load_price_csv(path)
     except loaders.DataFormatError:
         return pricepath.from_csv(path)
-    return loaders.resample_to_grid(series, "hour").path
+    if scale != 1.0:
+        series.price_usd = series.price_usd * scale
+    pp = loaders.resample_to_grid(series, "hour").path
+    if scale != 1.0:
+        pp.meta["price_scale"] = scale
+    return pp
+
+
+def _add_scale(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--scale",
+        type=float,
+        default=1.0,
+        help="multiply prices by this before loading (e.g. 0.001 for ZEC, above the $100 bound)",
+    )
 
 
 def cli_synth(args: argparse.Namespace) -> int:
@@ -491,7 +515,8 @@ def cli_synth(args: argparse.Namespace) -> int:
     try:
         if args.calibrate:
             drift = getattr(args, "drift", "zero")
-            model = synthetic.fit(args.model, _load_price(args.calibrate), drift=drift)
+            src = _load_price(args.calibrate, getattr(args, "scale", 1.0))
+            model = synthetic.fit(args.model, src, drift=drift)
         else:
             overrides = {}
             for kv in getattr(args, "set", []) or []:
@@ -533,13 +558,14 @@ def cli_synth(args: argparse.Namespace) -> int:
 def configure_describe(p: argparse.ArgumentParser) -> None:
     """Extra ``data describe`` arguments."""
     p.add_argument("--json", action="store_true", help="JSON output")
+    _add_scale(p)
     p.add_argument("--horizons", default=None, help="comma-separated drawdown horizons in days")
 
 
 def cli_describe(args: argparse.Namespace) -> int:
     """Realised vol, drawdowns over all start dates, tail index, gaps, autocorrelation."""
     try:
-        pp = _load_price(args.file)
+        pp = _load_price(args.file, getattr(args, "scale", 1.0))
     except (OSError, ValueError, loaders.DataFormatError) as e:
         print(f"ybcal data describe: {e}", file=sys.stderr)
         return EXIT_BAD_INPUT

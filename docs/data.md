@@ -34,6 +34,19 @@ Ported in behaviour (not imported) from ycash6 `contrib/yellowback/yellowback_pr
 | `coingecko` | `/coins/{coin}/market_chart?vs_currency=usd&days=N` (`auto`: hourly ≤ 90 days, daily beyond); `--granularity hourly`: `/market_chart/range` in ≤ 89-day chunks; `daily`: `&interval=daily` | history CSV `ts_iso,ts,price_usd,volume_24h_usd` |
 | `tickers` | `/coins/{coin}/tickers?exchange_ids=safe_trade` (fields of the `coingecko_ticker` preset: `converted_last.usd`, `bid_ask_spread_percentage`, `last_traded_at`, `is_stale`, `is_anomaly`, `volume`) | appends one row per ticker |
 | `nonkyc` | `https://api.nonkyc.io/api/v2/market/getbysymbol/YEC_USDT` (`lastPriceNumber`, `bestBid/AskNumber`, `lastTradeAt` ms, `volumeNumber`; USDT at par) | appends one row |
+| `coinmarketcap` | `api.coinmarketcap.com/data-api/v3/cryptocurrency/historical` (public chart API, unofficial, no key; YEC id 4160 from 2020-03-25, ZEC 1437); hourly in 30-day / daily in 300-day chunks | candle CSV `ts_iso,ts,price_usd,open,high,low,volume,volume_kind` (24 h USD volume) |
+| `coincodex` | `coincodex.com/api/coincodex/get_coin_history/YEC/{from}/{to}/{samples}` in 120-day chunks (a reply is thinned to ~600 points), reduced to daily closes; from the 2019 fork | history CSV |
+| `nonkyc-candles` | `api.nonkyc.io/api/v2/market/candles?symbol=YEC_USDT&resolution=60` (hourly from 2023-09) | candle CSV (base volume per candle) |
+| `safetrade-candles` | `safe.trade/api/v2/trade/public/markets/yecusdt/k-line?period=60` (≤ 10,000 per call, paged backwards; hourly from 2023-03; Cloudflare refuses curl/browser agents, answers `ybcal/x`) | candle CSV |
+| `orderbooks` | nonkyc `/api/v2/market/orderbook` (YEC_USDT, YEC_BTC) and SafeTrade `/markets/yecusdt/depth` | appends `ts_iso,ts,venue,side,price_usd,size_yec` |
+| `inzyght` | `explorer.ycash.xyz/api/v1/blocks?draw=1&start=&length=200` (coinbase payout address as `miner`) | `height,payout_key,time` |
+
+Candles are stamped at their close. `ybcal data splice PRIMARY SECONDARY --out` joins two price
+series at the primary's first timestamp (overlap check printed, both inputs' provenance kept);
+`ybcal data spreads` reconstructs a `spreads.py`-shaped log from an aggregate and venue candles
+(each venue's last trade as of the aggregate's point; `--max-age-hours` mimics the attestor's
+`max_age`); `ybcal data volume` gives daily 24 h USD volume percentiles. The free CoinGecko plan
+serves 365 days only; past that the 401 names these sources.
 
 Behaviour kept from `yellowback_price.py`: redirects are refused (they would carry the API-key
 header elsewhere), reply bodies are capped (1 MiB; 16 MiB for history), bare `NaN`/`Infinity`
@@ -129,6 +142,14 @@ week of native steps, capped at n/4), circularly, from uniform start points. The
 distribution of resampled returns equals the empirical one; dependence within blocks is kept.
 **Fit:** stores the observed returns. No preset.
 
+**Drift.** `synthetic.fit` / `data synth --calibrate` neutralise the fitted drift by default
+(`--drift zero`: expected log return 0, a flat median path; the regime switch keeps the gap
+between its states' drifts), and `BlockBootstrap.fit` demeans: a sample mean is noise at YEC's
+volatility (D-RD-D1). `--drift fitted` keeps it.
+
+**Stale runs.** Runs of ≥ 6 exactly-zero returns (a stale aggregator feed) and the return closing
+each run are dropped before fitting (`drop_stale_runs`).
+
 **Observed returns only.** `fit_returns_of(pp)` takes returns between consecutive observed points
 (not gaps, not `meta["filled"]`) and keeps those at the modal spacing, so daily data on an hourly
 grid fits as daily returns with Δ = 1 day.
@@ -178,7 +199,11 @@ evaluated hourly by default. **Fit:** σ from the sd of window-to-window logit c
 
 ## 5. Describe (`ybcal data describe`, `ybcal.data.describe`)
 
-Realised volatility (annualised, observed returns only), rolling volatility, skew and excess
+Realised volatility (annualised, observed returns only, at the data's own spacing: daily data
+on the hour grid is described as daily returns), realised volatility by return horizon (1 h, 4 h,
+24 h, 168 h — a falling profile means short-lag mean reversion), flat-stretch statistics (share of
+zero returns, runs of an unchanged price), a warning when prices met the node's $0.0001–$100
+clamp (`--scale` rescales a proxy such as ZEC), rolling volatility, skew and excess
 kurtosis, the **maximum-drawdown distribution over horizons 30 d … 5 y taken over all start dates**
 (strided to ≈ one start per day, at most 50 paths), the Hill tail index of each tail (k = 5 % of
 the sample, ≥ 10), autocorrelation of returns and of |returns|, and gap statistics.

@@ -37,6 +37,7 @@ import numpy as np
 
 from ybcal.data.pricepath import STEP_SECONDS, usd_to_micro
 from ybcal.types import PricePath, Resolution
+from ybcal.units import PRICE_MAX, PRICE_MIN
 
 OWNER_WP = "WP-2"
 
@@ -362,8 +363,11 @@ def resample_to_grid(
         age = grid - np.where(valid, ts[safe], grid[0] - 10 * max_ffill_seconds - 1)
         prices = np.where(age > max_ffill_seconds, 0, prices)
     gaps = series.gaps()
+    raw_micro = series.price_usd * 1e6
+    clamped = int(((raw_micro > PRICE_MAX) | (raw_micro < PRICE_MIN)).sum())
     meta = {
         "source_file": series.source,
+        "clamped_points": clamped,
         "filled": filled,
         "filled_fraction": float(filled.mean()),
         "native_step_seconds": gaps.expected_step,

@@ -257,3 +257,11 @@ def test_candle_csv_volume_only_when_usd_24h(tmp_path):
     b = loaders.load_price_csv(venues.write_candles_csv(base, tmp_path / "b.csv"))
     assert a.volume_usd is not None and a.volume_usd[0] == 500.0
     assert b.volume_usd is None or math.isnan(b.volume_usd[0])
+
+
+def test_cli_import_spreads_infers_interval(tmp_path, capsys):
+    rows = [[loaders.iso(3600 * k), str(3600 * k), "1000000", "1010000", "990000", ""] for k in range(1, 50)]
+    f = venues.write_spreads_rows(rows, tmp_path / "s.csv")
+    assert cli.main(["data", "import", str(f), "--kind", "spreads"]) == 0
+    out = capsys.readouterr().out
+    assert "expected step: 3600 s" in out and "gaps (> 3x step): 0" in out
