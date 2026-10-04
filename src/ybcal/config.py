@@ -54,6 +54,8 @@ def _owner_pinned_default() -> dict[str, Any]:
         "classMax[1]": lock,
         "classMax[2]": lock,
         "supplyCapBps": "W20 (D-R-11)",
+        # W16: recap = 2 x halt (owner chose 2x); W20 pins that gate at 500 % -> halt 250 % (D-RD-ORA-7)
+        "globalRatioHaltBps": "W16 (D-R-3) + W20 (D-R-11)",
         "attestFeeBps": "D-3",
         "attestArmMin": "D-4",
         "attestArmDelay": "D-4",

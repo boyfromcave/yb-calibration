@@ -324,6 +324,25 @@ def sys_bad_prob(env: Env, ratio_bps: int, horizon_blocks: int) -> float:
     return float((r <= BPS / int(ratio_bps)).mean())
 
 
+def real_sys_bad_prob(price, ratio_bps: int, horizon_blocks: int) -> float:
+    """``sys_bad_prob`` on the real hourly history itself, no bootstrap: over daily starts, the share
+    where the price's minimum within ``horizon_blocks`` is ≤ 10⁴/ratio of the start (D-RD-ORA-7)."""
+    from scipy.ndimage import minimum_filter1d
+
+    p = price.prices[0].astype(np.float64)
+    p = np.where(p > 0, p, np.nan)
+    good = np.isfinite(p)
+    if good.sum() < 48:
+        return math.nan
+    p = np.where(good, p, np.nanmedian(p))
+    w = max(1, round(horizon_blocks / BLOCKS_PER_HOUR))
+    if p.size <= w + 24:
+        return math.nan
+    fmin = minimum_filter1d(p, size=w + 1, origin=-(w // 2), mode="nearest")
+    r = (fmin / p)[: p.size - w : 24]
+    return float((r <= BPS / int(ratio_bps)).mean())
+
+
 def system_tolerance(policy, params: Mapping) -> float:
     """System bad-debt tolerance: the class tolerances (``max_bad_debt_prob``) weighted by each class's
     share of the outstanding debt of a mature book — arrival weight (the minter's ``class_weights``) ×
@@ -400,9 +419,14 @@ def divergence_metrics(env: Env, cand: ParamSet) -> dict[str, float]:
         if name in POSITIVE and "fall" in mk:
             a, b = mk["fall"], min(r.n, mk["fall_end"] + DETECT_TAIL_BLOCKS)
             hit = h3[:, a:b].any(axis=1)
-            tp += int(hit.sum())
-            fn += int((~hit).sum())
-            out[f"div.recall.{name}"] = float(hit.mean())
+            # HALT-3 needs all three medians: a path whose detection window is mostly NO_PRICE
+            # (HALT-1 already stops minting) cannot test it, so recall is conditional on testable
+            # paths (D-RD-ORA-6; the real landscape's ⌈2W/3⌉ fill leaves ~17 % of blocks undefined)
+            testable = np.asarray(pr.no_price[:, a:b], dtype=bool).mean(axis=1) < 0.5
+            tp += int((hit & testable).sum())
+            fn += int((~hit & testable).sum())
+            out[f"div.recall.{name}"] = float(hit[testable].mean()) if testable.any() else 1.0
+            out[f"div.untestable.{name}"] = float((~testable).mean())
         if name in NEGATIVE:
             end = mk["fall"] if name == "pump-dump-3x" and "fall" in mk else r.n
             neg = h3[:, w0:end].any(axis=1)
@@ -448,6 +472,7 @@ def _fams() -> tuple[Family, ...]:
     halt = (
         "halt.false_calm",
         "halt.p_sys_bad",
+        "halt.p_sys_bad_real",
         "halt.sys_bad_tolerance",
         "halt.required_bps",
         "halt.recall_alarm",
@@ -607,6 +632,9 @@ class G7Study(FamilyStudy):
         v.update(halt2_metrics(env, cand, r0))
         grace = int(cand["grace"])
         v["halt.p_sys_bad"] = sys_bad_prob(env, h, grace)
+        real = G1.real_price(env)
+        if real is not None:  # the same probability read on the real history itself (D-RD-ORA-7)
+            v["halt.p_sys_bad_real"] = real_sys_bad_prob(real, h, grace)
         tol = system_tolerance(pol, cand)
         v["halt.sys_bad_tolerance"] = tol
         grid = list(range(12_500, 30_000, 1250))
@@ -621,10 +649,24 @@ class G7Study(FamilyStudy):
         meta["global_ratio_true"] = r0
         # ---- HALT-3 ---------------------------------------------------------------------------------
         v.update(divergence_metrics(env, cand))
+        # the real history replayed (D-RD-ORA-3): HALT-3 on YEC's own price, per era
+        from ybcal.studies import oracle_replay as R
+
+        ev = R.halt_evidence(env, cand)
+        v.update({f"div.{k}": x for k, x in ev.items()})
+        false_eras = [x for k, x in ev.items() if k.startswith("replay_halt3_false_h_per_year_")]
+        v["div.real_false_h_max"] = max(false_eras) if false_eras else math.nan
         c["recall"] = v["div.recall"] >= float(pol.halt_recall_floor)
         # HALT-3 in a calm market stops minting like NO_PRICE does: it shares the availability budget
         # (D-RD-AUD-6). Synthetic calm is GBM 60 %; with real data the calm base is a bootstrap.
-        c["calm_availability"] = v["div.calm_halt_hours_per_year"] <= float(pol.max_no_price_hours)
+        # With a real price the budget is read on the real history (D-RD-ORA-6): HALT-3 hours outside
+        # every real ≥ 20 % weekly fall, in the worst era. The bootstrap calm-90d is not calm — it
+        # resamples the real crash days too — so it counted correct halts as false ones.
+        avail = v["div.real_false_h_max"]
+        if not math.isfinite(avail):
+            avail = v["div.calm_halt_hours_per_year"]
+        v["div.availability_h_per_year"] = float(avail)
+        c["calm_availability"] = avail <= float(pol.max_no_price_hours)
         prov = "real-data" if price_prov == "real-data" else "synthetic"
         return Metrics(v, "zero", True, c, prov, meta)
 
@@ -775,6 +817,19 @@ def design_notes(results: ResultTable, policy=None) -> list[str]:
             "origin (e.g. the YEC supply at activation, or the subsidy since a fixed earlier height) or a "
             "cap "
             "sum that excludes cap-exempt supply. Reported for the owner; not tuned."
+        )
+    p_bad, tol = mv.get("halt.p_sys_bad", math.nan), mv.get("halt.sys_bad_tolerance", math.nan)
+    if math.isfinite(p_bad) and math.isfinite(tol) and p_bad > tol:
+        real = mv.get("halt.p_sys_bad_real", math.nan)
+        notes.append(
+            "G7 design note (HALT-2 level, D-RD-ORA-7): P(the price falls to 1/halt within grace) at "
+            f"globalRatioHaltBps {int(cur.params['globalRatioHaltBps']):,} is {p_bad:.1%} on the bootstrap"
+            + (f" and {real:.1%} on the real history (daily starts)" if math.isfinite(real) else "")
+            + f" against a tolerance of {tol:.1%}. Meeting it needs a halt near 300 %, which §1.4 forbids "
+            "while class C's base ratio is 300 % (halt < every base ratio) and which W16 (recapRatioBps = "
+            "2 × halt, owner decision D-R-3) would turn into a 600 % recap gate — moving the 500 % soft-cap "
+            "gate W20 pinned (D-R-11). The halt level is therefore owner-pinned in effect; the exposure is "
+            "reported, not tuned."
         )
     ex, budget = mv.get("liq.demand_exempt_usd", 0.0), mv.get("liq.budget_usd", math.inf)
     if ex > budget:

@@ -246,3 +246,42 @@ def test_duplicate_names_rejected(tmp_path):
         S.load_library(tmp_path)
     with pytest.raises(KeyError):
         S.get("nope")
+
+
+def test_replay_base_takes_a_real_window_in_order():
+    """D-RD-ORA-4: ``model = "replay"`` replays real hourly returns from ``start`` or from the
+    ``select``-ed window, identical on every path; without data it falls back to the preset."""
+    from datetime import UTC, datetime
+
+    from ybcal.types import PricePath
+
+    hours = 24 * 200
+    p = np.full(hours, 400_000, dtype=np.int64)
+    p[24 * 100 : 24 * 110] = np.linspace(400_000, 100_000, 240).astype(np.int64)  # the worst fall
+    p[24 * 110 :] = 100_000
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    data = PricePath(t0, "hour", p[None, :], "real", {})
+    doc = {
+        "name": "r",
+        "description": "r",
+        "horizon_days": 20,
+        "resolution": "hour",
+        "base": {"model": "replay", "params": {"select": "worst_drawdown", "window_days": 20}},
+    }
+    sc = S.parse_scenario(doc)
+    run = sc.generate(np.random.default_rng(0), n_paths=3, data=data)
+    x = run.paths.prices
+    assert (x[0] == x[1]).all() and (x[0] == x[2]).all()
+    assert x[0, -1] < 0.3 * x[0, 0]  # the 75 % fall is inside the window
+    a = run.paths.meta["replay_start_hour"]
+    assert 24 * 89 <= a <= 24 * 100
+    doc["base"] = {"model": "replay", "params": {"start": "2025-04-11T00:00:00+00:00"}}  # day 100
+    run2 = S.parse_scenario(doc).generate(np.random.default_rng(0), n_paths=1, data=data)
+    assert run2.paths.meta["replay_start_hour"] == 24 * 100
+    blk = S.parse_scenario({**doc, "resolution": "block"}).generate(np.random.default_rng(0), data=data)
+    assert blk.paths.prices[0, -1] < 0.3 * blk.paths.prices[0, 0]
+    fb = S.parse_scenario(doc).generate(np.random.default_rng(0), n_paths=1)
+    assert fb.paths.meta.get("base_fallback") is True
+    for bad in ({"start": "2025-01-01", "select": "worst_drawdown"}, {}, {"select": "nope"}, {"x": 1}):
+        with pytest.raises(ValueError):
+            S.parse_scenario({**doc, "base": {"model": "replay", "params": bad}})

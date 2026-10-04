@@ -80,14 +80,31 @@ def _merton_turbulent(total_vol: float) -> SY.Merton:
     return m
 
 
+def daily_view(pp):
+    """The hourly real path observed once a day (the other hours flagged ``filled``), so a fit reads
+    daily returns (``synthetic.fit_returns_of``): fitted on hourly YEC returns the regime model reads
+    the aggregator's hour-to-hour noise as a 770 % "turbulent" state and a 34 % "calm" one; on daily
+    returns it finds calm ≈ 80 %, turbulent ≈ 350 % (docs/real-data-2026-10.md §9, D-RD-ORA-5)."""
+    from ybcal.types import PricePath
+
+    if pp.resolution != "hour":
+        return pp
+    filled = np.ones(pp.prices.shape[-1], dtype=bool)
+    filled[::24] = False
+    old = pp.meta.get("filled")
+    if isinstance(old, np.ndarray) and old.shape[-1] == filled.shape[0]:
+        filled = filled | old.astype(bool).reshape(-1, filled.shape[0])[0]
+    return PricePath(pp.t0, "hour", pp.prices, pp.provenance, {**pp.meta, "filled": filled})
+
+
 def regime_vols(env: Env) -> tuple[float, float, str]:
     """(calm σ, turbulent σ, source): the regime-switch preset, or a fit to the real prices."""
     real = G1.real_price(env)
     if real is not None:
         try:
-            rs = SY.RegimeSwitch.fit(real)
+            rs = SY.RegimeSwitch.fit(daily_view(real))
             lo, hi = sorted(float(x) for x in rs.sigma)
-            return lo, hi, "regime-switch fit to real data"
+            return lo, hi, "regime-switch fit to the real daily returns"
         except Exception:  # pragma: no cover - degenerate data
             pass
     rs = SY.RegimeSwitch.preset()
@@ -140,6 +157,10 @@ def realise_ensemble(env: Env, kind: str, P: int, days: float) -> G1.ScenarioRea
     """An ensemble's true prices through the honest oracle (memoised with the G1 realisations)."""
     n = round(days * BLOCKS_PER_DAY) + 1
     pol = env.policy
+    # the same oracle as G1: the real pool landscape and its miner sequence when a pool-share log is
+    # loaded, else the policy's equal pools (D-RD-ORA-1)
+    cfg = G1.oracle_config(env)
+    land = G1.pool_landscape(env)
     key = (
         int(env.seed),
         f"G2:{kind}",
@@ -148,18 +169,15 @@ def realise_ensemble(env: Env, kind: str, P: int, days: float) -> G1.ScenarioRea
         G1.data_fingerprint(env),
         float(pol.expected_enforcing_share),
         int(pol.expected_pool_count),
+        tuple((round(p.share, 9), p.tags) for p in cfg.pools),
+        land.fingerprint() if land is not None else None,
     )
     hit = G1._REAL.get(key)
     if hit is not None:
         return hit
     true, label = ensemble_prices(env, kind, P, n)
-    cfg = O.OracleConfig.from_policy(
-        pol,
-        outage_rate_per_day=float(getattr(pol, "pool_outage_rate_per_day", G1.POOL_OUTAGE_RATE_PER_DAY)),
-        outage_mean_hours=float(getattr(pol, "pool_outage_mean_hours", G1.POOL_OUTAGE_MEAN_HOURS)),
-        outage_mode="signal",
-    )
-    inp = O.generate_block_inputs(true, cfg, rng=env.rng_for("G2", "oracle", kind, P, n))
+    miner = G1.real_miners(env, land, P, n, f"G2:{kind}")
+    inp = O.generate_block_inputs(true, cfg, rng=env.rng_for("G2", "oracle", kind, P, n), miner=miner)
     valid = inp.tag_present & (inp.tag_price > 0)
     r = G1.ScenarioRealisation(
         key,
@@ -291,6 +309,10 @@ class G2Study:
             # true-price realised vol (context for D-WP3-6)
             tr = np.diff(np.log(r.true[:, lo:].astype(float)), axis=1)
             v[f"true_vol_bps_{kind}"] = float(tr.std() * math.sqrt(BLOCKS_PER_YEAR) * BPS)
+        # the real history replayed through the same oracle (D-RD-ORA-3): evidence per era
+        from ybcal.studies import oracle_replay as R
+
+        v.update(R.sigma_evidence(env, cand))
         ref = cand.as_int("sigmaRefBps")
         v["m14_ratio"] = v["sigma_hat_p50_realised"] / ref if ref > 0 else math.nan
         v["turb_p99_uncapped"] = max(v["sigma_hat_p99_turbulent"] / ref, 1.0) if ref > 0 else math.nan
@@ -418,6 +440,32 @@ def sampling_ok(params) -> bool:
     return int(params["volStep"]) * 2 >= int(params["pFastWindow"])
 
 
+def ref_replay_notes(cv: Mapping, ref: int) -> list[str]:
+    """Cross-check of the reference on the real history (D-RD-ORA-3/5): the median σ̂ of the replayed
+    pFast per era, the median multiplier there at ``ref``, and the like-for-like comparison with the
+    raw-return volatilities (σ̂ is a 42-sample estimator on a 2-hour lower median sampled hourly: it
+    sits far below the 1-hour return volatility, which carries the aggregator's noise)."""
+    eras = [k[len("replay_sigma_hat_p50_") :] for k in cv if str(k).startswith("replay_sigma_hat_p50_")]
+    if not eras or ref <= 0:
+        return []
+    bits = []
+    for e in eras:
+        m = float(cv.get(f"replay_sigma_hat_p50_{e}", math.nan))
+        bits.append(f"{e} {m:,.0f} bps ({max(m / ref, 1.0):.2f}×)")
+    full = float(cv.get("replay_sigma_hat_p50_full", math.nan))
+    out = [
+        "Real-history replay (D-RD-ORA-3), median σ̂ of pFast and the median multiplier at "
+        f"{ref:,}: " + "; ".join(bits) + ".",
+        "Like for like: over the full history σ̂ (median "
+        f"{full:,.0f} bps) compares with the true price's realised volatility at the 1-hour sampling step "
+        f"{float(cv.get('replay_true_vol_step_bps_full', math.nan)):,.0f} bps and at one day "
+        f"{float(cv.get('replay_true_vol_day_bps_full', math.nan)):,.0f} bps: the 2-hour lower median "
+        "strips the aggregator's hour-to-hour noise (lag-1 autocorrelation −0.2), so the reference must "
+        "be compared with σ̂ on pFast, never with the 440 % hourly or 235 % daily return volatility.",
+    ]
+    return out
+
+
 def decide_g2(results: ResultTable, policy: Policy) -> list[Recommendation]:
     """The three §5.2 rules in order: windows → reference → cap; volPeriodsPerYear derived."""
     base = results.base
@@ -487,6 +535,13 @@ def decide_g2(results: ResultTable, policy: Policy) -> list[Recommendation]:
     cspec = REGISTRY["sigmaMultMaxBps"]
     pct = int(policy.sigma_mult_cap_pctl)
     turb_q = float(cv.get(f"sigma_hat_p{pct}_turbulent", cv["sigma_hat_p99_turbulent"]))
+    # with a real price the need is read on the real history (D-RD-ORA-5): σ̂ of the replayed pFast
+    # over the whole history with the one-hour aggregator prints removed — the market's own tail,
+    # through the node's arithmetic — instead of the parametric turbulent ensemble
+    real_q = float(cv.get(f"replay_despiked_sigma_hat_p{pct}_full", math.nan))
+    ens_q = turb_q
+    if math.isfinite(real_q) and real_q > 0:
+        turb_q = real_q
     need = max(turb_q * BPS / ref_rec, BPS)
     step = cspec.step
     cap_rule = int(math.ceil(need / step) * step)
@@ -535,6 +590,17 @@ def decide_g2(results: ResultTable, policy: Policy) -> list[Recommendation]:
         "is set by single jumps inside the volWindow, so the cap need is a statement about jump size, "
         "not about sustained volatility (docs/studies/g2.md, Assumptions).",
     ]
+    if math.isfinite(real_q):
+        rq = {k: float(cv.get(k, math.nan)) for k in cv if str(k).startswith("replay_")}
+        cap_notes.insert(
+            0,
+            f"Need read on the real history (D-RD-ORA-5): p{pct} σ̂ of the replayed pFast, one-hour prints "
+            f"removed, {real_q:,.0f} bps (with the prints "
+            f"{rq.get(f'replay_sigma_hat_p{pct}_full', math.nan):,.0f}; 2021-22 "
+            f"{rq.get(f'replay_sigma_hat_p{pct}_2021-22', math.nan):,.0f}, 2025-26 "
+            f"{rq.get(f'replay_sigma_hat_p{pct}_2025-26', math.nan):,.0f}); the turbulent ensemble's "
+            f"p{pct} is {ens_q:,.0f} bps.",
+        )
     if cap_blocked:
         cap_notes.append(
             "A cap at the bound turns every K12 trap (an undefined sample) into a mint requirement of "
@@ -659,6 +725,7 @@ def decide_g2(results: ResultTable, policy: Policy) -> list[Recommendation]:
                 f"underlying verdict before the provenance rule: {ref_v}",
                 f"σ̂ measured on pFast (D-WP3-6); true-price vol of the same ensemble "
                 f"{(cv.get('true_vol_bps_realised') or float('nan')):,.0f} bps",
+                *ref_replay_notes(cv, ref_rec),
             ],
         )
     )

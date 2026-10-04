@@ -1,0 +1,53 @@
+# The real pool landscape (pool-shares.csv, 2026-08/10): one pool (ninjaraider.com) mines 52 % of the
+# blocks — 72 % of the quote tags when only the three identified pools tag (D-RD-D5). It goes rogue
+# from day 5 for 20 days. Unlike oracle-attack-*, no window can stop it: it holds a majority of every
+# window's quotes. What bounds the damage is the attestation layer once ARMED (PRICE-2 revised:
+# pMint = min(xMint, aMint), pClaim = max(xClaim, aClaim); MINT-10) and the halts. D-RD-ORA-4.
+name = "rogue-pool-52"
+description = "the 52 % pool biases its quotes by +10 % for 20 days from day 5 (majority of quotes)"
+stresses = "median capture by a majority pool (no window defends), HALT-3 griefing, MINT-10, PRICE-2 bounds"
+tags = ["oracle", "adversarial", "real-landscape"]
+horizon_days = 30
+resolution = "block"
+p0_usd = 0.40
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.60 }
+
+[schedules.attacker_share]
+default = 0.0
+changes = [{ at_days = 5, value = 0.52 }, { at_days = 25, value = 0.0 }]
+
+[schedules.attacker_bias_bps]
+default = 0
+changes = [{ at_days = 5, value = 1000 }, { at_days = 25, value = 0 }]
+
+[schedules.tagging_share]
+default = 0.72
+
+[constants]
+attacker_share = 0.52
+attacker_bias_bps = 1000
+attacker_direction = "both"
+rogue_biases_bps = [1000, -1000, -3000]   # over-mint, premature-claim and grief (HALT-3) directions
+
+[[variants]]
+name = "rogue-pool-52-up"
+description = "the 52 % pool quotes 10 % high for 20 days from day 5 (over-mint direction)"
+set = {}
+
+[[variants]]
+name = "rogue-pool-52-grief"
+description = "the 52 % pool quotes 30 % low for 20 days from day 5: HALT-3 fires, minting stops"
+set = { "schedules.attacker_bias_bps.changes.0.value" = -3000, "constants.attacker_bias_bps" = -3000 }
+
+[[variants]]
+name = "rogue-pool-52-withhold"
+description = "the 52 % pool keeps mining but stops quoting for 10 days from day 5 (tag share 72 % -> 20 %)"
+set = { "schedules.attacker_share.changes.0.value" = 0.0, "schedules.attacker_bias_bps.changes.0.value" = 0, "schedules.tagging_share.changes" = [{ at_days = 5, value = 0.20 }, { at_days = 15, value = 0.72 }], "constants.attacker_bias_bps" = 0 }
+
+[[variants]]
+name = "rogue-pool-52-offline"
+description = "the 52 % pool stops mining for 10 days from day 5: the other two identified pools are 41 % of the remaining blocks"
+set = { "schedules.attacker_share.changes.0.value" = 0.0, "schedules.attacker_bias_bps.changes.0.value" = 0, "schedules.tagging_share.changes" = [{ at_days = 5, value = 0.41 }, { at_days = 15, value = 0.72 }], "constants.attacker_bias_bps" = 0 }

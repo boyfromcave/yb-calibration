@@ -235,23 +235,126 @@ def test_determinism_per_seed():
     assert a != c
 
 
-def test_oracle_config_reads_a_real_pool_share_log():
-    """D-RD-AUD-9: with a pool-share log loaded, G1's oracle uses its tagging pools (not equal ones)."""
+def _log(pattern: str, reps: int):
+    """A PoolShareLog whose miner sequence is ``pattern`` (one letter per block) repeated."""
+    from ybcal.data.loaders import PoolShareLog
+
+    seq = pattern * reps
+    keys = tuple(sorted(set(seq)))
+    return PoolShareLog(
+        np.arange(len(seq), dtype=np.int64), np.array([keys.index(c) for c in seq], dtype=np.int32), keys, "t"
+    )
+
+
+def test_pool_landscape_tagging_selection():
+    """D-RD-ORA-1: the policy names who tags; else the largest keys until expected_enforcing_share."""
     from types import SimpleNamespace
 
-    from ybcal.config import Policy as _P
-    from ybcal.studies import g1_price_windows as _G1
-    from ybcal.studies import g6_miners_fees as _G6
+    log = _log("AAAAABBBCCD" * 1, 100)  # A 45 %, B 27 %, C 18 %, D 9 %
+    env = SimpleNamespace(policy=Policy(), data={"pool_shares": log})
+    land = G.pool_landscape(env)
+    assert land is not None and land.keys == ("A", "B", "C", "D")
+    assert land.tagging == (True, True, True, False)  # 45 + 27 < 80 → C tags too
+    env2 = SimpleNamespace(policy=Policy(enforcing_pools=("B", "D")), data={"pool_shares": log})
+    land2 = G.pool_landscape(env2)
+    assert land2.tagging == (False, True, False, True)
+    assert abs(land2.tagging_share - 4 / 11) < 1e-9
+    cfg = G.oracle_config(env2)
+    assert [p.tags for p in cfg.pools] == [False, True, False, True]
+    assert abs(cfg.tagging_share - 4 / 11) < 1e-9
+    env3 = SimpleNamespace(policy=Policy(enforcing_pools=("Z",)), data={"pool_shares": log})
+    assert "matched no key" in G.pool_landscape(env3).selection
+    assert G.pool_landscape(SimpleNamespace(policy=Policy(), data={})) is None
 
-    env = SimpleNamespace(policy=_P(), data={})
-    eq = _G1.oracle_config(env)
-    assert len(eq.pools) == 6 and abs(eq.tagging_share - 0.8) < 1e-9
-    assert len({round(p.share, 9) for p in eq.pools}) == 1
-    orig = _G6.pool_model
-    try:
-        pm = SimpleNamespace(shares=(0.4, 0.3, 0.1), tagging=(True, True, False))
-        _G6.pool_model = lambda e: (pm, "real-data")
-        cfg = _G1.oracle_config(env)
-        assert [p.share for p in cfg.pools] == [0.4, 0.3]
-    finally:
-        _G6.pool_model = orig
+
+def test_no_price_from_mask_is_exact():
+    """Fill counts quotes only: a 2-of-3 tag pattern fails a ⌈2W/3⌉+1 fill everywhere, meets ⌈2W/3⌉."""
+    m = np.tile([True, True, False], 400)
+    tot, parts = G.no_price_from_mask(m, (6, 12, 24), (3, 8, 16))
+    assert tot == 0.0 and parts == (0.0, 0.0, 0.0)
+    tot, parts = G.no_price_from_mask(m, (6, 12, 24), (3, 8, 17))
+    assert parts[2] == pytest.approx(G._PER_YEAR_H) and tot == pytest.approx(G._PER_YEAR_H)
+    assert np.isnan(G.no_price_from_mask(m[:10], (6, 12, 24), (3, 8, 16))[0])
+
+
+def test_landscape_metrics_single_pool_majority():
+    """A key holding most quotes controls every median whatever the windows; withholding it
+    leaves too few quotes for the fills."""
+    from types import SimpleNamespace
+
+    log = _log("AAAAABBBCCD", 600)
+    env = SimpleNamespace(policy=Policy(enforcing_pools=("A", "B")), data={"pool_shares": log})
+    lm = G.landscape_metrics(G.pool_landscape(env), mainnet())
+    assert lm["top_pool_quote_share"] == pytest.approx(5 / 8)
+    assert lm["top_pool_control_min"] > 0.95 and lm["attack_env_blocked"] == 1.0
+    assert lm["no_price_top_withholds_h_per_year"] == pytest.approx(G._PER_YEAR_H)
+    assert lm["no_price_all_tag_h_per_year"] == 0.0
+    assert lm["no_price_seq_h_per_year"] == 0.0  # 8 of every 11 blocks tagged ≥ the ⌈2W/3⌉ fill
+
+
+def test_oracle_miner_override_replays_a_sequence():
+    """``generate_block_inputs(miner=…)``: blocks of a non-tagging pool or a stock miner carry no tag."""
+    from ybcal.sim import oracle as O
+
+    cfg = O.OracleConfig((O.Pool(share=0.5), O.Pool(share=0.3, tags=False, quotes=False)))
+    true = np.full((2, 50), 400_000, dtype=np.int64)
+    seq = np.array([0, 1, -1, 0, 7] * 10)
+    inp = O.generate_block_inputs(true, cfg, rng=np.random.default_rng(1), miner=seq)
+    assert (inp.tag_present[0] == (seq == 0)).all() and (inp.tag_present[1] == (seq == 0)).all()
+    assert (inp.tag_pool[0][seq == 0] == 0).all()
+
+
+def test_environment_adjust_picks_least_harm(tmp_path):
+    """D-RD-ORA-2: every set violates both environment constraints → BLOCKED, but the value is the
+    least-harm set (lowest NO_PRICE band, then J), not the current one."""
+    base = mainnet()
+    t = ResultTable(base)
+
+    def m(lag, nph):
+        v = {
+            "crash_lag_cvar_h": lag,
+            "pump_overpricing_bps": 100.0,
+            "attack_share_min": 0.36,
+            "no_price_h_per_year": nph,
+            "attack_env_blocked": 1.0,
+            "top_pool_quote_share": 0.72,
+            "top_pool_share": 0.52,
+            "top_pool_control_min": 1.0,
+        }
+        c = {"attack_share_min": False, "max_no_price_hours": False, "halt_recall_floor": True}
+        meta = {"out_dir": str(tmp_path), "budget": "standard"}
+        return Metrics(v, "crash_lag_cvar_h", True, c, "real-data", meta)  # type: ignore[arg-type]
+
+    t.add(base, m(40.0, 1500.0))
+    t.add(base.replace(pMidWindow=1152), m(41.0, 1100.0))
+    t.add(base.replace(pMidWindow=864), m(39.0, 1400.0))
+    recs = G.make_study().decide(t, Policy())
+    r = _rec(recs, "pMidWindow")
+    assert r.verdict == "CHANGE" and r.recommended == 1152
+    assert "environment-limited" in r.binding
+    from ybcal.studies.envlimit import env_info
+
+    info = env_info(r)
+    assert info and info["constraints"] == ["attack_share_min", "max_no_price_hours"]
+    assert any("D-RD-ORA-2" in n for n in r.notes)
+    # nothing environmental → the ordinary rule (BLOCKED keeps current)
+    t2 = _table([((96, 576, 2016), (40.0, 100.0, False)), ((96, 1152, 2016), (41.0, 100.0, False))], tmp_path)
+    for row in t2:
+        row.metrics.values["no_price_h_per_year"] = 1.0  # type: ignore[index]
+    assert _rec(G.make_study().decide(t2, Policy()), "pMidWindow").recommended == 576
+
+
+
+
+def test_rogue_majority_pool_captures_every_median():
+    """D-RD-ORA-4: a pool with most of the quotes moves every median by its bias (the windows only
+    delay it) and, withholding, leaves the medians undefined."""
+    log = _log("AAAAAAABBC", 2000)  # A 70 % of blocks
+    env = Env(Policy(enforcing_pools=("A", "B")), TINY, seed=7, data={"pool_shares": log})
+    G.clear_caches()
+    m = G.rogue_metrics(env, mainnet())
+    assert m["rogue_attack_days"] == pytest.approx(20.0, abs=0.01)
+    assert m["rogue_up_mint_share"] > 0.8 and m["rogue_down_claim_share"] > 0.8
+    assert m["rogue_up_capture_h_fast"] < m["rogue_up_capture_h_mid"] < m["rogue_up_capture_h_slow"] < 48
+    assert m["rogue_withhold_noprice_share"] > 0.95 and m["rogue_withhold_onset_h"] < 2
+    assert G.rogue_metrics(env_for(), mainnet()) == {}

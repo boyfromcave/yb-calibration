@@ -148,6 +148,14 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-COL-7](#d-rd-col-7-2026-10-04-collateral--emergencyratiobps-keep-and-on-real-crashes-it-does-not-matter) | collateral (wave 2) | emergencyRatioBps: KEEP, and on real crashes it does not matter |
 | [D-RD-COL-8](#d-rd-col-8-2026-10-04-collateral--abandonblocks-the-90-d-was-an-artefact-w21-30-d-holds) | collateral (wave 2) | abandonBlocks: the "90 d" was an artefact; W21 30 d holds |
 | [D-RD-COL-9](#d-rd-col-9-2026-10-04-collateral--the-w20w16-gate-and-the-ratios) | collateral (wave 2) | the W20/W16 gate and the ratios |
+| [D-RD-ORA-1](#d-rd-ora-1-2026-10-04-oracle--the-oracle-quotes-on-the-real-pool-landscape) | oracle (wave 2) | the oracle quotes on the real pool landscape |
+| [D-RD-ORA-2](#d-rd-ora-2-2026-10-04-oracle--g1-is-environment-limited-least-harm-is-pmid-1152) | oracle (wave 2) | G1 is environment-limited; least harm is pMid 1,152 |
+| [D-RD-ORA-3](#d-rd-ora-3-2026-10-04-oracle--real-history-replay-is-evidence-on-every-g2--g7-candidate) | oracle (wave 2) | real-history replay is evidence on every G2 / G7 candidate |
+| [D-RD-ORA-4](#d-rd-ora-4-2026-10-04-oracle--real-history-and-rogue-pool-scenarios) | oracle (wave 2) | real-history and rogue-pool scenarios |
+| [D-RD-ORA-5](#d-rd-ora-5-2026-10-04-oracle--g2-on-real-data-daily-regime-fit-cap-need-on-the-real-history) | oracle (wave 2) | G2 on real data: daily regime fit; cap need on the real history |
+| [D-RD-ORA-6](#d-rd-ora-6-2026-10-04-oracle--halt-3-availability-read-on-the-real-history) | oracle (wave 2) | HALT-3 availability read on the real history |
+| [D-RD-ORA-7](#d-rd-ora-7-2026-10-04-oracle--globalratiohaltbps-is-owner-pinned-in-effect) | oracle (wave 2) | globalRatioHaltBps is owner-pinned in effect |
+| [D-RD-ORA-8](#d-rd-ora-8-2026-10-04-oracle--final-values-for-g1-g2-and-g7s-halts-and-how-they-were-tested) | oracle (wave 2) | final values for G1, G2 and G7's halts, and how they were tested |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -2131,3 +2139,124 @@ class (C: P(bad) ≈ 33 %) above the cap, the opposite of W20's "the marginal po
 the owner: with base ratios set by drawdown, a ratio gate no longer ranks risk; a class-based gate
 (class A only) or `recapRatioBps` ≥ the largest B/C locked ratio would restore the intent.
 
+## D-RD-ORA-1 (2026-10-04, oracle) — the oracle quotes on the real pool landscape
+
+**Finding.** With a pool-share log loaded, G1's oracle made every key ≥ 1 % tag (99.8 % of blocks)
+while its analytic attack share used the policy's 0.70 tagging share; G2's ensembles ignored the
+log entirely; and every miner was drawn i.i.d. from the 60-day average shares, so the real daily
+swings (the 52 % pool at 39–62 % per day, zpool 0–29 %) never reached the fills.
+**Decision.** `g1_price_windows.pool_landscape` reads the log (keys ≥ 1 %, largest 8); the tagging
+set is the policy's `enforcing_pools` (shared with G5, D-RD-ACT-1: the operators that run the
+overlay are the ones that quote; else the largest keys until `expected_enforcing_share`);
+`realise` and G2's `realise_ensemble` replay the **real miner sequence** from a random offset per
+path (`oracle.generate_block_inputs(miner=…)`), feed outages on top; the analytic attack share uses
+the simulated tagging share. New metrics: the top pool's quote share and control probability per
+window, NO_PRICE from the real sequence for the policy set, the adoption ladder (2/3/4 largest keys)
+and the top pool withholding.
+**Consequence.** Background NO_PRICE at the shipped windows is ~1,500–1,700 h/yr with the three
+identified pools tagging (exact on the sequence alone: 1,526 h/yr), 232 h/yr with the four
+largest, ~0 with every key; no window set reaches the 6 h/yr budget (docs/studies/g1.md).
+
+## D-RD-ORA-2 (2026-10-04, oracle) — G1 is environment-limited; least harm is pMid 1,152
+
+**Decision.** `environment_adjust` + `envlimit.attach_environment` (D-RD-INF-3): when one real pool
+sets every median alone (`attack_env_blocked`) `attack_share_min` leaves the window decision
+(G1-ENV-1), and when no set meets `max_no_price_hours` that constraint becomes "within 5 % of the
+lowest NO_PRICE any set reaches" (G1-ENV-2; 5 %, not materiality: 20 % of 1,200 h/yr is 240 h of
+minting downtime); J then picks inside the band with the minimal-change rule. Verdict KEEP/CHANGE
+"policy unmeetable in this environment" with the exposure at the chosen set.
+**Consequence.** pFastWindow 96 and pSlowWindow 2,016 stay; pMidWindow 576 → 1,152 (the registry
+bound). It lowers NO_PRICE in every adoption case (3 identified pools −29 %, 4 largest −79 %) and
+doubles the time a majority pool needs to capture pMid (8.6 → 17 h); pClaim's crash lag is set by
+pSlow and does not move. The fix lies outside the windows: more tagging pools, or a mid/slow fill
+below ⌈2W/3⌉ (at 0.6 W the identified-pool NO_PRICE falls from 1,526 to 144 h/yr; L9's guard
+against a minority quote majority is covered by PRICE-2 once the attestation layer is ARMED) —
+reported for the owner, not tuned.
+
+## D-RD-ORA-3 (2026-10-04, oracle) — real-history replay is evidence on every G2 / G7 candidate
+
+**Decision.** `studies/oracle_replay.py`: the real hourly price in order, interpolated onto blocks
+(log-linear; `intra_hour="bridge"` brackets the intra-hour feed noise), quoted by the study oracle
+(real landscape and sequence), through PRICE-1, SIGMA-1 and HALT-3 with the node's arithmetic.
+Era metrics (full, last365, 2021-22, 2023, 2025-26) slice one replay; G2 attaches `replay_*` σ̂ and
+multiplier figures (also with the one-hour prints removed), G7 `div.replay_*` HALT-3 / NO_PRICE /
+real-fall recall / false-halt hours. Real falls: ≥ 30 % in a day or ≥ 50 % in a week on 6-hour
+medians, caught when HALT-3 fires between the peak and a day after the trough; falls whose window
+is mostly NO_PRICE cannot test HALT-3 and are left out.
+
+## D-RD-ORA-4 (2026-10-04, oracle) — real-history and rogue-pool scenarios
+
+**Decision.** Scenario base `model = "replay"` (`start`, or `select` worst_drawdown | best_rally |
+max_vol with `window_days` / `rank`); G1 keeps a replay base instead of bootstrapping. New:
+replay-worst-30d-{1,2,3}, replay-worst-90d, replay-cycle-2025-26-{rally,fall,spring},
+replay-wick-2025-12-28, rogue-pool-52-{up,grief,withhold,offline}. G1's `rogue_metrics` turns the
+largest real pool rogue on the real miner sequence (±10 %, −30 %, withholding).
+**Finding.** No window stops the 52 % pool (72 % of the quotes): it moves pFast in ~1.4 h, pMid in
+8.6 h (576) / 17 h (1,152), pSlow in ~35 h (2,016), then pMint is ≥ 5 % off on ~93 % of the attack's
+blocks (pClaim on ~92 %). HALT-3 fires only while the medians disagree (~4 % of a −30 % attack).
+Withholding gives NO_PRICE within ~0.6 h (no mints and, RED-4 needing pClaim, no claims) and ~38 h
+of refill after it resumes. Once ARMED, PRICE-2 (state.cpp:366-379, math.h:286-296) bounds
+over-minting and path-(a) claims; the residual is path (b) (pEmerg = min) and griefing.
+
+## D-RD-ORA-5 (2026-10-04, oracle) — G2 on real data: daily regime fit; cap need on the real history
+
+**Finding.** The calm/turbulent ensembles came from a regime fit to hourly returns (34 % / 773 %:
+the aggregator noise read as a regime). The cap need rested on that turbulent Merton process.
+**Decision.** Fit on daily observations (`daily_view`; ~80 % / ~350 %). With a real price the cap
+need is the replayed pFast's σ̂ p99 over the whole history with the one-hour prints removed;
+the ensemble's p99 is reported beside it. The reference keeps the M14 rule on the realised
+bootstrap ensemble, cross-checked against the replay per era in the notes.
+**Like for like.** The node's SIGMA-1 (state.cpp:1212-1221, math.h:72-104) is what the simulator
+computes (`ybcal verify` 127/127; devnet). σ̂ on pFast (2-hour lower median, hourly samples, 42
+returns, no demeaning) has a full-history median of 161–174 % against 440 % (1-hour returns) and
+235 % (daily returns) for the raw series: the reference is compared with σ̂ on pFast only.
+
+## D-RD-ORA-6 (2026-10-04, oracle) — HALT-3 availability read on the real history
+
+**Finding.** `calm_availability` (D-RD-AUD-6) counted every HALT-3 hour in a bootstrap
+`calm-90d` as false, but the bootstrap resamples the real crash days: 57 h/yr at 25 % against 2–6
+h/yr of real false halts. And with ~17 % of blocks without a price under the real landscape, HALT-3
+"missed" crashes during which HALT-1 already stopped minting.
+**Decision.** With a real price the availability budget reads the worst era's false HALT-3 hours on
+the replay (outside every ≥ 20 % weekly fall); recall (synthetic and real) is conditional on crash
+windows where the medians are defined for most of the window (`div.untestable.*` reported).
+
+## D-RD-ORA-7 (2026-10-04, oracle) — globalRatioHaltBps is owner-pinned in effect
+
+**Finding.** P(the price falls to 1/halt within grace) at 250 %: 2.5 % on the real hourly series,
+4.3 % on the daily series back to 2019, 6.4 % on the bootstrap, against a 1.6 % tolerance; ~300 %
+meets it. §1.4 forbids a halt at or above class C's 300 % base ratio, and W16 (recap = 2 × halt,
+owner decision D-R-3) would move the 500 % soft-cap gate W20 pinned (D-R-11) to 600 %.
+**Decision.** `[owner_pinned] globalRatioHaltBps = "W16 (D-R-3) + W20 (D-R-11)"` in the real-data
+policy: KEEP 25,000 with the exposure in a design note; `halt.p_sys_bad_real` added beside the
+bootstrap figure.
+
+## D-RD-ORA-8 (2026-10-04, oracle) — final values for G1, G2 and G7's halts, and how they were tested
+
+| Parameter | Shipped | Final | Verdict | Evidence |
+|---|---|---|---|---|
+| `pFastWindow` | 96 | 96 | KEEP (env, G1-ENV-1/2) | quick robust 24/36 (last365 window and seed 20261004 pick 48) |
+| `pMidWindow` | 576 | **1,152** | CHANGE (env) | quick robust 33/36 across windows × models × seeds (the rest 864); NO_PRICE frontier on the real sequence (docs/studies/g1.md) |
+| `pSlowWindow` | 2,016 | 2,016 | KEEP (env) | 33/36 |
+| `volWindow` / `volStep` | 2,016 / 48 | 2,016 / 48 | KEEP | standard seeds 1–3: KEEP / KEEP; quick robust 36/36 and 27/36 |
+| `sigmaRefBps` | 10,000 | **18,000** | CHANGE | standard seeds 1–3: 17,500 / 18,000 / 18,500 (the median); real-history replay median σ̂ 161 % (log-linear) – 174 % (bridge); by window (quick, bootstrap): last365 15,000–23,000, 2021-22 24,500–29,500, 2025-26 17,500–19,500; regime model 10,000–19,000 (no hourly noise: not like for like). The shipped 10,000 is outside the M14 band in every run but 5/36 (regime) |
+| `sigmaMultMaxBps` | 30,000 | **47,500** | CHANGE | standard seeds 1–3: 47,500 ×3 (need 4.52–4.71× = despiked full-history p99 σ̂ ≈ 830 % / ref); by window the need is 3× (2021-22) to > 5× (2025-26, CoinGecko's prints: 50,000-bound BLOCKED) |
+| `divergenceBps` | 2,000 | **2,750** | CHANGE | standard seeds 1, 2: 2,750; seed 3: BLOCKED (2,750 meets availability 5.1 h/yr but synthetic recall 0.863 < 0.9; 2,500 fails availability 8.8 h/yr) — 2,750 is feasible in 2/3 and the least-violating in the third. Real-history frontier (both landscapes, pMid 576 and 1,152): worst-era false HALT-3 hours 2.3–5.0 at 2,750 vs 10.9–12.2 at 2,500; real-fall recall ~0.50 at 2,750, ~0.45 at 3,000. The quick grid (500-bps steps) cannot express 2,750 |
+| `globalRatioHaltBps` | 25,000 | 25,000 | KEEP (pin W16 + W20) | P(system under water within grace) 2.5 % (real hourly) / 4.3 % (real daily) / 6.4 % (bootstrap) vs 1.6 %; ~300 % would meet it (D-RD-ORA-7) |
+| `supplyCapBps` | 1,500 | 1,500 | KEEP (pin W20) | evidence only, unchanged by this work |
+
+`emergencyPersist` is G8's (attestation), not G7's: not studied here.
+
+**Devnet (both node lines).** The final set (mainnet-scale overlay pMidWindow 1,152,
+sigmaRefBps 18,000, sigmaMultMaxBps 47,500, divergenceBps 2,750; scaled ×31.5, terms ×1,440) was
+built for ycash6 at the pin (7702d22) and ycash-dd HEAD, and `ybcal devnet validate` passed all 8
+scenarios on both (VALIDATED; 355–601 heights × 13 fields, vault rows, claimability, bundles): HALT-3
+(DIVERGENCE) 31 blocks in crash-70, NO_PRICE through the feed outage (239 vs 143 warm-up blocks), the
+σ multiplier at the 47,500 cap in K12 traps and 5 distinct values in the crash, HALT-2 296 blocks in
+vault-cycle, identical on both lines. A run of the sharpest real one-day crash (CoinGecko, −51 % on
+2025-10-10, 240 hourly prices) through `devnet run` + `devnet diff`: PASS on both lines (471 heights
+× 13 fields), HALT-3 17 blocks, 39 distinct σ multipliers reaching the cap.
+
+**Not done (handed over).** G1 at the standard budget (one seed ran > 1 h on the shared machine and
+was stopped) and the standard robust matrix (36 runs): `.work/runs/robust-standard.sh` in this
+worktree, resumable.

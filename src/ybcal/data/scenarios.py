@@ -84,7 +84,10 @@ OWNER_WP = "WP-2"
 SCENARIO_DIR: Path = REPO_ROOT / "scenarios"
 
 SEGMENT_KINDS: tuple[str, ...] = ("hold", "drift", "vol", "jump", "shock", "ramp", "wick")
-BASE_MODELS: tuple[str, ...] = ("gbm", "merton", "garch", "regime", "bootstrap", "flat")
+BASE_MODELS: tuple[str, ...] = ("gbm", "merton", "garch", "regime", "bootstrap", "flat", "replay")
+#: ``[base] model = "replay"`` keys (D-RD-ORA-4): a window of the real hourly history, in order.
+REPLAY_KEYS: frozenset[str] = frozenset({"start", "select", "window_days", "rank"})
+REPLAY_SELECT: tuple[str, ...] = ("worst_drawdown", "best_rally", "max_vol")
 
 #: Known behaviour schedules: name → (meaning, unit). Unknown names are rejected (typo guard).
 SCHEDULES: dict[str, tuple[str, str]] = {
@@ -222,10 +225,69 @@ class BaseSpec:
     center: bool = True  #: remove the model's expected log drift: the program alone sets the trend
 
     def make_model(self) -> synthetic.PriceModel | None:
-        """The preset with overrides (``None`` for ``flat`` and ``bootstrap``)."""
+        """The preset with overrides (``None`` for ``flat``, ``bootstrap`` and ``replay``)."""
+        if self.model == "replay":
+            bad = set(self.params) - REPLAY_KEYS
+            if bad:
+                raise ValueError(f"replay base: unknown params {sorted(bad)}; known {sorted(REPLAY_KEYS)}")
+            sel = self.params.get("select")
+            if sel is not None and sel not in REPLAY_SELECT:
+                raise ValueError(f"replay base: select must be one of {REPLAY_SELECT}")
+            if ("start" in self.params) == (sel is not None):
+                raise ValueError("replay base: give exactly one of start or select")
+            return None
         if self.model in ("flat", "bootstrap"):
             return None
         return synthetic.preset(self.model, **dict(self.params))
+
+
+def replay_start(data: PricePath, params: Mapping[str, Any], n: int, res: Resolution) -> int:
+    """Hour index where a ``replay`` base starts in the hourly ``data`` (D-RD-ORA-4).
+
+    ``start`` = an ISO date/time; ``select`` = ``worst_drawdown`` (the window of ``window_days`` —
+    default the scenario horizon — whose running minimum falls furthest below its first price),
+    ``best_rally`` (the largest rise to a running maximum) or ``max_vol`` (the largest realised
+    volatility of hourly returns); ``rank`` k picks the k-th such window, non-overlapping. Daily
+    starts; the window always fits the series."""
+    hours = data.n_steps
+    need = math.ceil((n - 1) * STEP_SECONDS[res] / 3600) + 1
+    if "start" in params:
+        t = datetime.fromisoformat(str(params["start"]))
+        t0 = data.t0
+        if t.tzinfo is None and t0.tzinfo is not None:
+            t = t.replace(tzinfo=t0.tzinfo)
+        elif t0.tzinfo is None and t.tzinfo is not None:
+            t = t.replace(tzinfo=None)
+        a = int((t - t0).total_seconds() // 3600)
+        if not 0 <= a <= hours - need:
+            raise ValueError(f"replay start {params['start']} leaves fewer than {need} hours of data")
+        return a
+    w = round(float(params.get("window_days", need / 24)) * 24)
+    w = max(2, min(w, hours - 1))
+    p = data.prices[0].astype(np.float64)
+    p = np.where(p > 0, p, np.nan)
+    starts = np.arange(0, max(1, hours - max(w, need)), 24)
+    from numpy.lib.stride_tricks import sliding_window_view
+
+    lp = np.log(np.where(np.isfinite(p), p, np.nanmedian(p)))
+    win = sliding_window_view(lp, w + 1)[starts]
+    sel = str(params["select"])
+    if sel == "worst_drawdown":
+        score = win.min(axis=1) - win[:, 0]  # most negative = worst
+    elif sel == "best_rally":
+        score = -(win.max(axis=1) - win[:, 0])
+    else:
+        score = -np.diff(win, axis=1).std(axis=1)
+    order = np.argsort(score, kind="stable")
+    rank = max(1, int(params.get("rank", 1)))
+    taken: list[int] = []
+    for i in order:
+        a = int(starts[i])
+        if all(abs(a - b) >= w for b in taken):
+            taken.append(a)
+            if len(taken) == rank:
+                return a
+    return int(starts[order[0]])
 
 
 @dataclass
@@ -293,6 +355,21 @@ class Scenario:
             return r[idx, : n - 1].copy(), info
         if self.base.model == "flat":
             return np.zeros((n_paths, n - 1)), info
+        if self.base.model == "replay":
+            if data is not None and data.resolution == "hour":
+                a = replay_start(data, self.base.params, n, res)
+                seg = PricePath(data.t0, "hour", data.prices[:1, a:], "real", {})
+                bp = resample(seg, res, method="loglinear") if res == "block" else seg
+                r = np.nan_to_num(log_returns(bp), nan=0.0)[0, : n - 1]
+                if r.size < n - 1:
+                    r = np.concatenate([r, np.zeros(n - 1 - r.size)])
+                t0 = data.t0.timestamp() + a * 3600
+                info.update(base_provenance="real", replay_start_hour=a, replay_start_ts=int(t0))
+                return np.tile(r, (n_paths, 1)), info
+            model = synthetic.preset(self.base.fallback)
+            info.update(base_model=self.base.fallback, base_fallback=True, base_provenance="synthetic")
+            r = model.log_returns(n_paths, n, res, rng)[:, : n - 1]
+            return r - model.expected_log_drift() / steps_per_year(res), info
         if self.base.model == "bootstrap":
             if data is not None:
                 model: synthetic.PriceModel = synthetic.BlockBootstrap.fit(data)
