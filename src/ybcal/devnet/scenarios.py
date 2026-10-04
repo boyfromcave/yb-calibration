@@ -174,6 +174,33 @@ def load_price_file(file: str | Path, blocks_per_step: int = 1) -> list[ReplaySt
     return steps_from_prices(prices, blocks_per_step, label=p.stem)
 
 
+def _is_step_file(name: str | Path) -> bool:
+    p = Path(name)
+    if p.suffix != ".json":
+        return False
+    try:
+        doc = json.loads(p.read_text())
+    except ValueError:
+        return False
+    return isinstance(doc, dict) and doc.get("format") == "ybcal-steps/1"
+
+
+def steps_from_doc(doc: Mapping[str, Any]) -> list[ReplayStep]:
+    """Steps from a ``{"format": "ybcal-steps/1", "steps": [{price, blocks, signal_share_bps?,
+    pool_weights?, label?}], "needs"?, "bootstrap"?: "active" | "funding", "description"?}`` document —
+    e.g. a real pool landscape replayed at regtest scale (``ybcal.sim.landscape.devnet_steps``).
+    ``bootstrap`` "active" (default) prepends the usual funding + activation; "funding" only the
+    funding blocks, so the schedule's own signalling has to lock in."""
+    if doc.get("format") != "ybcal-steps/1":
+        raise ValueError("not a ybcal-steps/1 document")
+    out = []
+    for st in doc["steps"]:
+        out.append(ReplayStep(int(st["price"]), int(st["blocks"]),
+                              pool_weights=tuple(st["pool_weights"]) if st.get("pool_weights") else None,
+                              signal_share_bps=st.get("signal_share_bps"), label=st.get("label", "")))
+    return out
+
+
 def _walk(rng: random.Random, start: int, n: int, vol_bps: int) -> list[int]:
     """Integer multiplicative random walk (µUSD), clamped to the valid price range."""
     out, p = [], start
@@ -421,6 +448,18 @@ def make_schedule(
     if name in SCENARIOS:
         fn, needs, desc = SCENARIOS[name]
         steps = fn(params, rng, price)
+    elif Path(name).is_file() and _is_step_file(name):
+        doc = json.loads(Path(name).read_text())
+        steps, needs = steps_from_doc(doc), frozenset(doc.get("needs", ()))
+        desc = doc.get("description", name)
+        if any(s.signal_share_bps is not None and s.signal_share_bps < 10_000 for s in steps):
+            needs = needs | {"dark_miner"}
+        mode = doc.get("bootstrap", "active")
+        if mode not in ("active", "funding"):
+            raise ValueError(f"{name}: bootstrap must be 'active' or 'funding', not {mode!r}")
+        if bootstrap and mode == "funding":
+            pre = [ReplayStep(0, FUNDING_BLOCKS, label="funding")]
+            return Schedule(Path(name).stem, tuple(pre + steps), needs, desc, seed)
     elif Path(name).is_file():
         steps, needs, desc = load_price_file(name, file_blocks_per_step), frozenset(), f"price file {name}"
     else:

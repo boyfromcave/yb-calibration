@@ -98,6 +98,7 @@ from ybcal.studies.g1_price_windows import (
     evidence_dir,
     out_dir_of,
     plot_style,
+    real_model,
     real_price,
 )
 from ybcal.units import BLOCKS_PER_DAY, BLOCKS_PER_HOUR, BPS, COIN
@@ -282,6 +283,20 @@ def member_sigma(ens: Ensemble, name: str, sigma: Any, skip: int) -> Any:
     return int(np.percentile(s, q)) if s.size else sigma
 
 
+def _hourly_filled(rp) -> np.ndarray | None:
+    """The loader's ``filled`` mask of ``rp`` on the hourly grid (``None`` if it carries none)."""
+    if rp is None:
+        return None
+    from ybcal.data import pricepath as PP
+
+    pp = rp if rp.resolution == "hour" else PP.resample(rp, "hour")
+    f = pp.meta.get("filled")
+    if not isinstance(f, np.ndarray):
+        return None
+    f = np.asarray(f, dtype=bool)
+    return f if f.ndim == 1 else f[0]
+
+
 def ensemble(env: Env, params: Mapping) -> Ensemble:
     """The hour ensemble for ``env`` (memoised per process on seed, budget, data and oracle params).
 
@@ -314,8 +329,16 @@ def ensemble(env: Env, params: Mapping) -> Ensemble:
     if real is not None:
         from ybcal.data.pricepath import make_path
 
-        pp = make_path(real_price(env).t0, "hour", real[None, :], "real")  # type: ignore[union-attr]
-        model = SY.BlockBootstrap.fit(pp)
+        rp = real_price(env)
+        meta = {}
+        filled = _hourly_filled(rp)
+        if filled is not None and filled.shape[-1] == real.shape[0]:
+            # keep the loader's forward-fill mask: returns are fitted observed to observed at the
+            # native step, so a daily series on the hourly grid is not emptied by the stale-run
+            # filter (D-RD-INF-1)
+            meta["filled"] = filled
+        pp = make_path(rp.t0, "hour", real[None, :], "real", meta)  # type: ignore[union-attr]
+        model = real_model(env, pp)
         true["bootstrap"] = _drifted_prices(
             model, P, n, env.rng_for("ybcal-hour-ensemble", "bootstrap"), drift, int(real[-1])
         )

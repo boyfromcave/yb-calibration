@@ -57,6 +57,7 @@ from typing import Any, Literal
 import numpy as np
 
 from ybcal.optimize.evaluate import EvalCache, evaluate_many
+from ybcal.optimize.pins import pin_info
 from ybcal.optimize.runner import GroupRun, recommended_set, run_group
 from ybcal.optimize.sensitivity import Factor, morris, sobol
 from ybcal.params.invariants import Context
@@ -339,6 +340,13 @@ def _restate(
                 "Joint pass: metrics at the current value are from round 1 (other groups then "
                 "at their round-1 values)."
             )
+    from ybcal.studies.envlimit import env_info
+
+    if rec.verdict == "BLOCKED" and env_info(rec) is not None:
+        # D-RD-INF-3: a study that marks a BLOCKED row environment-limited has picked its least-harm
+        # value; the verdict is KEEP/CHANGE (re-labelled below), the report says why
+        rec.notes.append("Environment limit: BLOCKED re-stated as the least-harm value (D-RD-INF-3).")
+        rec.verdict = "KEEP"
     want = final[p]
     if rec.recommended != want:
         rec.notes.append(
@@ -346,11 +354,31 @@ def _restate(
             "(derived from its parent, or the group's change was not applied)."
         )
         rec.recommended = want
+    _restate_least_violating(rec, shipped)
     if rec.verdict == "KEEP" and rec.recommended != shipped:
         rec.verdict = "CHANGE"
     elif rec.verdict == "CHANGE" and rec.recommended == shipped:
         rec.verdict = "KEEP"
     return rec
+
+
+_LV_CURRENT = re.compile(r"least[ -]violating:? (the )?current( value)?", re.I)
+
+
+def _restate_least_violating(rec: Recommendation, shipped: Any) -> None:
+    """A BLOCKED study text written against an intermediate joint set says "least violating:
+    current" although the value it means is that round's (D-RD-INF-6): name the value."""
+    if rec.verdict != "BLOCKED" or rec.recommended == shipped:
+        return
+    txt = f"least violating: {rec.recommended} (the joint set's value; shipped {shipped})"
+
+    def fix(s: Any) -> Any:
+        return _LV_CURRENT.sub(txt, s) if isinstance(s, str) else s
+
+    rec.binding = fix(rec.binding)
+    if isinstance(rec.metrics, dict) and isinstance(rec.metrics.get("decision"), str):
+        rec.metrics = {**rec.metrics, "decision": fix(rec.metrics["decision"])}
+    rec.notes = [fix(n) for n in rec.notes]
 
 
 def joint_pass(
@@ -490,6 +518,7 @@ def joint_pass(
                 and fr.recommended == current[r.param]
                 and fr.current == base[r.param]
                 and fr.verdict != "BLOCKED"
+                and pin_info(r) is None  # a pin's evidence is read at the final joint set (D-RD-INF-2)
             ):
                 # decided in round 1, confirmed later: report the round-1 decision (made against the
                 # shipped value, so its metrics and explanation compare current with recommended)
@@ -566,7 +595,9 @@ def _hourly(env: Env) -> tuple[tuple, np.ndarray, str]:
             try:
                 hp = real if real.resolution == "hour" else None
                 if hp is not None:
-                    model = SY.BlockBootstrap.fit(hp)
+                    from ybcal.studies.g1_price_windows import real_model
+
+                    model = real_model(env, hp)
                     prov = "real-data"
             except Exception:
                 model = SY.preset("garch")

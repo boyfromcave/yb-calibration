@@ -210,7 +210,7 @@ def hour_prefix(env: Env, n_paths: int, days: float, tag: str) -> np.ndarray:
     if real is not None:
         try:
             hourly = real if real.resolution == "hour" else PP.resample(real, "hour")
-            model = SY.BlockBootstrap.fit(hourly)
+            model = G1.real_model(env, hourly)
             model.demean = True
             return np.asarray(model.simulate(n_paths, n, "hour", rng, p0=p0).prices, dtype=np.int64)
         except Exception:  # pragma: no cover - a real file too short to bootstrap → placeholder
@@ -327,7 +327,7 @@ def judge_stream(env: Env, name: str) -> JudgeStream:
     """The scenario's REG-4 tag stream (memoised per process; see the module docstring)."""
 
     def build() -> JudgeStream:
-        from ybcal.data.synthetic import BlockBootstrap, renewal_outages
+        from ybcal.data.synthetic import renewal_outages
 
         scen = G1.scenario(env, name)
         h = G1.horizon_days(scen, env.budget)
@@ -335,7 +335,7 @@ def judge_stream(env: Env, name: str) -> JudgeStream:
         rng = env.rng_for("G6", "true", name, P, h)
         real = G1.real_price(env)
         if real is not None:
-            model = BlockBootstrap.fit(real)
+            model = G1.real_model(env, real)
             model.demean = True
             base = model.simulate(
                 P, scen.n_steps("block", h), "block", env.rng_for("G6", "boot", name, P, h), p0=scen.p0

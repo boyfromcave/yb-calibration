@@ -21,6 +21,7 @@ require_real_data_for_lock = true  # lock-readiness needs real-data provenance f
 class_heterogeneity_max = 0.50     # max relative spread of P(bad debt) within one class before a split/merge is suggested (§5.3)
 term_distribution = "uniform"      # lock-term distribution within each class: "uniform" | "short-heavy" | "long-heavy" (§5.3)
 sigma_mult_at = "median"           # σ multiplier assumed when sizing base ratios: "median" | "p90" (§5.3)
+real_price_model = "bootstrap"      # model of real price data in the studies: "bootstrap" (demeaned block bootstrap of the hourly series) | "regime" | "garch" (fitted on the longest real series, centred) (D-RD-INF-5)
 
 [risk.max_bad_debt_prob]           # max P(collateral < debt when the claim path opens), per term class (§5.3, §12.1)
 A = 0.005
@@ -54,6 +55,10 @@ max_flaps_per_year = 2.0           # max halt/clear cycles per year at the expec
 operator_upgrade_window_blocks = 2016  # activationDelay must be >= this (time for operators to upgrade, §5.5)
 orphan_rate = 0.005                # orphan rate used for valve false-trip estimates (§5.5)
 max_valve_false_trips_per_year = 1.0   # excluded param valveBlocks: tolerated false trips/year (§5.5)
+enforcing_pools = ["s1NYxEmf", "s1iDNEgZ", "s1TbPq7M"]   # REAL DATA: ninjaraider, mining-dutch, dapool (= expected_enforcing_share 0.70; D-RD-ACT-1)
+activation_reach_days = 60.0       # lock-in within 60 days of startHeight (D-RD-ACT-3; frontier in docs/studies/g5.md)
+max_spurious_lock_prob = 1.0       # reported, not a constraint: no window within the runbook bound meets a useful level (D-RD-ACT-4)
+valve_attack_days = 30.0           # a matured-vault owner keeps a sweep in stock mempools for 30 days (D-RD-ACT-5)
 
 [abandonment]
 max_false_abandon_prob = 0.001     # max P(ENFORCEMENT set for abandonBlocks without a real abandonment) per year (§5.4)
@@ -162,3 +167,25 @@ max_honest_payee_spread = 1.5                  # max ratio between honest pools'
 min_accuracy_premium = 0.25                 # min payee-weight premium of an accurate over a sloppy pool (G6)
 p10_daily_volume_usd = 700.0                # REAL DATA: same as yec_daily_volume_p10_usd (CoinGecko p10, 365 d)
 system_ratio_alarm_bps = 15000                # HALT-2 must fire before the true system ratio reaches this, bps (G7)
+
+[owner_pinned]  # owner decisions (D-RD-INF-2): the study runs, the value is KEPT; evidence against it is shown, never a CHANGE
+# Plan citations (workspace docs/plans/): v3 = yellowback-v3-development-plan.md, v2 = yellowback-v2-development-plan.md,
+# proposal = docs/reference/yellowback-price-attestation.md. Remove a line to let the study move that value.
+abandonBlocks = "W21 (D-R-12)"                                   # v3 §2 W21, §6.2 D-R-12: ABANDON_BLOCKS = GRACE = 34,560 (30 d floor)
+grace = "D-R-6 (reaffirmed W21)"                                 # v3 §6.2 D-R-6 (2026-09-21), revision 4 / W21: GRACE stays 30 d
+"classMin[0]" = "D-R-6 (lock classes stay, reaffirmed W21)"      # v3 revision 4: "GRACE and the lock classes stay as they are"
+"classMin[1]" = "D-R-6 (lock classes stay, reaffirmed W21)"
+"classMin[2]" = "D-R-6 (lock classes stay, reaffirmed W21)"
+"classMax[0]" = "D-R-6 (lock classes stay, reaffirmed W21)"
+"classMax[1]" = "D-R-6 (lock classes stay, reaffirmed W21)"
+"classMax[2]" = "D-R-6 (lock classes stay, reaffirmed W21)"
+supplyCapBps = "W20 (D-R-11)"                                    # v3 §2 W20, §6.2 D-R-11: SUPPLY_CAP_BPS stays 1,500, soft above RECAP_RATIO_BPS
+attestFeeBps = "D-3"                                             # proposal §16 D-3: additive, 25 % of feeZat (v3 §3.1 ATTEST_FEE_BPS 2,500)
+attestArmMin = "D-4"                                             # proposal §16 D-4: automatic arming, 5 ELIGIBLE attestors ...
+attestArmDelay = "D-4"                                           # ... then one day (ATTEST_ARM_DELAY 1,152)
+# L3 fixes SHARES of the signal window: pinned as fractions of signalWindow (signalWindow itself is not pinned)
+activationThreshold = { ref = "L3", of = "signalWindow" }        # v2 revision 4 L3: the mint halt keeps 75 % (1,512 of 2,016)
+participationFloor = { ref = "L3", of = "signalWindow" }         # ... and 60 % (1,210 of 2,016)
+enforcementFloor = { ref = "L3", of = "signalWindow" }           # v2 revision 4 L3: ENFORCEMENT_FLOOR = 50 % (1,008 of 2,016)
+enforcementResume = { ref = "L3", of = "signalWindow" }          # v2 revision 4 L3: ENFORCEMENT_RESUME = 60 % (1,210 of 2,016)
+valveBlocks = "L7"                                               # v2 revision 5 L7: VALVE_BLOCKS = 6

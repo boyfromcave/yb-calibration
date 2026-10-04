@@ -38,6 +38,34 @@ def _adoption_default() -> dict[str, dict[str, float]]:
     }
 
 
+def _owner_pinned_default() -> dict[str, Any]:
+    """Parameters whose value the owner fixed by decision (D-RD-INF-2), with the decision reference.
+    Plan citations (workspace ``docs/plans/``): v3 §2 W20/W21, §6.2 D-R-6/D-R-11/D-R-12; proposal
+    §16 D-3/D-4 (``docs/reference/yellowback-price-attestation.md``); v2 §0 revision 4 L3 and
+    revision 5 L7."""
+    lock = "D-R-6 (lock classes stay, reaffirmed W21)"
+    return {
+        "abandonBlocks": "W21 (D-R-12)",
+        "grace": "D-R-6 (reaffirmed W21)",
+        "classMin[0]": lock,
+        "classMin[1]": lock,
+        "classMin[2]": lock,
+        "classMax[0]": lock,
+        "classMax[1]": lock,
+        "classMax[2]": lock,
+        "supplyCapBps": "W20 (D-R-11)",
+        "attestFeeBps": "D-3",
+        "attestArmMin": "D-4",
+        "attestArmDelay": "D-4",
+        # L3 fixes shares of the signal window, so they are pinned as fractions of signalWindow
+        "activationThreshold": {"ref": "L3", "of": "signalWindow"},
+        "participationFloor": {"ref": "L3", "of": "signalWindow"},
+        "enforcementFloor": {"ref": "L3", "of": "signalWindow"},
+        "enforcementResume": {"ref": "L3", "of": "signalWindow"},
+        "valveBlocks": "L7",
+    }
+
+
 @dataclass(frozen=True)
 class Policy:
     """Owner tolerances. Field meanings and units are documented in ``policy/default.toml``."""
@@ -52,6 +80,7 @@ class Policy:
     term_distribution: str = "uniform"
     sigma_mult_at: str = "median"
     price_drift: str = "centred"
+    real_price_model: str = "bootstrap"
     claimant_min_profit_bps: int = 200
     claimant_slippage_pctl: int = 90
     # oracle (G1, G2)
@@ -112,6 +141,10 @@ class Policy:
     operator_upgrade_window_blocks: int = 2016
     orphan_rate: float = 0.005
     max_valve_false_trips_per_year: float = 1.0
+    enforcing_pools: tuple[str, ...] = ()
+    activation_reach_days: float = 0.0
+    valve_attack_days: float = 0.0
+    max_spurious_lock_prob: float = 1.0
     # abandonment (G4, release)
     max_false_abandon_prob: float = 0.001
     runbook_operator_buffer_blocks: int = 4608
@@ -161,6 +194,20 @@ class Policy:
     # optimizer
     max_rounds_joint: int = 3
     insensitive_total_order: float = 0.01
+    # owner decisions (D-RD-INF-2): param → decision reference; studied, never changed
+    owner_pinned: dict[str, Any] = field(default_factory=_owner_pinned_default)
+
+    def __post_init__(self) -> None:
+        from ybcal.params.registry import REGISTRY
+
+        bad = [k for k in self.owner_pinned if k not in REGISTRY or not REGISTRY[k].tunable]
+        for k, v in self.owner_pinned.items():
+            if isinstance(v, dict):
+                of = v.get("of")
+                if "ref" not in v or (of is not None and (of not in REGISTRY or not REGISTRY[of].tunable)):
+                    bad.append(f"{k} ({v})")
+        if bad:
+            raise KeyError(f"owner_pinned: not tunable registry parameters: {', '.join(bad)}")
 
     # -- loading -------------------------------------------------------------------------------------
     @classmethod
@@ -190,6 +237,8 @@ class Policy:
         walk(data, "")
         if "sigma_accept_band" in flat:
             flat["sigma_accept_band"] = tuple(flat["sigma_accept_band"])
+        if "enforcing_pools" in flat:
+            flat["enforcing_pools"] = tuple(str(x) for x in flat["enforcing_pools"])
         return cls(**flat)
 
     @classmethod
@@ -202,6 +251,25 @@ class Policy:
             raise FileNotFoundError(p)
         with p.open("rb") as fh:
             return cls.from_mapping(tomllib.load(fh))
+
+    def with_overrides(self, items: Sequence[str]) -> tuple[Policy, dict[str, Any]]:
+        """Apply ``KEY=VALUE`` overrides (VALUE parsed as TOML; a bare word is a string). Returns the
+        new policy and the parsed overrides. Unknown keys raise ``KeyError``."""
+        out: dict[str, Any] = {}
+        for it in items:
+            if "=" not in it:
+                raise ValueError(f"--policy-set {it!r}: expected KEY=VALUE")
+            k, v = (x.strip() for x in it.split("=", 1))
+            if k not in self.field_names():
+                raise KeyError(f"--policy-set: unknown policy key {k!r}")
+            try:
+                val = tomllib.loads(f"x = {v}")["x"]
+            except tomllib.TOMLDecodeError:
+                val = v
+            if k == "sigma_accept_band" and isinstance(val, list):
+                val = tuple(val)
+            out[k] = val
+        return (self.replace(**out) if out else self), out
 
     def replace(self, **kw: Any) -> Policy:
         """A copy with fields changed (for conservative / lenient presets)."""
