@@ -229,6 +229,10 @@ class FamilyStudy:
         family's change already resolves the same violation (their verdict becomes KEEP)."""
         return changes
 
+    def design_notes(self, results: ResultTable, chosen_rows: Mapping[str, Any]) -> list[dict[str, Any]]:
+        """Design notes attached to the recommendations of the params they name (default: none)."""
+        return []
+
     # -- decide ----------------------------------------------------------------------------------
     def decide_family(self, table: ResultTable, fam: Family, policy) -> tuple[ResultRow, str, str]:
         """(chosen row, verdict KEEP/CHANGE/BLOCKED, reason) for one family."""
