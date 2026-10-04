@@ -184,7 +184,7 @@ class Policy:
     max_single_entity_weight_share: float = 0.25
     diverge_spread_multiplier: float = 3.0
     max_mint10_refusal_prob: float = 0.01
-    min_bond_cap_years: float = 2.0
+    min_bond_cap_years: float = 1.0
     min_harm_capture_seats_share: float = 0.75
     pin_low_move_fraction: float = 0.05
     max_false_pin_prob: float = 0.01

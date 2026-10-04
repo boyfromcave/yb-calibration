@@ -778,20 +778,20 @@ def _fams() -> tuple[Family, ...]:
                "dormancyCheck: verify — the false-ejection and dead-detection budgets hold.", kind="verify",
                constraints=("false_eject", "dead_detect"), report=dorm, sens_metric="dorm.dead_detect_p95"),
         Family("bond", ("bondMin",), ("bondMin",),
-               "bondMin (D-RD-ATT-4): the smallest bond — the least capital an honest attestor must lock, "
-               "so the most independent attestors can afford a seat — whose harmful-capture capital (one "
-               "adversary's seats of just over bondMin, as many as it takes for P(aMint up 10 %) ≥ 1/2) "
-               "covers "
-               "min_bond_cap_years of the MINT-6 cap's growth (supplyCapBps × the subsidy issued since "
-               "startHeight; both in YEC, so the test does not move with the YEC price), subject to an "
-               "honest bond's monthly opportunity cost at the reference price ≤ "
-               "attestor_min_monthly_revenue_usd; KEEP unless > materiality.",
-               primary="bond.seated_total_yec", minimize=True, constraints=("bond_secure", "bond_affordable"),
-               report=("bond.grief_capital_usd_p05", "bond.opportunity_usd_month", "bond.usd_at_start",
-                       "bond.usd_1y_p10", "bond.usd_1y_p90", "bond.harm_seats", "bond.harm_capital_usd",
-                       "bond.grief_capital_usd", "bond.harm_to_cap_ratio",
-                       "bond.seated_total_yec", "bond.seq_exhaustion_usd"),
-               provenance_key="price_provenance"),
+               "bondMin (D-RD-ATT-4): verify — (security) the capital for harmful capture by one adversary "
+               "(seats of just over bondMin, as many as it takes for P(aMint up 10 %) ≥ ½) covers "
+               "min_bond_cap_years of the MINT-6 cap's growth (supplyCapBps × subsidy since startHeight; "
+               "both in YEC, so the test does not move with the YEC price), and (affordability) an honest "
+               "bond's monthly opportunity cost at the reference price ≤ attestor_min_monthly_revenue_usd; "
+               "else the nearest value that passes. The frontier (bond vs capture capital vs cost) is "
+               "reported.",
+               kind="verify", constraints=("bond_secure", "bond_affordable"),
+               report=("bond.opportunity_usd_month", "bond.usd_at_start", "bond.usd_1y_p10",
+                       "bond.usd_1y_p90",
+                       "bond.harm_seats", "bond.harm_capital_usd", "bond.grief_capital_usd",
+                       "bond.harm_to_cap_ratio", "bond.seated_total_yec", "bond.grief_capital_usd_p05",
+                       "bond.seq_exhaustion_usd"),
+               sens_metric="bond.harm_to_cap_ratio", provenance_key="price_provenance"),
         Family("bond_lock", ("bondMinLock",), (),
                "bondMinLock: fixed at BLOCKS_PER_YEAR (§1.4 invariant) — verified, not tuned.",
                kind="verify"),
