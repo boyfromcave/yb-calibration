@@ -265,3 +265,15 @@ def test_cli_import_spreads_infers_interval(tmp_path, capsys):
     assert cli.main(["data", "import", str(f), "--kind", "spreads"]) == 0
     out = capsys.readouterr().out
     assert "expected step: 3600 s" in out and "gaps (> 3x step): 0" in out
+
+
+def test_describe_warns_on_clamp_and_scale_fixes_it(tmp_path, capsys):
+    f = tmp_path / "zec.csv"
+    rng = np.random.default_rng(1)
+    px = 300.0 * np.exp(np.cumsum(rng.normal(0, 0.01, 500)))
+    f.write_text("ts,price_usd\n" + "\n".join(f"{3600 * k},{p}" for k, p in enumerate(px)) + "\n")
+    assert cli.main(["data", "describe", str(f)]) == 0
+    assert "WARNING" in capsys.readouterr().out
+    assert cli.main(["data", "describe", str(f), "--scale", "0.001"]) == 0
+    out = capsys.readouterr().out
+    assert "WARNING" not in out and "realised vol" in out
