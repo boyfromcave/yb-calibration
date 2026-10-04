@@ -53,6 +53,9 @@ def test_every_param_recommended_with_full_fields(tiny_run):
         if r.param == "supplyCapBps":  # owner-pinned (W20, D-RD-INF-2): KEEP whatever the data
             assert r.verdict == "KEEP" and r.metrics["owner_pin"]["ref"].startswith("W20")
             continue
+        if r.param == "globalRatioHaltBps":  # owner-pinned in effect (W16 + W20, D-RD-ORA-7)
+            assert r.verdict == "KEEP" and r.metrics["owner_pin"]["ref"].startswith("W16")
+            continue
         assert r.provenance == "synthetic" and r.verdict in ("PROVISIONAL", "BLOCKED")
     assert by["recapRatioBps"].recommended == 2 * by["globalRatioHaltBps"].recommended
     assert by["globalRatioHaltBps"].recommended < 30_000
