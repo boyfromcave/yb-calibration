@@ -1110,6 +1110,10 @@ def _objective(lag: float, over: float, lag0: float, over0: float, lam: float) -
     return norm(lag, lag0) + lam * norm(over, over0)
 
 
+#: Least-harm band on background NO_PRICE when no window set meets ``max_no_price_hours`` (D-RD-ORA-2).
+NO_PRICE_BAND = 0.05
+
+
 def environment_adjust(jt: ResultTable, policy: Policy) -> tuple[ResultTable, list[str]]:
     """Relax the G1 constraints the real environment makes unmeetable for *every* window set, so the
     rule still picks the least-harm windows instead of stopping at BLOCKED (D-RD-ORA-2):
@@ -1118,8 +1122,10 @@ def environment_adjust(jt: ResultTable, policy: Policy) -> tuple[ResultTable, li
       (``attack_env_blocked``: its quotes are the lower median with P ≥ ½ in every window), no window
       choice changes who controls the price; the constraint is dropped from the window decision and
       the exposure is reported (attestation and HALT-3 bound it, not the windows);
-    * ``max_no_price_hours`` — when no candidate meets it, it becomes "within materiality of the
-      lowest NO_PRICE any candidate reaches" (NO_PRICE is minimised first, then J as usual).
+    * ``max_no_price_hours`` — when no candidate meets it, it becomes "within ``NO_PRICE_BAND`` (5 %)
+      of the lowest NO_PRICE any candidate reaches": availability is the harm the environment makes
+      binding, so it is minimised first (a tight band, not materiality — 20 % of 1,200 h/yr is 240 h);
+      J then chooses inside the band as usual (minimal change within materiality of the best).
 
     Returns the (possibly) adjusted table and one note per relaxation; no notes = unchanged."""
     cur = jt.current(WINDOWS)
@@ -1127,9 +1133,9 @@ def environment_adjust(jt: ResultTable, policy: Policy) -> tuple[ResultTable, li
     if cur is None:
         return jt, notes
     v = cur.metrics.values
-    drop_attack = bool(v.get("attack_env_blocked", 0.0) >= 1.0) and not cur.metrics.constraints.get(
-        "attack_share_min", True
-    )
+    # whenever one pool sets every median alone the coalition test is moot (it passes or fails on a
+    # 34 % coalition nobody needs); the note is always raised, the constraint dropped if it binds
+    drop_attack = bool(v.get("attack_env_blocked", 0.0) >= 1.0)
     if drop_attack:
         notes.append(
             f"the largest pool holds {float(v.get('top_pool_quote_share', math.nan)):.0%} of the quotes "
@@ -1140,13 +1146,13 @@ def environment_adjust(jt: ResultTable, policy: Policy) -> tuple[ResultTable, li
     nph = [float(r.metrics.values.get("no_price_h_per_year", math.nan)) for r in jt]
     finite = [x for x in nph if math.isfinite(x)]
     relax_np = bool(finite) and min(finite) > float(policy.max_no_price_hours)
-    bound = (1.0 + float(policy.materiality)) * min(finite) if relax_np else math.nan
+    bound = (1.0 + NO_PRICE_BAND) * min(finite) if relax_np else math.nan
     if relax_np:
         np_cur = float(v.get("no_price_h_per_year", math.nan))
         notes.append(
             f"no window set meets max_no_price_hours ({policy.max_no_price_hours:g} h/yr): the lowest "
             f"background NO_PRICE is {min(finite):.0f} h/yr (current {np_cur:.0f}); "
-            f"the rule keeps sets within materiality of it (≤ {bound:.0f} h/yr)"
+            f"the rule keeps the sets within {NO_PRICE_BAND:.0%} of it (≤ {bound:.0f} h/yr), then applies J"
         )
     if not notes:
         return jt, notes
