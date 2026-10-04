@@ -136,6 +136,7 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-INF-1](#d-rd-inf-1-2026-10-03-infra--price-inputs-by-role-observed-to-observed-returns-everywhere) | infra (wave 2) | price inputs by role; observed-to-observed returns everywhere |
 | [D-RD-INF-2](#d-rd-inf-2-2026-10-04-infra--owner-pinned-parameters-are-studied-and-kept) | infra (wave 2) | owner-pinned parameters are studied and kept |
 | [D-RD-INF-3](#d-rd-inf-3-2026-10-04-infra--policy-unmeetable-in-this-environment-is-not-blocked) | infra (wave 2) | "policy unmeetable in this environment" is not BLOCKED |
+| [D-RD-INF-4](#d-rd-inf-4-2026-10-04-infra--g9-on-real-data-no-zero-amounts-thin-market-and-majority-pool-are-environment-limits) | infra (wave 2) | G9 on real data: no zero amounts; thin market and majority pool are environment limits |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -1707,4 +1708,27 @@ parameter failures. Whether a constraint is environment-limited is study knowled
 declares it; the mechanism is generic.
 **Consequence.** The group agents (G1 attack share, G5 activation reach, G9 reorg share) opt in in
 their `decide`; nothing changes for a study that does not.
+
+## D-RD-INF-4 (2026-10-04, infra) — G9 on real data: no zero amounts; thin market and majority pool are environment limits
+
+**Decision.** (1) An empty admissible range keeps the current value clamped into the registry
+bounds; the BLOCKED fallback can no longer produce 0 (the rd2 crash: maxMint's depth bound $63.6
+rounded onto the $1,000 lattice to 0, minMint followed, `fee_table` raised). `sim/fees.py`
+distinguishes "undefined: non-positive input" from K14 (> MAX_MONEY), as ycash6 `math.h:111-124`
+does internally. (2) maxMint: when no value ≥ max(minMint, registry floor) passes the depth check,
+it is an environment limit (G9-ENV-1, D-RD-INF-3): KEEP the current value, exposure = the
+liquidation in days of p10 volume and multiples of the ±2 % depth, frontier CSV in the evidence.
+Least harm is the current value because a per-vault cap does not bound the aggregate liquidation
+load (owners split vaults); the aggregate is G7/G3's. (3) walletConfirmations / DEFAULT_REF_LAG read
+the real pool landscape (`env.data["pool_shares"]`): the adversary share is max(policy, real top)
+when the top is below half; with a majority pool, z is sized against max(policy, second pool) and the
+majority is an environment limit (G9-ENV-2). `G9Context` gains `top_share`, `second_share`,
+`policy_reorg_q`, `depth_2pct_usd` (defaults keep old cached contexts loadable).
+**Reason.** The briefing: battle-test G9 on the real depth ($169–183 at ±2 %, p10 volume $700) and
+the real pool landscape (52 % top pool); a crash and a BLOCKED there hid a usable answer.
+**Consequence.** On the real inputs: minMint $100 KEEP, maxMint $10,000 KEEP (environment-limited),
+minOutput $1 KEEP, maxOutput $100,000 KEEP, residualMinZat 100,000 KEEP, carrierValue 10,000 KEEP,
+walletConfirmations 6 → 24 CHANGE (environment-limited: the 52 % pool is unbounded), DEFAULT_REF_LAG
+2 KEEP. G9 is closed-form; price data enters only through the reference price (minMint's fee-floor
+bound), so seeds and price models cannot move it, windows can (robustness harness, D-RD-INF-5).
 

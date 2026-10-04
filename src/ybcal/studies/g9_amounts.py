@@ -52,6 +52,7 @@ from ybcal.params.paramset import ParamSet
 from ybcal.params.registry import REGISTRY, params_for_group
 from ybcal.studies import g3_collateral as G3
 from ybcal.studies.base import Budget, Env, Metrics, Recommendation, ResultTable, final_verdict
+from ybcal.studies.envlimit import attach_environment
 from ybcal.studies.g1_price_windows import (
     C_CUR,
     C_REC,
@@ -149,6 +150,16 @@ class G9Context:
     max_reorg_prob: float
     orphan_rate: float
     max_void_prob: float
+    #: real pool landscape (``env.data["pool_shares"]``; D-RD-INF-4): largest and second-largest share
+    top_share: float | None = None
+    second_share: float | None = None
+    policy_reorg_q: float | None = None  #: the policy's ``reorg_attacker_share`` before the real data
+    depth_2pct_usd: float | None = None  #: median ±2 % book depth (``env.data["depth"]``), USD
+
+    @property
+    def majority_pool(self) -> bool:
+        """One real pool mines at least half the blocks: no confirmation count bounds its reorgs."""
+        return self.top_share is not None and self.top_share >= 0.5
 
     @classmethod
     def build(cls, env: Env) -> G9Context:
@@ -173,6 +184,27 @@ class G9Context:
                 vol, vsrc = float(np.percentile(a, 10)), "real-data"
         if vol is None and pget(pol, "yec_daily_volume_p10_usd") is not None:
             vol, vsrc = float(pget(pol, "yec_daily_volume_p10_usd")), "policy"
+        depth = None
+        darr = getattr(d, "depth_2pct_usd", None)
+        if darr is not None:
+            a = np.asarray(darr, dtype=float)
+            a = a[np.isfinite(a) & (a > 0)]
+            depth = float(np.median(a)) if a.size else None
+        # walletConfirmations / DEFAULT_REF_LAG adversary: the policy's share, raised to the real top
+        # pool's when that is larger; a majority pool cannot be bounded by confirmations, so the
+        # bound is taken against the largest minority actor (policy share or the real second pool)
+        # and the majority is reported as an environment limit (D-RD-INF-4)
+        q_pol = float(pol.reorg_attacker_share)
+        top = second = None
+        log = env.data.get("pool_shares") if isinstance(env.data, Mapping) else None
+        if log is None and isinstance(env.data, Mapping):
+            log = env.data.get("hashrate")
+        shares = sorted(log.shares().values(), reverse=True) if hasattr(log, "shares") else []
+        if shares:
+            top, second = float(shares[0]), float(shares[1]) if len(shares) > 1 else 0.0
+        q = q_pol
+        if top is not None:
+            q = max(q_pol, top) if top < 0.5 else max(q_pol if q_pol < 0.5 else 0.0, second or 0.0)
         return cls(
             p_ref,
             src,
@@ -186,10 +218,14 @@ class G9Context:
             float(pget(pol, "residual_max_share")),
             float(pget(pol, "carrier_max_share")),
             int(pget(pol, "mint_inclusion_slack_blocks")),
-            float(pol.reorg_attacker_share),
+            q,
             float(pol.max_reorg_prob),
             float(pol.orphan_rate),
             float(pol.max_void_prob),
+            top,
+            second,
+            q_pol,
+            depth,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -197,7 +233,7 @@ class G9Context:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> G9Context:
-        return cls(**{k: d[k] for k in cls.__dataclass_fields__})
+        return cls(**{k: d[k] for k in cls.__dataclass_fields__ if k in d})
 
 
 def fee_shares(ps: Mapping, cents: int, price: int) -> dict[str, float]:
@@ -214,11 +250,36 @@ def fee_shares(ps: Mapping, cents: int, price: int) -> dict[str, float]:
     return out
 
 
+def depth_bound_cents(ps: Mapping, ctx: G9Context) -> float:
+    """The largest vault (cents) whose liquidation at the claim threshold stays within
+    ``max_depth_fraction`` of the p10 daily YEC volume (``inf`` without a volume figure)."""
+    if ctx.volume_p10_usd is None:
+        return math.inf
+    return ctx.max_depth_fraction * ctx.volume_p10_usd * BPS / int(ps["claimThresholdBps"]) * 100
+
+
+def liquidation_frontier(ps: Mapping, ctx: G9Context, sizes_cents: Iterable[int]) -> list[dict[str, float]]:
+    """Per maxMint candidate: the liquidation at the claim threshold (USD), its share of the p10 daily
+    volume (days of volume to unwind it) and its multiple of the ±2 % book depth."""
+    theta = int(ps["claimThresholdBps"])
+    out = []
+    for c in sizes_cents:
+        liq = int(c) / 100 * theta / BPS
+        out.append(
+            {
+                "maxMint_cents": int(c),
+                "liquidation_usd": liq,
+                "days_of_p10_volume": liq / ctx.volume_p10_usd if ctx.volume_p10_usd else math.nan,
+                "multiple_of_2pct_depth": liq / ctx.depth_2pct_usd if ctx.depth_2pct_usd else math.nan,
+            }
+        )
+    return out
+
+
 def ranges(ps: Mapping, ctx: G9Context) -> dict[str, tuple[float, float, str, str]]:
     """Admissible ``(lo, hi, binding_lo, binding_hi)`` per parameter (unrounded; ±inf when open)."""
     fee_min = int(ps["feeMin"])
     rmin = min(int(ps[f"baseRatioBps[{c}]"]) for c in range(3))
-    theta = int(ps["claimThresholdBps"])
     worst = ctx.worst_microusd
     out: dict[str, tuple[float, float, str, str]] = {}
     # minMint: 4·feeMin at the worst price; fee floor at the reference price
@@ -239,7 +300,7 @@ def ranges(ps: Mapping, ctx: G9Context) -> dict[str, tuple[float, float, str, st
     )
     # maxMint: liquidation at the claim threshold within max_depth_fraction of p10 daily volume
     if ctx.volume_p10_usd is not None:
-        hi = ctx.max_depth_fraction * ctx.volume_p10_usd * BPS / theta * 100
+        hi = depth_bound_cents(ps, ctx)
         out["maxMint"] = (
             float(ps["minMint"]),
             min(hi, float(ps["maxOutput"])),
@@ -333,6 +394,63 @@ def provenance_for(param: str, ctx: G9Context) -> str:
     return "judgement"
 
 
+def maxmint_env(ps: Mapping, ctx: G9Context, val: int) -> dict[str, Any]:
+    """Environment record for an unmeetable maxMint depth check (D-RD-INF-3/-4)."""
+    fr = liquidation_frontier(ps, ctx, [val])[0]
+    hi = depth_bound_cents(ps, ctx)
+    depth = f", {fr['multiple_of_2pct_depth']:.0f}× the ±2 % book depth (${ctx.depth_2pct_usd:,.0f})" if (
+        ctx.depth_2pct_usd
+    ) else ""
+    return {
+        "constraints": ["maxMint_ok"],
+        "note": "G9-ENV-1",
+        "notes": ["G9-ENV-1"],
+        "titles": ["The YEC market is too thin for any maxMint to pass the depth check"],
+        "why": f"p10 daily YEC volume ${ctx.volume_p10_usd:,.0f} ({ctx.volume_source}) × max_depth_fraction "
+        f"{ctx.max_depth_fraction:.0%} ÷ the claim threshold allows a vault of ${hi / 100:,.0f}, below the "
+        f"registry floor ${REGISTRY['maxMint'].bounds[0] / 100:,.0f} and minMint "
+        f"${int(ps['minMint']) / 100:,.0f}",
+        "exposure": f"a ${val / 100:,.0f} vault liquidates ${fr['liquidation_usd']:,.0f} at the claim "
+        f"threshold = {fr['days_of_p10_volume']:.1f} days of p10 volume{depth}; a claimant unwinds it over "
+        "days or not at all (bad debt on that vault, G3)",
+        "harm_metric": "maxMint.liquidation_share",
+        "harm_minimize": True,
+        "harm_at_choice": fr["days_of_p10_volume"],
+        "harm_at_current": liquidation_frontier(ps, ctx, [int(ps["maxMint"])])[0]["days_of_p10_volume"],
+        "harm_best": liquidation_frontier(ps, ctx, [REGISTRY["maxMint"].bounds[0]])[0]["days_of_p10_volume"],
+        "fixes": [
+            "Market depth (more venues, market makers); or relax max_depth_fraction to the days a claimant "
+            "may take (frontier in evidence/g9/g9_maxmint_frontier.csv). A per-vault cap cannot bound the "
+            "aggregate: supplyCapBps (W20) and G3's ratios carry that."
+        ],
+        "decision": "environment-limited (maxMint_ok): least harm = keep the current value",
+    }
+
+
+def confirmations_env(ctx: G9Context, val: int, current: int) -> dict[str, Any]:
+    """Environment record when a real pool mines a majority (D-RD-INF-4)."""
+    return {
+        "constraints": ["walletConfirmations_ok vs the top pool"],
+        "note": "G9-ENV-2",
+        "notes": ["G9-ENV-2"],
+        "titles": ["A majority pool can reorg any confirmation depth"],
+        "why": f"the top real pool mines {ctx.top_share:.1%} of blocks (pool_shares): its catch-up "
+        "probability is 1 at every z",
+        "exposure": f"at z = {val} the largest minority adversary (q = {ctx.reorg_q:.1%}: max of the "
+        "policy's "
+        f"{(ctx.policy_reorg_q or 0):.0%} and the second pool's {(ctx.second_share or 0):.1%}) catches up "
+        f"with P = {nakamoto_catch_up(ctx.reorg_q, val):.1e}; the majority pool can reverse any Yellowback "
+        f"transaction (and VOID any mint by reorging R) at will, at the cost of its own block rewards",
+        "harm_metric": "reorg.p_catch_up",
+        "harm_minimize": True,
+        "harm_at_choice": nakamoto_catch_up(ctx.reorg_q, val),
+        "harm_at_current": nakamoto_catch_up(ctx.reorg_q, current),
+        "harm_best": nakamoto_catch_up(ctx.reorg_q, REGISTRY["walletConfirmations"].bounds[1]),
+        "fixes": ["Pool diversity (the L4 launch bar: no pool above 40 %); not a wallet parameter."],
+        "decision": "environment-limited: z sized against the largest minority adversary",
+    }
+
+
 ORDER = (
     "maxMint",
     "maxOutput",
@@ -412,12 +530,25 @@ class G9Study:
             blo_, bhi_ = REGISTRY[p].bounds
             lo_r, hi_r = max(lo_r, blo_), min(hi_r, bhi_)
             x = int(base[p])
-            if lo_r > hi_r:
-                verdict, val, why = (
-                    "BLOCKED",
-                    (lo_r if x < lo_r else hi_r if x > hi_r else x),
-                    f"admissible range empty ({lo_r} > {hi_r})",
+            envb = None
+            if p == "maxMint" and depth_bound_cents(ps, ctx) < max(lo, blo_):
+                # D-RD-INF-4: no maxMint at or above minMint (and the registry floor) passes the depth
+                # check — the market, not the parameter, fails it. Least harm: keep the current value
+                # (a per-vault cap does not bound the aggregate liquidation load, which users can split
+                # across vaults; supplyCapBps does), clamped into [minMint, maxOutput].
+                cap = max(int(ps["minMint"]), blo_)
+                val = min(max(x, cap), int(ps["maxOutput"]), bhi_)
+                verdict = "KEEP" if val == x else "CHANGE"
+                why = (
+                    f"no maxMint ≥ {cap} meets the depth check (≤ {G3.fmt(depth_bound_cents(ps, ctx))} "
+                    "cents): environment-limited, current kept"
                 )
+                envb = maxmint_env(ps, ctx, val)
+            elif lo_r > hi_r:
+                # least violating = the current value held inside the registry bounds and the amount
+                # order (never 0: a zero amount made fee_table raise "mint unsatisfiable", rd2)
+                val = min(max(x, blo_), bhi_)
+                verdict, why = "BLOCKED", f"admissible range empty ({lo_r} > {hi_r})"
             elif lo <= x <= hi:
                 verdict, val, why = "KEEP", x, f"current {x} inside [{lo_r}, {hi_r}]"
             else:
@@ -430,8 +561,11 @@ class G9Study:
                         else f"current {x} above the bound {hi_r} ({bhi})"
                     ),
                 )
+            if p == "walletConfirmations" and ctx.majority_pool:
+                envb = confirmations_env(ctx, val, x)
             chosen[p] = val
             info[p] = {
+                "env": envb,
                 "lo": G3.fmt(lo),
                 "hi": G3.fmt(hi),
                 "lo_step": lo_r,
@@ -469,7 +603,15 @@ class G9Study:
                     f"{ctx.max_depth_fraction:.0%}; load a depth CSV or set yec_daily_volume_p10_usd."
                 )
             ks = keys.get(p, ())
-            binding = (
+            if i.get("env") and p == "maxMint":
+                binding = f"environment limit {i['env']['note']}: no maxMint passes the depth check"
+            elif p == "DEFAULT_REF_LAG" and ctx.majority_pool:
+                notes.append(
+                    f"The top real pool mines {ctx.top_share:.0%} of blocks: it can VOID any mint by "
+                    "reorging its refHeight whatever the lag (void.p_attacker = 1); the lag bounds natural "
+                    "reorgs only (design note G9-ENV-2)."
+                )
+            binding = binding if (i.get("env") and p == "maxMint") else (
                 f"lower bound {i['lo_step']} ({i['binding_lo']})"
                 if chosen[p] == i["lo_step"]
                 else f"upper bound {i['hi_step']} ({i['binding_hi']})"
@@ -477,7 +619,7 @@ class G9Study:
                 else f"inside [{i['lo_step']}, {i['hi_step']}]: verification ({i['binding_lo']} / "
                      f"{i['binding_hi']})"
             )
-            recs.append(
+            rec = (
                 Recommendation(
                     param=p,
                     current=base[p],
@@ -514,6 +656,9 @@ class G9Study:
                     notes=notes,
                 )
             )
+            if i.get("env"):
+                attach_environment(rec, i["env"])
+            recs.append(rec)
         return recs
 
     def explain(self, rec: Recommendation, results: ResultTable) -> str:
@@ -674,6 +819,17 @@ def write_evidence(results: ResultTable, base: ParamSet, ctx: G9Context, out: Pa
                         f"{r['round_trip_fee_usd']},{r['fee_share_of_debt']}\n"
                     )
     paths.append(p)
+    f = out / "g9_maxmint_frontier.csv"
+    lo, hi = REGISTRY["maxMint"].bounds
+    sizes = sorted({int(base["minMint"]), *range(lo, min(hi, 2_000_000) + 1, REGISTRY["maxMint"].step)})
+    with f.open("w") as fh:
+        fh.write("maxMint_cents,liquidation_usd,days_of_p10_volume,multiple_of_2pct_depth\n")
+        for r in liquidation_frontier(base, ctx, sizes):
+            fh.write(
+                f"{r['maxMint_cents']},{r['liquidation_usd']:.2f},{r['days_of_p10_volume']:.4g},"
+                f"{r['multiple_of_2pct_depth']:.4g}\n"
+            )
+    paths.append(f)
     plt = plot_style()
     if plt is None:  # pragma: no cover
         return paths
