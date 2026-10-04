@@ -21,6 +21,16 @@ memoised per (scenario, class, ratio, class bounds, grace), so a ratio sweep cos
 call per new value. Scenario values are aggregated with ``optimize.robust.aggregate`` under the
 policy's ``ensemble_agg`` (default ``"worst"``, i.e. minimax over the presets).
 
+**Long-horizon members (wave 2, D-RD-COL-1).** When ``env.data`` also holds a daily price path
+(``price_daily`` / ``price_long``: the 2019-07 → daily history), two members fitted on it join the
+real-data ensemble — ``daily-bootstrap`` (30-day mean blocks, demeaned) and ``daily-history`` (the
+real daily path, every start date; the regime switch fitted on daily data fails the volatility-by-
+horizon check and is a frontier stress only, D-RD-COL-3) — fitted on the window from
+``long_window_start`` (2020-01-01: the fork-airdrop launch fall is excluded, D-RD-COL-2). The hourly
+file alone has 1.5 years of start dates for a 5-year term. Daily members are priced at the σ
+multiplier the *hourly* history implies (their bridged intraday noise is not market data), see
+:func:`member_sigma`. The claimant study keeps the hourly members (hour-scale pClaim lag).
+
 Two secondary studies run on populations that do not depend on the class ratios (so they too are
 memoised once per threshold value):
 
@@ -44,6 +54,7 @@ notes that concern its parameter in ``metrics["design_notes"]``.
 
 from __future__ import annotations
 
+import hashlib
 import math
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
@@ -66,6 +77,7 @@ from ybcal.sim import drift as DR
 from ybcal.sim import engine as E
 from ybcal.sim import metrics as M
 from ybcal.sim import vaults as VB
+from ybcal.studies import g3_horizon as H
 from ybcal.studies.base import (
     Budget,
     Env,
@@ -97,6 +109,10 @@ GROUP = "G3"
 CLASS_NAMES = ("A", "B", "C")
 SYNTHETIC_PRESETS = ("gbm", "merton", "garch", "regime")
 REAL_MEMBERS = ("bootstrap", "history")
+#: Members fitted on the daily history when one is supplied (D-RD-COL-1).
+#: The daily regime switch is not one: it misses the data's 7-day..1-year volatility by +36..+110 %
+#: (no multi-day mean reversion) and stays a stress row of the frontier (D-RD-COL-3).
+DAILY_MEMBERS = ("daily-bootstrap", "daily-history")
 CRASH_SCENARIOS = ("crash-70-1d", "crash-90-30d")
 #: Hour-mode kernel sub-steps (WP-4 default, D-WP4-4: within 0.1 pp of 12 sub-steps).
 HOUR_SUBSTEPS = VB.DEFAULT_HOUR_SUBSTEPS
@@ -126,9 +142,18 @@ JUDGEMENT: dict[str, Any] = {
     "claim_coverages": (1.05, 1.15, 1.3, 1.6),  # claim study: coverage at claim open, × threshold
     "claim_stride_hours": 168,  # claim study: one claim-open hour per week of each path
     "claim_horizon_days": 365,  # claim study: first crossing must happen within a year
+    # claim study (D-RD-COL-6): who claims and how sure. At YEC's liquidity (bid depth ≈ $120 within
+    # 2 %, volume p10 ≈ $700/day) selling a $1,000 vault's collateral costs 20 %+ and a $10,000 one
+    # cannot be sold at all, so the claimant that exists is a YEC holder who keeps the collateral
+    # ("hold"; "sell" = the pre-wave-2 seller into the book), and the threshold must make ~90 % of
+    # triggered claims pay ("p10"; "mean_bps" = the pre-wave-2 rule)
+    "claimant_model": "hold",
+    "claim_margin_stat": "p10_bps",
     "emergency_coverages": (1.02, 1.1, 1.25, 1.5),  # emergency study: coverage at crash start, × threshold
     "emergency_open_hours": 48,  # emergency study: vaults are claimable from this hour (medians full)
     "emergency_stress_premium_bps": -2000,  # YED price, emergency study's depeg stress row (D-RD-AUD-4)
+    "long_window_start": "2020-01-01",  # daily members' fit window start (D-RD-COL-2)
+    "long_block_days": 30,  # daily bootstrap mean block (D-RD-COL-1)
     "boundary_days_quick": {0: (60, 120), 1: (270, 548)},
     "boundary_days_full": {0: (45, 60, 75, 120, 150, 180), 1: (180, 270, 450, 548, 730)},
 }
@@ -219,6 +244,45 @@ def _real_hourly(env: Env) -> np.ndarray | None:
     return x
 
 
+def long_daily(env: Env) -> H.Daily | None:
+    """The daily long-horizon history, if one is loaded: ``env.data["price_daily"]`` (or
+    ``"price_long"``) as a :class:`ybcal.studies.g3_horizon.Daily` or a real :class:`PricePath` whose
+    observations are daily (the loader's forward-filled hourly grid). ``None`` otherwise."""
+    from ybcal.data.pricepath import PricePath
+
+    if not isinstance(env.data, Mapping):
+        return None
+    for k in ("price_daily", "price_long"):
+        v = env.data.get(k)
+        if isinstance(v, H.Daily) and len(v) > 30:
+            return v
+        if isinstance(v, PricePath) and v.provenance == "real":
+            d = H.daily_of(v)
+            if d is not None and len(d) > 30:
+                return d
+    return None
+
+
+def hourly_members(ens: Ensemble) -> tuple[str, ...]:
+    """The members on hourly data (synthetic presets, the hourly bootstrap and history): the studies
+    that read hour-scale dynamics (claimant timing, the σ multiplier) use these only."""
+    return tuple(m for m in ens.names if not m.startswith("daily-"))
+
+
+def member_sigma(ens: Ensemble, name: str, sigma: Any, skip: int) -> Any:
+    """The σ choice for one member: as given, except that a daily member under ``"median"`` / ``"p90"``
+    takes that quantile of the *hourly* history's multiplier (an int): a Brownian bridge spreads each
+    daily return over the day as white noise, which the hour-mode σ̂ reads as 200 %+ volatility and
+    a multiplier the real market does not show (DN5: the real median is 10,000 bps)."""
+    if not name.startswith("daily-") or "history" not in ens.hours or isinstance(sigma, int):
+        return sigma
+    q = {"median": 50, "p90": 90}.get(str(sigma))
+    if q is None:
+        return sigma
+    s = ens.hours["history"].sigma_mult_bps[:, skip:]
+    return int(np.percentile(s, q)) if s.size else sigma
+
+
 def _hourly_filled(rp) -> np.ndarray | None:
     """The loader's ``filled`` mask of ``rp`` on the hourly grid (``None`` if it carries none)."""
     if rp is None:
@@ -243,7 +307,17 @@ def ensemble(env: Env, params: Mapping) -> Ensemble:
     years = horizon_years(env.budget)
     okey = tuple(int(params[k]) for k in ORACLE_KEYS)
     drift = DR.check(pget(env.policy, "price_drift", DR.DEFAULT_DRIFT))
-    key = (env.seed, P, years, data_fingerprint(env), okey, drift)
+    daily = long_daily(env)
+    lkey = (
+        None
+        if daily is None
+        else (
+            hashlib.sha1(np.ascontiguousarray(daily.price).tobytes()).hexdigest()[:16],
+            str(pget(env.policy, "long_window_start")),
+            float(pget(env.policy, "long_block_days")),
+        )
+    )
+    key = (env.seed, P, years, data_fingerprint(env), okey, drift, lkey)
     hit = _ENS.get(key)
     if hit is not None:
         _ENS.move_to_end(key)
@@ -271,6 +345,18 @@ def ensemble(env: Env, params: Mapping) -> Ensemble:
         drifts["bootstrap"] = DR.describe(drift, model)
         # the realised history keeps its own drift: it is what happened, not a model
         true["history"] = real[None, :].astype(np.int64)
+        if daily is not None:
+            dw = daily.window(str(pget(env.policy, "long_window_start")), None)
+            for name in DAILY_MEMBERS:
+                if name == "daily-history":
+                    true[name] = H.daily_to_hourly(dw.price)
+                    continue
+                blk = int(pget(env.policy, "long_block_days"))
+                model = H.fit_member(f"bootstrap-{blk}d", dw)
+                true[name] = _drifted_prices(
+                    model, P, n, env.rng_for("ybcal-hour-ensemble", name), drift, int(real[-1])
+                )
+                drifts[name] = DR.describe(drift, model)
         prov = "real-data"
     else:
         for name in SYNTHETIC_PRESETS:
@@ -422,12 +508,19 @@ def agents_from_policy(policy: Any) -> AG.AgentsConfig:
 
 
 def depth_p10_usd(env: Env | None, pctl: float = 90.0) -> float | None:
-    """The bad-side percentile (``100 − claimant_slippage_pctl``) of the ±2 % order-book depth, if a
-    depth CSV is loaded in ``env.data["depth"]``."""
+    """The bad-side percentile (``100 − claimant_slippage_pctl``) of the order-book depth a claimant
+    selling YEC meets — the **bid** side within 2 % of mid (D-RD-COL-5: the two-sided figure counts
+    asks a seller never touches, 1.4× the bids on the 2026-10 books) — if a depth CSV is loaded in
+    ``env.data["depth"]``; half the two-sided depth when the file has no bid column."""
     if env is None:
         return None
     d = env.data.get("depth") if isinstance(env.data, Mapping) else None
-    arr = getattr(d, "depth_2pct_usd", None)
+    bid = getattr(d, "bid_depth_2pct_usd", None)
+    if bid is not None and np.isfinite(np.asarray(bid, dtype=float)).any():
+        arr = bid
+    else:
+        two = getattr(d, "depth_2pct_usd", None)
+        arr = None if two is None else np.asarray(two, dtype=float) / 2
     if arr is None:
         return None
     a = np.asarray(arr, dtype=float)
@@ -518,7 +611,13 @@ def claim_grid(params: Mapping) -> list[int]:
 
 
 def claim_stats(
-    ens: Ensemble, params: Mapping, policy: Any, env_depth: float | None = None
+    ens: Ensemble,
+    params: Mapping,
+    policy: Any,
+    env_depth: float | None = None,
+    *,
+    cents: int = TEST_CENTS,
+    sell: bool = True,
 ) -> dict[int, dict]:
     """Claimant economics at every threshold of :func:`claim_grid`, per ensemble member (memoised).
 
@@ -526,7 +625,9 @@ def claim_stats(
     coverage ``c0 × threshold`` at the true price (``claim_coverages``) whose owner is away. The claim
     trigger is the first hour ``h ≥ o`` (within ``claim_horizon_days``) with the vault underwater at
     pClaim (RED-4(a), exact integer level); the claimant's margin is :func:`_margin_bps` at the true
-    price of ``h``. Returns ``{theta: {"<member>.<stat>": value}}`` with stats ``mean_bps``,
+    price of ``h``. ``cents`` is the vault's debt (liquidity impact scales with it); ``sell=False``
+    scores a claimant who keeps the YEC (a YEC holder: no slippage, value at the true price).
+    Returns ``{theta: {"<member>.<stat>": value}}`` with stats ``mean_bps``,
     ``p10_bps``, ``p50_bps``, ``show_up`` (share with margin ≥ ``claimant_min_profit_bps``), ``bad``
     (share already bad debt at the trigger), ``forfeit_bps`` (mean collateral value above the debt the
     absent owner loses — RED-5 pays no residual under (a)) and ``n``."""
@@ -547,6 +648,8 @@ def claim_stats(
         horizon,
         env_depth,
         tuple(thetas),
+        int(cents),
+        bool(sell),
     )
     hit = _CLAIM.get(key)
     if hit is not None:
@@ -554,7 +657,7 @@ def claim_stats(
     skip = warmup_hours(params)
     out: dict[int, dict] = {t: {} for t in thetas}
     min_profit = float(policy.claimant_min_profit_bps)
-    for name in ens.names:
+    for name in hourly_members(ens):
         tp = ens.true[name]
         pc = ens.hours[name].p_claim
         Pn, n = tp.shape
@@ -567,8 +670,8 @@ def claim_stats(
             po = tp[p, opens]
             for t in thetas:
                 for c0 in covs:
-                    coll = _coll_for_coverage(np.full(opens.shape, c0 * t / BPS), po)
-                    h = fb.first(opens, _underwater_level(coll, t))
+                    coll = _coll_for_coverage(np.full(opens.shape, c0 * t / BPS), po, cents)
+                    h = fb.first(opens, _underwater_level(coll, t, cents))
                     ok = (h < n) & (h - opens <= horizon)
                     if not ok.any():
                         continue
@@ -577,13 +680,14 @@ def claim_stats(
                         params,
                         coll[ok],
                         price,
-                        slip_base=cfg.claimant.slippage_bps,
-                        depth=env_depth,
+                        slip_base=cfg.claimant.slippage_bps if sell else 0.0,
+                        depth=env_depth if sell else None,
                         impact_bps=cfg.claimant.impact_bps_at_depth,
                         premium_bps=cfg.market.premium_bps,
                         tx_fee=cfg.tx_fee_zat,
+                        cents=cents,
                     )
-                    value = coll[ok] / COIN * price / 1e6 / (TEST_CENTS / 100)
+                    value = coll[ok] / COIN * price / 1e6 / (cents / 100)
                     acc[t].append(np.stack([m, value]))
         for t in thetas:
             if acc[t]:
@@ -803,6 +907,8 @@ class Rule:
     report: tuple[str, ...] = ()
     sens_metric: str | None = None
     provenance_key: str = "provenance"
+    #: constraints the environment may make unmeetable (D-RD-INF-3): then least harm, not BLOCKED
+    env_limits: tuple[Any, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -812,6 +918,7 @@ class RuleDecision:
     reason: str
     least: ResultRow | None = None
     improvement: float = 0.0
+    env: dict[str, Any] | None = None  #: environment-limit record (D-RD-INF-3, D-RD-COL-4)
 
 
 def rule_table(table: ResultTable, rule: Rule) -> ResultTable:
@@ -842,6 +949,12 @@ def decide_rule(table: ResultTable, rule: Rule, policy: Any) -> RuleDecision:
     if cur is None:
         raise ValueError(f"rule {rule.name}: the current set was not evaluated")
     feas = sub.feasible()
+    if not len(feas) and rule.env_limits:
+        from ybcal.studies.envlimit import decide_with_environment
+
+        ed = decide_with_environment(sub, policy, list(rule.env_limits))
+        if ed.environment:
+            return RuleDecision(ed.row, ed.verdict, ed.reason, None, ed.improvement, ed.environment)
     if not len(feas):
         least = min(sub.rows, key=lambda r: (violation_score(r, rule.constraints), sub.distance(r)))
         row = cur if rule.blocked_keeps_current else least
@@ -1009,6 +1122,53 @@ def valid(ps: ParamSet) -> bool:
 # The study
 
 
+def _ratio_exposure(c: int, policy: Any | None) -> Any:
+    name = CLASS_NAMES[c]
+    tol = float(policy.max_bad_debt(name)) if policy is not None else math.nan
+
+    def exp(row: ResultRow) -> str:
+        v = row.metrics.values
+        p = float(v.get(f"pbad.{name}", math.nan))
+        es = float(v.get(f"es.{name}", math.nan))
+        reach = float(v.get(f"tmax_ok_days.{name}", math.nan))
+        eff = float(v.get(f"yed_per_usd.{name}", math.nan))
+        short = es / p if p > 0 else math.nan
+        return (
+            f"P(bad debt at claim opening, class {name}) {p:.1%} against {tol:.1%}; a bad vault is "
+            f"short {short:.0%} of its debt on average; terms within tolerance up to {reach:.0f} d; "
+            f"{eff:.3f} YED per USD of YEC locked"
+        )
+
+    return exp
+
+
+def ratio_limit(c: int, policy: Any | None = None) -> Any:
+    """Class ``c``'s bad-debt tolerance as an environment limit (D-RD-COL-4): at YEC's volatility, with
+    no liquidation before ``lockHeight + grace`` (script.cpp:79-93), no ratio inside the registry
+    bounds meets it for B and C; the least-harm value is the lowest P(bad debt) — the upper bound."""
+    from ybcal.studies.envlimit import EnvironmentLimit
+
+    name = CLASS_NAMES[c]
+    return EnvironmentLimit(
+        constraint=f"bad_debt_{name}",
+        harm_metric=f"pbad.{name}",
+        minimize=True,
+        note="G3-DN1",
+        why=(
+            "the vault script admits no liquidation before lockHeight + grace, so the base ratio must "
+            "cover the whole term's drawdown, and YEC's ≈ 160–180 %/yr volatility over 1 week – 1 quarter "
+            "(≈ 115 % over a year) puts the needed ratio far above the registry bound for terms of months "
+            "to years (docs/decisions.md D-RD-COL-4)"
+        ),
+        exposure=_ratio_exposure(c, policy),
+        title=f"class {name}: the bad-debt tolerance is unmeetable at YEC volatility",
+        fix=(
+            "owner levers: shorter class terms (classMax), a looser max_bad_debt_prob for the class, or a "
+            "rule change (a liquidation path before maturity / periodic re-margining)"
+        ),
+    )
+
+
 def ratio_rule(c: int, policy: Any | None = None) -> Rule:
     name = CLASS_NAMES[c]
     return Rule(
@@ -1020,7 +1180,8 @@ def ratio_rule(c: int, policy: Any | None = None) -> Rule:
         f"max_bad_debt_prob[{name}], with the σ multiplier at sigma_mult_at; KEEP unless the smallest "
         "feasible ratio frees more than materiality of the collateral; a violating current value moves to "
         "the smallest feasible one; BLOCKED (least-violating = lowest P(bad debt)) when no ratio within "
-        "the registry bounds meets the policy.",
+        "the registry bounds meets the policy — unless that is the environment (D-RD-COL-4: then the "
+        "least-harm value, the lowest P(bad debt), with the exposure).",
         primary=f"ratio.{name}",
         constraints=(f"bad_debt_{name}",),
         report=(
@@ -1032,6 +1193,7 @@ def ratio_rule(c: int, policy: Any | None = None) -> Rule:
             f"het.{name}",
         ),
         sens_metric=f"pbad.{name}",
+        env_limits=(ratio_limit(c, policy),),
     )
 
 
@@ -1040,14 +1202,23 @@ RULES_FIXED = (
         "claim",
         ("claimThresholdBps",),
         ("claimThresholdBps",),
-        "claimThresholdBps = the smallest threshold (250-bps lattice) at which the expected claimant margin "
-        "at the first RED-4(a) trigger — collateral less FEE-1 and the network fee, sold at the true price "
-        "less the policy slippage, minus the YED burned — is ≥ claimant_min_profit_bps (worst ensemble "
-        "member); KEEP unless more than materiality lower; BLOCKED (highest margin) when no threshold "
-        "within bounds clears it.",
+        "claimThresholdBps = the smallest threshold (250-bps lattice) at which the claimant margin at the "
+        "first RED-4(a) trigger — collateral less FEE-1 and the network fee, valued at the true price "
+        "(claimant_model hold: a YEC holder keeps it; sell: sold into the bid-side depth less the policy "
+        "slippage), minus the YED burned — is ≥ claimant_min_profit_bps at claim_margin_stat (p10: nine "
+        "triggered claims in ten pay; worst ensemble member, D-RD-COL-6); KEEP unless more than "
+        "materiality lower; BLOCKED (highest margin) when no threshold within bounds clears it.",
         primary="claim.theta",
         constraints=("claim_incentive",),
-        report=("claim.mean_bps", "claim.p50_bps", "claim.show_up", "claim.bad", "claim.forfeit_bps"),
+        report=(
+            "claim.p10_bps",
+            "claim.mean_bps",
+            "claim.show_up",
+            "claim.bad",
+            "claim.forfeit_bps",
+            "claim_sell.mean_bps",
+            "claim_sell.show_up",
+        ),
         sens_metric="claim.mean_bps",
     ),
     Rule(
@@ -1156,7 +1327,7 @@ class G3Study:
                     m,
                     cand,
                     c,
-                    sigma=sigma,
+                    sigma=member_sigma(ens, m, sigma, skip),
                     term_distribution=pol.term_distribution,
                     n_terms=nt,
                     stride=stride,
@@ -1182,7 +1353,7 @@ class G3Study:
             values[f"ratio.{name}"] = float(cand[f"baseRatioBps[{c}]"])
             values[f"het.{name}"] = agg(het_, how)
             hets.append(values[f"het.{name}"])
-            sig = float(np.median([ens.sigma_median(m, skip) for m in ens.names]))
+            sig = float(np.median([ens.sigma_median(m, skip) for m in hourly_members(ens)]))
             values[f"sigma_med.{name}"] = sig
             values[f"yed_per_usd.{name}"] = BPS * BPS / (float(cand[f"baseRatioBps[{c}]"]) * sig)
             ok = bool(np.isfinite(p) and p <= tol)
@@ -1197,17 +1368,25 @@ class G3Study:
         values["het.max"] = float(np.nanmax(hets)) if np.isfinite(hets).any() else math.nan
         # claimant incentive
         depth = depth_p10_usd(env, float(pol.claimant_slippage_pctl))
-        cs = claim_stats(ens, cand, pol, depth)[int(cand["claimThresholdBps"])]
+        model = str(pget(pol, "claimant_model"))
+        th = int(cand["claimThresholdBps"])
+        cs = claim_stats(ens, cand, pol, depth, sell=model == "sell")[th]
+        # the other claimant, as evidence: a seller of the test vault into the bid side of the book
+        cs_sell = cs if model == "sell" else claim_stats(ens, cand, pol, depth, sell=True)[th]
+        for s in ("mean_bps", "p10_bps", "show_up"):
+            values[f"claim_sell.{s}"] = agg(
+                [cs_sell[f"{m}.{s}"] for m in hourly_members(ens)], how, minimize=False
+            )
         values["claim.theta"] = float(cand["claimThresholdBps"])
         for s in ("mean_bps", "p10_bps", "p50_bps", "show_up"):
-            values[f"claim.{s}"] = agg([cs[f"{m}.{s}"] for m in ens.names], how, minimize=False)
+            values[f"claim.{s}"] = agg([cs[f"{m}.{s}"] for m in hourly_members(ens)], how, minimize=False)
         for s in ("bad", "forfeit_bps"):
-            values[f"claim.{s}"] = agg([cs[f"{m}.{s}"] for m in ens.names], how, minimize=True)
-        values["claim.n"] = float(sum(cs[f"{m}.n"] for m in ens.names))
-        for m in ens.names:
+            values[f"claim.{s}"] = agg([cs[f"{m}.{s}"] for m in hourly_members(ens)], how, minimize=True)
+        values["claim.n"] = float(sum(cs[f"{m}.n"] for m in hourly_members(ens)))
+        for m in hourly_members(ens):
             values[f"claim.mean_bps.{m}"] = cs[f"{m}.mean_bps"]
         need = float(pol.claimant_min_profit_bps)
-        cm = values["claim.mean_bps"]
+        cm = values[f"claim.{pget(pol, 'claim_margin_stat')}"]
         cons["claim_incentive"] = bool(np.isfinite(cm) and cm >= need)
         values["viol.claim_incentive"] = (
             0.0
@@ -1336,6 +1515,10 @@ class G3Study:
                     notes=rec_notes,
                 )
             )
+            if d.env:
+                from ybcal.studies.envlimit import attach_environment
+
+                attach_environment(recs[-1], d.env)
         return recs
 
     def explain(self, rec: Recommendation, results: ResultTable) -> str:

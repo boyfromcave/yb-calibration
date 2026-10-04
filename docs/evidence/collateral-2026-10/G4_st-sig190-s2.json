@@ -1,0 +1,25 @@
+[
+ {
+  "param": "grace",
+  "current": 34560,
+  "recommended": 34560,
+  "verdict": "KEEP",
+  "binding": "materiality (best improvement 8.2% <= materiality 20%)",
+  "metrics": {
+   "primary": "J",
+   "decision": "best improvement 8.2% <= materiality 20%",
+   "improvement": 0.0818931
+  }
+ },
+ {
+  "param": "abandonBlocks",
+  "current": 34560,
+  "recommended": 34560,
+  "verdict": "BLOCKED",
+  "binding": "lower bound max(grace, runbook) = 34560 (grace binds)",
+  "metrics": {
+   "primary": "abandon.days",
+   "decision": "no value up to 103680 meets false-abandon (P 1/yr at 103680, 1/yr at 34560): 11% of the enforcing-share samples sit at or below enforcementResume, where an episode never ends whatever abandonBlocks is"
+  }
+ }
+]

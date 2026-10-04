@@ -92,6 +92,17 @@ def runbook_blocks(params: Mapping, policy: Any) -> int:
     )
 
 
+def lost_share_fraction(params: Mapping, shares: Any) -> float:
+    """Share of the enforcing-share samples at or below ``enforcementResume / signalWindow`` (+1 σ of
+    the window count): there an ENFORCEMENT episode, once started, does not end on its own, so no
+    ``abandonBlocks`` prevents abandonment — the module has really lost its enforcing majority."""
+    W = int(params["signalWindow"])
+    er = int(params["enforcementResume"]) / W
+    s = np.atleast_1d(np.asarray(shares, dtype=float))
+    sd = np.sqrt(np.maximum(s * (1 - s), 1e-12) / W)
+    return float(np.mean(s - sd <= er)) if s.size else 0.0
+
+
 def ceil_days(blocks: int) -> int:
     return -(-int(blocks) // BLOCKS_PER_DAY) * BLOCKS_PER_DAY
 
@@ -155,7 +166,7 @@ class G4Study:
                     m,
                     ref,
                     c,
-                    sigma=pol.sigma_mult_at,
+                    sigma=G3.member_sigma(ens, m, pol.sigma_mult_at, G3.warmup_hours(ref)),
                     term_distribution=pol.term_distribution,
                     n_terms=G3.terms_per_class(b),
                     stride=G3.start_stride_hours(b),
@@ -268,7 +279,24 @@ class G4Study:
         fa_cur = G5.false_abandon_probability(base, shares, a_cur)
         cur_ok = a_cur >= lb and fa_cur <= float(policy.max_false_abandon_prob)
         rel = (a_cur - a_rule) / a_cur if a_cur else 0.0
-        if not cur_ok:
+        fa_rule = G5.false_abandon_probability(base, shares, a_rule)
+        lost = lost_share_fraction(base, shares)
+        if a_cur >= lb and fa_rule > float(policy.max_false_abandon_prob):
+            # D-RD-COL-8: no abandonBlocks within the bounds meets the tolerance; on real pool data
+            # the excess comes from share samples at or below the resume
+            # threshold, where an ENFORCEMENT episode never ends — enforcement genuinely lost, which
+            # abandonment is meant to detect, not variance of an enforcing majority. Moving to the
+            # registry ceiling would be a CHANGE that still violates; keep the current value.
+            a_rec, a_verdict, a_reason = (
+                a_cur,
+                "BLOCKED",
+                (
+                    f"no value up to {a_rule} meets false-abandon (P {fa_rule:.2g}/yr at {a_rule}, "
+                    f"{fa_cur:.2g}/yr at {a_cur}): {lost:.0%} of the enforcing-share samples sit at or "
+                    "below enforcementResume, where an episode never ends whatever abandonBlocks is"
+                ),
+            )
+        elif not cur_ok:
             a_rec, a_verdict, a_reason = (
                 a_rule,
                 "CHANGE",

@@ -1,0 +1,15 @@
+blocks 70000 days 61.05775462962963
+s1NYxEmfsa4QB1oYdg7oNDf66xMuaH1dDVe 0.52
+s1jrMEF9bcZS4aUUrprNvXSm6QZ9KF3Ss2z 0.213
+s1iDNEgZGZLXQtpH37cVsPY3XyrouM1hoWH 0.137
+s1TbPq7Mi1dNeMpnZs9Y76LYrgAyTquBbWY 0.061
+s1Xyu3YW4kqAQ4s1BMqeMH7Syz2braTFqtW 0.037
+s1YavLWftkJYy1QN7mP1jTZBUdSUXxrXPq3 0.03
+s1gzyrbGkG6pDbeuZeUP4fTpTeQuxENsXpK 0.001
+s1MzqpTZ2Gk5ShrgpmLVsgW1Qs9W9tDdaMC 0.0
+share window: min 0.603 p1 0.622 p5 0.659 p50 0.718
+ENFORCEMENT episodes (blocks): [] max days 0
+without ninjaraider: share p50 0.188 max 0.330
+ninjaraider.com daily share min 0.39 p10 0.44 p50 0.53 max 0.67 days<5% 0
+mining-dutch.nl daily share min 0.07 p10 0.11 p50 0.13 max 0.26 days<5% 0
+dapool.io daily share min 0.03 p10 0.04 p50 0.06 max 0.09 days<5% 20
