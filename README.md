@@ -164,7 +164,12 @@ nice ybcal robust --out .work/robust/g9 --budget standard --groups G9 --seeds 3 
     --data $D/spreads-reconstructed.csv --data $D/pool-shares.csv --data $D/depth.csv --workers 2 --jobs 2
 # → .work/robust/g9/robust.md (unstable parameters first), robust-summary.csv, robust.csv, robust.json
 ybcal robust ... --table-only    # re-tabulate what has finished
+ybcal robust --out .work/robust/x --runs reports/a reports/b   # tabulate any finished recommend dirs
 ```
+
+Besides the agreement table, each parameter gets a **consolidated** value: the candidate whose own
+rule's constraints hold in the most runs (every evaluated candidate counts, not only each run's
+winner), ties → closest to current, reported as "feasible in k/N runs" with the per-run violations.
 
 **3. Import and inspect** (row counts, duplicates, gaps, fitted models):
 

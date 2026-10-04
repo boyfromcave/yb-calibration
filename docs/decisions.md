@@ -1782,3 +1782,17 @@ quantified exposure, D-RD-INF-3).
 **Reason.** The audit: the re-stated text contradicted the value in the patch, and the checklist
 counted owner decisions and unmeetable-environment constraints as parameter failures.
 
+**Amendment (2026-10-04): the consolidation rule.** Per-run "smallest feasible" selection is
+unstable (G5 standard on real pools: `signalWindow` 2,592 / 2,592 / 4,032 / 3,744 / 2,016), so the
+harness also consolidates: for each parameter, every candidate of every run counts (the runs' final
+result tables `evidence/<g>/results.csv`, not only each run's winner); a value is feasible in a run
+when the parameter's own rule constraints (`constraints_current`, D-RD-AUD-10) hold at the row that
+is closest to that run's recommended set on the group's other parameters (rows a pin excludes — e.g.
+thresholds not at their L3 fraction of the window — are not candidates; fraction-tied parameters move
+together); the **consolidated** value is feasible in the most runs, ties → closest to current, with
+"feasible k/N" and, per run, the constraints failing there. Flag `none-feasible` when no candidate
+meets its rule anywhere. `ybcal robust --runs DIR…` tabulates any finished `recommend` directories.
+On the activation agent's five G5 standard runs: `signalWindow` 2,592 feasible in 3/5 (false_halt
+fails in s3 and h1), thresholds 1,944 / 1,556 / 1,296 / 1,556 (3/5), `valveBlocks` none-feasible
+(valve_minority in 5/5; environment-limited).
+

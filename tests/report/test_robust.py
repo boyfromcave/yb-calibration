@@ -79,3 +79,34 @@ def test_cli_dry_run(capsys, tmp_path):
     assert rc == 0
     out = capsys.readouterr().out.strip().splitlines()
     assert len(out) == 4 and all("recommend" in ln for ln in out)
+
+
+def test_consolidate_rule():
+    per = [("a", {"1": [], "2": []}), ("b", {"1": ["x"], "2": []}), ("c", {"2": [], "3": []}), ("d", None)]
+    c = R.consolidate("feeBps", 1, per)
+    assert c["value"] == 2 and c["k"] == 3 and c["n"] == 4 and c["violations"] == {}
+    c = R.consolidate("feeBps", 3, [("a", {"1": [], "3": []}), ("b", {"1": [], "3": []})])
+    assert c["value"] == 3  # tie → closest to current
+    c = R.consolidate("feeBps", 1, [("a", {"1": ["x"], "2": ["y"]})])
+    assert c["value"] == 1 and c["k"] == 0 and c["violations"] == {"a": ["x"]}
+
+
+def test_feasible_values_respect_fraction_pins(tmp_path):
+    """A row with signalWindow 2016 but thresholds at another window's fraction is not a candidate."""
+    rd = tmp_path / "run"
+    (rd / "evidence" / "g5").mkdir(parents=True)
+    (rd / "manifest.json").write_text(json.dumps({"seed": 1, "policy_path": "", "extra": {}}))
+    cols = ["signalWindow", "activationThreshold", "participationFloor", "enforcementFloor",
+            "enforcementResume", "feasible", "violated"]
+    rows = [
+        [2016, 1944, 1556, 1296, 1556, 1, ""],  # inconsistent: thresholds of 2592 → excluded
+        [2016, 1512, 1210, 1008, 1210, 0, "false_halt"],
+        [2592, 1944, 1556, 1296, 1556, 1, ""],
+    ]
+    with (rd / "evidence" / "g5" / "results.csv").open("w") as fh:
+        fh.write(",".join(cols) + "\n" + "\n".join(",".join(map(str, r)) for r in rows) + "\n")
+    rec = {"recommended": 2592, "metrics": {"constraints_current": {"false_halt": False}}}
+    recs = {"signalWindow": rec, **{t: {"recommended": v, "metrics": {}} for t, v in
+                                    zip(cols[1:5], (1944, 1556, 1296, 1556), strict=True)}}
+    fv = R.feasible_values(rd, recs)["signalWindow"]
+    assert fv == {"2016": ["false_halt"], "2592": []}

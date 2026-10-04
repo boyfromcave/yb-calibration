@@ -106,6 +106,7 @@ class RobustConfig:
     cache: str | None = None
     nice: int = 10
     agree: float = 0.8
+    run_dirs: list[Path] = field(default_factory=list)  #: tabulate these finished runs instead of specs
 
     def specs(self) -> list[RunSpec]:
         return [RunSpec(w, m, s) for w in self.windows for m in self.models for s in self.seeds]
@@ -219,6 +220,130 @@ def _label(rec: Mapping[str, Any]) -> str:
     return str(rec.get("verdict"))
 
 
+def spec_of_dir(run_dir: Path) -> RunSpec:
+    """A RunSpec read back from a finished run's manifest (``--runs`` tabulation)."""
+    m = json.loads((run_dir / "manifest.json").read_text())
+    ex = m.get("extra") or {}
+    sets = list(ex.get("policy_set") or [])
+    model = next((k for k, v in MODEL_SETS.items() if v and sorted(v) == sorted(sets)), None)
+    model = model or ("bootstrap" if not sets else "+".join(sets))
+    return RunSpec(str(ex.get("window") or "full"), model, int(m.get("seed", 0)))
+
+
+def collect_runs(cfg: RobustConfig) -> list[tuple[RunSpec, Path, str]]:
+    """``(spec, run_dir, id)`` for every run to tabulate."""
+    if cfg.run_dirs:
+        return [(spec_of_dir(d), d, d.name) for d in cfg.run_dirs if (d / "manifest.json").exists()]
+    return [(sp, cfg.out / "runs" / sp.id, sp.id) for sp in cfg.specs()]
+
+
+def run_pins(run_dir: Path) -> list[Any]:
+    """The owner pins of a finished run's policy (file + ``--policy-set`` overrides)."""
+    from ybcal.optimize.pins import parse_pin
+
+    try:
+        m = json.loads((run_dir / "manifest.json").read_text())
+        pp = m.get("policy_path") or None
+        pol = Policy.load(pp) if pp and Path(pp).exists() else Policy()
+        pol, _ = pol.with_overrides(list((m.get("extra") or {}).get("policy_set") or []))
+    except (OSError, ValueError, KeyError):
+        pol = Policy()  # a policy this build cannot read (another branch's keys): the default pins
+    return [parse_pin(p, v) for p, v in (pol.owner_pinned or {}).items()]
+
+
+def feasible_values(run_dir: Path, recs: Mapping[str, Any]) -> dict[str, dict[str, list[str]]]:
+    """Per parameter: candidate value (JSON) → constraints of the parameter's own rule violated at the
+    best row holding that value, from the run's per-group result tables (``evidence/<g>/results.csv``,
+    the final round). A parameter's own constraints are ``metrics.constraints_current`` when the study
+    reports them (D-RD-AUD-10), else every constraint. A value absent from a run was not evaluated."""
+    from ybcal.params.paramset import mainnet
+
+    shipped = mainnet()
+    pins = run_pins(run_dir)
+    out: dict[str, dict[str, list[str]]] = {}
+    groups = {REGISTRY[p].group for p in recs if p in REGISTRY}
+    for g in groups:
+        f = run_dir / "evidence" / g.lower() / "results.csv"
+        if not f.exists():
+            continue
+        with f.open() as fh:
+            rows = list(csv.DictReader(fh))
+        names = [p for p in recs if p in REGISTRY and REGISTRY[p].group == g and REGISTRY[p].tunable]
+        recv = {p: recs[p].get("recommended") for p in names}
+        full_rows = []
+        for row in rows:
+            vals = {p: (recv[p] if row.get(p) in (None, "") else _num(row[p])) for p in names}
+            ps = {**shipped.to_dict(), **vals}
+            # rows a pin excludes are not candidates the run could have chosen (fraction pins, D-RD-INF-2)
+            rel = [pin for pin in pins if pin.param in vals and (pin.of is None or pin.of in vals)]
+            if all(pin.holds(ps, shipped) for pin in rel):
+                full_rows.append((row, vals))
+        for p, r in recs.items():
+            if p not in REGISTRY or REGISTRY[p].group != g or not REGISTRY[p].tunable:
+                continue
+            m = r.get("metrics") or {}
+            own = set((m.get("constraints_current") or {}).keys()) if isinstance(m, Mapping) else set()
+            # per value: the rows closest to the run's recommended set on the group's other parameters
+            # (moved together with p by a fraction pin excepted), then the fewest violations
+            tied = {pin.param for pin in pins if pin.of == p} | {pin.of for pin in pins if pin.param == p}
+            best: dict[str, tuple[int, list[str]]] = {}
+            for row, vals in full_rows:
+                v = vals[p]
+                dist = sum(1 for q in names if q != p and q not in tied and vals[q] != recv[q])
+                viol = [c for c in (row.get("violated") or "").split(";") if c]
+                if own:
+                    viol = [c for c in viol if c in own]
+                k = json.dumps(v)
+                if k not in best or (dist, len(viol)) < (best[k][0], len(best[k][1])):
+                    best[k] = (dist, viol)
+            out[p] = {k: v for k, (_, v) in best.items()}
+    return out
+
+
+def _num(s: str) -> Any:
+    try:
+        return int(s)
+    except ValueError:
+        try:
+            return float(s)
+        except ValueError:
+            return {"True": True, "False": False}.get(s, s)
+
+
+def consolidate(
+    p: str, current: Any, per_run: Sequence[tuple[str, Mapping[str, list[str]] | None]]
+) -> dict[str, Any]:
+    """The value feasible (own rule's constraints met) in the most runs; ties → closest to current.
+    ``per_run`` = (run id, value → violated constraints) or ``None`` when the run has no table."""
+    have = [(rid, d) for rid, d in per_run if d]
+    cands: set[str] = set()
+    for _, d in have:
+        cands |= set(d)
+    if not cands:
+        return {"value": None, "k": 0, "n": len(per_run), "evaluated": 0, "violations": {}}
+
+    def dist(k: str) -> float:
+        v = json.loads(k)
+        try:
+            return abs(float(v) - float(current))
+        except (TypeError, ValueError):
+            return 0.0 if v == current else 1.0
+
+    def score(k: str) -> tuple[int, int, float]:
+        feas = sum(1 for _, d in have if k in d and not d[k])
+        ev = sum(1 for _, d in have if k in d)
+        return (-feas, -ev, dist(k))
+
+    best = min(sorted(cands), key=score)
+    return {
+        "value": json.loads(best),
+        "k": -score(best)[0],
+        "n": len(per_run),
+        "evaluated": -score(best)[1],
+        "violations": {rid: d.get(best, ["not evaluated"]) for rid, d in have if d.get(best) != []},
+    }
+
+
 def load_run(run_dir: Path) -> dict[str, Any] | None:
     """``{param: {value, verdict, label}}`` of a finished run (``None`` if it did not finish)."""
     f = run_dir / "evidence" / "recommendations.json"
@@ -231,6 +356,13 @@ def load_run(run_dir: Path) -> dict[str, Any] | None:
             "label": _label(r)}
         for p, r in recs.items()
     }
+    try:
+        feas = feasible_values(run_dir, recs)
+    except (OSError, ValueError, csv.Error):
+        feas = {}
+    for p, d in feas.items():
+        if p in out:
+            out[p]["feasible"] = d
     return out
 
 
@@ -248,21 +380,25 @@ def tabulate(cfg: RobustConfig) -> dict[str, Any]:
 
     base = mainnet()
     runs: list[tuple[RunSpec, dict[str, Any]]] = []
+    ids: list[str] = []
     missing: list[str] = []
-    for sp in cfg.specs():
-        r = load_run(cfg.out / "runs" / sp.id)
+    for sp, rd, rid in collect_runs(cfg):
+        r = load_run(rd)
         if r is None:
-            missing.append(sp.id)
+            missing.append(rid)
         else:
             runs.append((sp, r))
+            ids.append(rid)
     params = [k for k, s in REGISTRY.items() if s.tunable]
     rows_long, summary = [], []
     for p in params:
         vals, verds, labels = [], [], []
         by: dict[str, dict[str, list[Any]]] = {"window": {}, "model": {}, "seed": {}}
         cells: dict[tuple[str, str], list[Any]] = {}
-        for sp, r in runs:
+        per_run_feas = []
+        for (sp, r), rid in zip(runs, ids, strict=True):
             d = r.get(p)
+            per_run_feas.append((rid, d.get("feasible") if d else None))
             v = d["value"] if d else base[p]
             verdict = d["verdict"] if d else "NOT RUN"
             label = d["label"] if d else "NOT RUN"
@@ -274,13 +410,15 @@ def tabulate(cfg: RobustConfig) -> dict[str, Any]:
             by["seed"].setdefault(str(sp.seed), []).append(v)
             cells.setdefault((sp.window, sp.model), []).append(v)
             rows_long.append(
-                {"run": sp.id, "window": sp.window, "model": sp.model, "seed": sp.seed, "param": p,
+                {"run": rid, "window": sp.window, "model": sp.model, "seed": sp.seed, "param": p,
                  "group": REGISTRY[p].group, "current": base[p], "recommended": v, "verdict": verdict,
                  "label": label}
             )
         if not runs:
             continue
+        cons = consolidate(p, base[p], per_run_feas)
         mv, agree = _mode(vals)
+        none_feasible = cons["value"] is not None and cons["k"] == 0
         mverd, vagree = _mode(verds)
         modal_by = {ax: {k: _mode(v)[0] for k, v in d.items()} for ax, d in by.items()}
         flags = []
@@ -292,6 +430,8 @@ def tabulate(cfg: RobustConfig) -> dict[str, Any]:
             flags.append("model-sensitive")
         if any(len({json.dumps(v) for v in c}) > 1 for c in cells.values()):
             flags.append("seed-noise")
+        if none_feasible:
+            flags.append("none-feasible")
         summary.append(
             {
                 "param": p,
@@ -308,12 +448,16 @@ def tabulate(cfg: RobustConfig) -> dict[str, Any]:
                 "by_seed": modal_by["seed"],
                 "flags": flags,
                 "n": len(vals),
+                "consolidated": cons["value"],
+                "feasible_k": cons["k"],
+                "feasible_evaluated": cons["evaluated"],
+                "violations_at_consolidated": cons["violations"],
             }
         )
     summary.sort(key=lambda s: (0 if "unstable" in s["flags"] else 1 if s["flags"] else 2, s["group"]))
     result = {
         "config": {k: (str(v) if isinstance(v, Path) else v) for k, v in asdict(cfg).items()},
-        "runs": [sp.id for sp, _ in runs],
+        "runs": ids,
         "missing": missing,
         "summary": summary,
     }
@@ -337,29 +481,40 @@ def write_tables(
     with (out / "robust-summary.csv").open("w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["param", "group", "current", "modal", "agreement", "modal_verdict", "verdict_agreement",
-                    "verdicts", "values", "by_window", "by_model", "by_seed", "flags", "n"])
+                    "verdicts", "values", "by_window", "by_model", "by_seed", "flags", "n", "consolidated",
+                    "feasible_k", "feasible_evaluated", "violations_at_consolidated"])
         for s in result["summary"]:
             w.writerow([s["param"], s["group"], s["current"], s["modal"], s["agreement"], s["modal_verdict"],
                         s["verdict_agreement"], json.dumps(s["verdicts"]), json.dumps(s["values"]),
                         json.dumps(s["by_window"]), json.dumps(s["by_model"]), json.dumps(s["by_seed"]),
-                        ";".join(s["flags"]), s["n"]])
+                        ";".join(s["flags"]), s["n"], s["consolidated"], s["feasible_k"],
+                        s["feasible_evaluated"], json.dumps(s["violations_at_consolidated"])])
     (out / "robust.json").write_text(json.dumps(result, indent=1, default=str) + "\n")
     lines = [
         "# Robustness of the recommendation",
         "",
+        (f"{len(result['runs'])} finished run(s) given with --runs: {', '.join(result['runs'])}."
+         if cfg.run_dirs else
         f"{len(result['runs'])} run(s) of `ybcal recommend --budget {cfg.budget}`"
         f"{' --groups ' + cfg.groups if cfg.groups else ''}: windows {', '.join(cfg.windows)} × models "
         f"{', '.join(cfg.models)} × seeds {', '.join(map(str, cfg.seeds))}. "
-        f"Agreement threshold {cfg.agree:.0%}."
+        f"Agreement threshold {cfg.agree:.0%}.")
         + (f" Missing (not finished): {', '.join(result['missing'])}." if result["missing"] else ""),
         "",
         "Flags: **unstable** = the modal value or verdict is shared by fewer runs than the threshold; "
         "*window-sensitive* / *model-sensitive* = the modal value differs between windows / price models; "
+        "*none-feasible* = no candidate meets its rule in any run (the consolidated value is then the "
+        "closest to current; see BLOCKED / environment limits in the runs' reports); "
         "*seed-noise* = seeds disagree within one window and model. `(pin)` = owner-pinned, `(env)` = "
         "policy unmeetable in this environment.",
         "",
-        "| Parameter | Group | Current | Modal value | Agreement | Verdicts | By window | By model | Flags |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "**Consolidated** = the value whose own rule's constraints are met in the most runs (every "
+        "evaluated candidate of every run counts, not only each run's winner), ties → closest to current; "
+        "*feasible k/N* counts those runs, and the violations column names, per run, what fails there.",
+        "",
+        "| Parameter | Group | Current | Consolidated (feasible k/N) | Modal value | Agreement | Verdicts "
+        "| By window | By model | Flags | Violations at the consolidated value |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for s in result["summary"]:
         p = s["param"]
@@ -367,9 +522,11 @@ def write_tables(
         bw = "; ".join(f"{k}: {_fv(p, v)}" for k, v in s["by_window"].items())
         bm = "; ".join(f"{k}: {_fv(p, v)}" for k, v in s["by_model"].items())
         flags = ", ".join(f"**{f}**" if f == "unstable" else f for f in s["flags"]) or "stable"
+        cv = "—" if s["consolidated"] is None else f"{_fv(p, s['consolidated'])} ({s['feasible_k']}/{s['n']})"
+        viol = "; ".join(f"{k}: {', '.join(v) or '—'}" for k, v in s["violations_at_consolidated"].items())
         lines.append(
-            f"| `{p}` | {s['group']} | {_fv(p, s['current'])} | {_fv(p, s['modal'])} | {s['agreement']:.0%} "
-            f"| {verd} | {bw} | {bm} | {flags} |".replace("\n", " ")
+            f"| `{p}` | {s['group']} | {_fv(p, s['current'])} | {cv} | {_fv(p, s['modal'])} | "
+            f"{s['agreement']:.0%} | {verd} | {bw} | {bm} | {flags} | {viol or 'none'} |".replace("\n", " ")
         )
     lines += [
         "",
@@ -401,11 +558,15 @@ def configure_robust(p: argparse.ArgumentParser) -> None:
     p.add_argument("--nice", type=int, default=10, help="niceness of each run (default 10)")
     p.add_argument("--agree", type=float, default=0.8, help="agreement threshold for 'unstable' (0.8)")
     p.add_argument("--table-only", action="store_true", help="only re-tabulate finished runs")
+    p.add_argument("--runs", nargs="+", default=[], metavar="DIR",
+                   help="tabulate these finished recommend directories (implies --table-only)")
     p.add_argument("--dry-run", action="store_true", help="print the commands and exit")
 
 
 def config_from_args(args: argparse.Namespace) -> RobustConfig:
     pol = Policy.load(args.policy)
+    if args.runs:
+        Path(args.out).mkdir(parents=True, exist_ok=True)
     if "," in args.seeds or not args.seeds.isdigit():
         seeds = [int(x) for x in args.seeds.split(",") if x.strip()]
     else:
@@ -437,6 +598,7 @@ def config_from_args(args: argparse.Namespace) -> RobustConfig:
         cache=args.cache,
         nice=args.nice,
         agree=args.agree,
+        run_dirs=[Path(d) for d in args.runs],
     )
 
 
@@ -453,7 +615,7 @@ def cli_robust(args: argparse.Namespace) -> int:
         for sp in cfg.specs():
             print(" ".join(recommend_cmd(cfg, sp, cfg.out / "runs" / sp.id)))
         return 0
-    if not args.table_only:
+    if not args.table_only and not cfg.run_dirs:
         st = run_all(cfg, say=lambda m: print(m, flush=True))
         bad = [s["id"] for s in st if str(s["status"]).startswith("failed")]
         if bad:
