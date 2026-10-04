@@ -139,6 +139,15 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-INF-4](#d-rd-inf-4-2026-10-04-infra--g9-on-real-data-no-zero-amounts-thin-market-and-majority-pool-are-environment-limits) | infra (wave 2) | G9 on real data: no zero amounts; thin market and majority pool are environment limits |
 | [D-RD-INF-5](#d-rd-inf-5-2026-10-04-infra--the-robustness-harness-windows-price-models-policy-overrides) | infra (wave 2) | the robustness harness: windows, price models, policy overrides |
 | [D-RD-INF-6](#d-rd-inf-6-2026-10-04-infra--report-polish-blocked-reasons-name-the-value-lock-readiness-counts-pins-and-environment-limits) | infra (wave 2) | report polish: BLOCKED reasons name the value; lock-readiness counts pins and environment limits |
+| [D-RD-COL-1](#d-rd-col-1-2026-10-04-collateral--long-horizon-members-come-from-the-daily-history) | collateral (wave 2) | long-horizon members come from the daily history |
+| [D-RD-COL-2](#d-rd-col-2-2026-10-04-collateral--the-fork-launch-fall-is-a-sensitivity-not-the-base-window) | collateral (wave 2) | the fork-launch fall is a sensitivity, not the base window |
+| [D-RD-COL-3](#d-rd-col-3-2026-10-04-collateral--a-member-must-reproduce-volatility-by-horizon) | collateral (wave 2) | a member must reproduce volatility by horizon |
+| [D-RD-COL-4](#d-rd-col-4-2026-10-04-collateral--class-tolerances-bc-are-an-environment-limit-the-term-classes-as-shipped) | collateral (wave 2) | class tolerances B/C are an environment limit; the term classes as shipped |
+| [D-RD-COL-5](#d-rd-col-5-2026-10-04-collateral--a-seller-meets-the-bid-side-of-the-book) | collateral (wave 2) | a seller meets the bid side of the book |
+| [D-RD-COL-6](#d-rd-col-6-2026-10-04-collateral--the-claimant-is-a-yec-holder-nine-claims-in-ten-must-pay) | collateral (wave 2) | the claimant is a YEC holder; nine claims in ten must pay |
+| [D-RD-COL-7](#d-rd-col-7-2026-10-04-collateral--emergencyratiobps-keep-and-on-real-crashes-it-does-not-matter) | collateral (wave 2) | emergencyRatioBps: KEEP, and on real crashes it does not matter |
+| [D-RD-COL-8](#d-rd-col-8-2026-10-04-collateral--abandonblocks-the-90-d-was-an-artefact-w21-30-d-holds) | collateral (wave 2) | abandonBlocks: the "90 d" was an artefact; W21 30 d holds |
+| [D-RD-COL-9](#d-rd-col-9-2026-10-04-collateral--the-w20w16-gate-and-the-ratios) | collateral (wave 2) | the W20/W16 gate and the ratios |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -1972,3 +1981,153 @@ pool log 3,744, the second half kept 2,016. `ybcal robust` consolidation: 2,592 
 runs (s3 and h1 fail `false_halt`); the 7-variant landscape replay finds 2,592 the only window
 meeting the 24 h/yr false-halt budget and 60-day lock-in in every variant. 2,592 stands, with the
 residual: in the worst variants false halts reach ~22 h/yr.
+
+## D-RD-COL-1 (2026-10-04, collateral) — long-horizon members come from the daily history
+
+**Finding.** Volatility of real YEC depends strongly on the horizon (`yec-daily.csv`, 2019-07-20 →
+2026-10-04; annualised σ of k-day log returns): 1 d 235 %, 7 d 166 %, 30 d 179 %, 90 d 160 %,
+365 d 115 % (hourly file: 1 h 440 %, 1 d 228 %, 1 w 162 %, 1 y 108 %). A model's P(bad debt) over
+60 days – 5 years is set by its dispersion at *those* horizons, not by its one-step σ. The hourly
+file starts 2020-03-26, so a 5-year class-C term had ≈ 1.5 years of real start dates, and the
+2019 fall was missing.
+**Decision.** New module `ybcal.studies.g3_horizon`: members fitted on the daily series and
+simulated hourly (Brownian bridge inside each day) through the same hour-mode oracle kernel —
+`bootstrap-30d` / `bootstrap-365d` (stationary block bootstrap of daily log returns, demeaned,
+D-RD-D1/AUD-1), `regime` (daily fit, centred), `martingale` (30-day bootstrap at zero arithmetic
+drift, the stress convention), `history` (the real daily path, every start date). The frontier is
+computed from sorted samples of x = true(claim opening)/pMint (exactly `p_bad_debt_fast`'s test,
+tested to agree within 0.2 pp), so every locked ratio costs nothing. G3's real-data ensemble gains
+`daily-bootstrap` (30-day blocks) and `daily-history` when `price_daily` is loaded (infra's
+D-RD-INF-1 role; `long_daily(env)` also takes a `Daily`). Daily members are sized at the σ
+multiplier quantile of the *hourly* history (`member_sigma`): a bridge's white intraday noise would
+read as a 200 %+ σ̂ and a multiplier the market does not show. The claimant study keeps the hourly
+members (hour-scale pClaim lag).
+**Consequence.** `python -m ybcal.studies.g3_horizon frontier|study|claims` (see the module);
+evidence `docs/evidence/collateral-2026-10/`.
+
+## D-RD-COL-2 (2026-10-04, collateral) — the fork-launch fall is a sensitivity, not the base window
+
+**Decision.** Daily members of the G3 ensemble fit the window from 2020-01-01 (`long_window_start`,
+JUDGEMENT): YEC forked from Zcash in July 2019 and fell from $4.40 to $0.16 by January 2020 while
+every ZEC holder's airdrop was sold — a one-off distribution event, not a market Yellowback will
+mint into. The full window (2019-07 →) is reported beside it in every frontier table.
+**Consequence.** Class A at the full window needs ≈ 975 % locked (bootstrap-30d) / 1,200 % (real
+history) instead of 625 % / 475 %: the launch window is the single largest lever on A. The 2021–22
+bear market (−90 %) and the 2025–26 cycle ($0.019 → $0.45 → $0.10 → $0.39) stay in.
+
+## D-RD-COL-3 (2026-10-04, collateral) — a member must reproduce volatility by horizon
+
+**Finding.** σ by horizon, ex-launch window (data vs seed-1 simulation, annualised, 1/7/30/90/365 d):
+data 2.38/1.65/1.72/1.47/1.06; bootstrap-30d 2.25/1.66/1.65/1.58/1.50; bootstrap-365d
+2.26/1.65/1.72/1.48/1.12; **regime 2.25/2.25/2.25/2.23/2.21** (no multi-day mean reversion: +36 %
+at a week, +110 % at a year); martingale reads low because paths pin to `PRICE_MIN` (5-year bleed).
+**Decision.** The daily regime switch is not a decision member (it fails the 7-day..1-year check on
+every window); it and the martingale stay frontier stress rows. bootstrap-30d (conservative at a
+year, +40 %) is the daily decision member; bootstrap-365d (matches every horizon, but resamples only
+≈ 6 distinct years) is reported as the optimistic bound.
+
+## D-RD-COL-4 (2026-10-04, collateral) — class tolerances B/C are an environment limit; the term classes as shipped
+
+**Evidence** (standard, seeds 1–3, frontier in *locked* ratio = base × σ multiplier; P(bad debt at
+claim opening) / mean shortfall, % of debt; tables in `frontier.csv`, per-term need in
+`needed_by_term.csv`):
+
+| class | locked ratio meeting tolerance (ex-launch: bootstrap-30d / bootstrap-365d / real history; hourly history) | full window (bootstrap-30d / history) | last 365 d (bootstrap-30d) | regime / martingale (stress) |
+|---|---|---|---|---|
+| A (0.5 %) | 625 % / 500 % / 475 %; 450 % | 975 % / 1,200 % | 1,600 % | 2,500 % / 1,100 % |
+| B (1 %) | 1,800 % / 850 % / 675 %; 675 % | 3,000 % / 2,500 % | > 10,000 % | 10,000 % / none ≤ 10,000 % |
+| C (2 %) | none ≤ 10,000 % / 4,000 % / 1,100 %; 1,100 % | none / 3,000 % | none | none / none |
+
+Seeds agree within one lattice step (A ex-launch bootstrap-30d 625/675/600 %, B 1,800 % ×3).
+Per term (ex-launch bootstrap-30d): A needs 450 % at 32 d → 775 % at 84 d; B 700 % at 99 d → 3,000 %
+at 339 d; C 3,000 % at 410 d and > 10,000 % beyond ≈ 1.6 years. At the registry bounds (B 700 %,
+C 600 % base at multiplier 1.0) the decision ensemble gives P(bad) B 12.6–13.6 % (ES 5.1–5.7 %),
+C 32.9–35.7 % (ES 22–24 %); the real hourly history gives B 0.8 %, C 8.6 %. Real-history replay
+(every real start date, ex-launch): every 30-day to 4-year start is covered by 1,800 % locked; the
+worst one-year start (2021-12-04) needed 1,122 %; but n_eff = span / (term + grace) is 6.2 for 1-year
+and 1.3 for 5-year terms — history cannot certify long terms. Node rules: `ycash6
+src/yellowback/script.cpp:79-93` (owner path after `lockHeight`, claim path only after
+`lockHeight + grace`), `state.cpp:515-517` (RED-2: every spend burns the whole debt),
+`state.cpp:322-334` (MINT-5 sizes collateral at `MinRatioBps(base, σ)` and pMint), `math.h:105`.
+**Decision.** `bad_debt_{B,C}` (and A's, should it ever be) are declared environment limits
+(D-RD-INF-3) with design note G3-DN1: no ratio within the registry bounds meets them at YEC
+volatility because nothing can liquidate a vault before `lockHeight + grace`. Least harm = the lowest
+P(bad debt) = the registry upper bound (B 70,000, C 60,000), verdict CHANGE "policy unmeetable in
+this environment" with the exposure, not BLOCKED.
+**Owner-level design note (not a parameter change; D-R-6 pins the class bounds).** Class B (90–365 d)
+and class C (1–5 y) as shipped are not viable for YEC under the policy tolerances: B's shortest
+terms meet 1 % at ≈ 700 % locked, its longest need ≈ 3,000 %; C cannot meet 2 % at any ratio up to
+10,000 % in any model that reproduces the data's volatility, except the real history itself
+(1,100 %, n_eff 1.3–6). Levers, in order of effect: (1) shorten classMax[1]/[2] (B to ≈ 120 d at
+700 %), (2) a rule that can act before maturity (periodic re-margining or a liquidation path above
+θ), (3) relax `max_bad_debt_prob` for B/C with the frontier as the price list. Capital efficiency
+falls as 1/R: 0.20 YED per USD locked at 500 %, 0.14 at 700 %, 0.05 at 2,000 %.
+
+## D-RD-COL-5 (2026-10-04, collateral) — a seller meets the bid side of the book
+
+**Decision.** `depth_p10_usd` reads `bid_depth_2pct_usd` (else half the two-sided figure): a
+claimant selling YEC never touches the asks. On the 2026-10-04 books bids are $119 of $162 at p10.
+`claim_stats` takes the vault's debt (`cents`) and `sell` (False = a holder who keeps the YEC).
+
+## D-RD-COL-6 (2026-10-04, collateral) — the claimant is a YEC holder; nine claims in ten must pay
+
+**Evidence** (standard, seeds 1–3, hourly members, worst member; `claim_liquidity_s*.csv`):
+selling into the bid book, a $100 vault claims profitably at θ ≥ 115 %, a $1,000 vault needs
+θ ≈ 145–150 % (mean −1,653 bps at 110 %, show-up 0.2 %), a $10,000 vault cannot be sold at all
+(slippage capped at 99.99 %); YEC's p10 volume is ≈ $700/day. A holder who keeps the collateral
+(no sale): θ 110 % mean +169..+196 bps, p10 −889..−915, show-up 58–59 %, already bad at the trigger
+30 %; θ 122.5 % p10 +119..+146; **θ 125 % p10 +326..+353, mean +1,559..+1,588, show-up 91.4–91.7 %,
+bad at trigger 6.1–6.3 %, absent-owner forfeit 1,696 bps** — identical across seeds and vault sizes.
+**Decision.** Policy-free JUDGEMENT keys `claimant_model = "hold"`, `claim_margin_stat = "p10_bps"`:
+the claimant that exists at YEC's liquidity is a holder, and a threshold where only the *mean*
+claim pays leaves ~40 % of triggered vaults unclaimed under the pClaim lag (`pClaim =
+max(pMid, pSlow)`, `state.cpp:540-551`). The seller is reported (`claim_sell.*`). Result:
+`claimThresholdBps` 11,000 → **12,500** on every seed and both σ sets.
+**Residual.** The holder needs YED to burn (RED-2) — YED market depth is unknown; and RED-5
+(`state.cpp:559-561`) gives a RED-4(a) claimant everything up to θ × debt, so an owner absent after
+`lockHeight + grace` forfeits up to 25 % of the debt (G3-DN2).
+
+## D-RD-COL-7 (2026-10-04, collateral) — emergencyRatioBps: KEEP, and on real crashes it does not matter
+
+**Evidence.** New scenario from the real history: the three worst non-overlapping 1-, 7- and 30-day
+falls of the hourly file (−68 % 2021-06-18, −63 % one-hour wick 2022-01-25, −63 % 2025-10-10/11;
+−71 % / −70 % / −66 % weeks; −79 % / −77 % months), vaults matured, ARMED. At θ 110–150 % the debt
+left uncovered at closure is 0 at every `emergencyRatioBps` 101–149 %: RED-4(a) closes them first.
+A RED-4(b) exit at par loses 1,000–4,500 bps of the debt (claimant paid at pClaim, the higher
+price, `state.cpp:559-561`, R1) and only pays under a ≥ 10–45 % YED discount (G3-DN4). The synthetic
+crash rows keep the PROVISIONAL KEEP 10,500.
+**Decision.** KEEP 10,500; the rule-level fix of G3-DN4 (pay (b) at pEmerg or with a bounty) stands.
+
+## D-RD-COL-8 (2026-10-04, collateral) — abandonBlocks: the "90 d" was an artefact; W21 30 d holds
+
+**Finding.** The rd2 run's CHANGE 30 → 90 d came from (1) G5's share samples taking the top-2 payout
+keys (ninjaraider 52 % + an unidentified 21 % key whose share is intermittent) instead of the
+identified coalition, 11 % of them below `enforcementResume` (60 %), where an ENFORCEMENT episode
+never ends, so P(false abandonment) = 1/yr at *every* value; and (2) G4's loop then stopped at the
+registry ceiling (103,680) and reported a CHANGE that still violated. Real replay of the 61-day pool
+log (70,000 blocks) with the identified coalition (ninjaraider + mining-dutch + dapool, D-RD-D5):
+window share min 60.3 %, p5 65.9 %, **zero ENFORCEMENT episodes**; analytically P(false abandonment)
+at a 60 % or 70 % share is < 1e-19/yr at 30 d. Without ninjaraider the share is 18.8 % (max 33 %):
+ENFORCEMENT sets within a window and abandonment follows after `abandonBlocks` — a true loss of
+enforcement, which abandonment exists to detect (`index.cpp:737`).
+**Decision.** G4: when no value up to the bound meets false-abandon, verdict BLOCKED-keep with the
+share of samples at/below resume (not a CHANGE that still violates). With D-RD-ACT-1's named
+coalition the false-abandon axis is met at 30 d. W21 (owner floor, D-R-12) stands; the evidence
+that argues for longer is only G4-DN1 (developers back after > 12 days cannot finish the M14 runbook
+before owners may sweep; 90 d would tolerate 72 days, at the cost of 90 days of unsweepable vaults
+if the developers never return) — shown, not a CHANGE.
+
+## D-RD-COL-9 (2026-10-04, collateral) — the W20/W16 gate and the ratios
+
+**Finding.** `MINT-6` and the HALT-2 gate (`state.cpp:318`, `:335-340`) admit a class iff
+`MinRatioBps(base, σmult) ≥ recapRatioBps` (50,000). The owner's reading is "only class A mints
+through a halt / above the cap". On the real hourly history the σ multiplier at the shipped
+`sigmaRefBps` 10,000 has median 1.79 (p10 1.0, p90 3.0, capped 28 % of hours): A 500 %, B 400 %,
+C 300 % lock 895 / 716 / 537 % at the median, so **every class already passes the gate** most of the
+time. At `sigmaRefBps` 19,000 (G2, rd2) the median multiplier is 1.0: shipped B/C fail the gate,
+but the least-harm values B 700 % / C 600 % pass it — the gate would then admit the riskiest
+class (C: P(bad) ≈ 33 %) above the cap, the opposite of W20's "the marginal position is the safest".
+**Decision.** No change here (supplyCapBps and the gate are G7's and owner-pinned W20). Recorded for
+the owner: with base ratios set by drawdown, a ratio gate no longer ranks risk; a class-based gate
+(class A only) or `recapRatioBps` ≥ the largest B/C locked ratio would restore the intent.
+

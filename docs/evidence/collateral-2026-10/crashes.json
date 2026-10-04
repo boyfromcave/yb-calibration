@@ -1,0 +1,44 @@
+{
+ "real-worst-1d": [
+  {
+   "start_hour": 10778,
+   "log_return": -1.152629965858404
+  },
+  {
+   "start_hour": 48584,
+   "log_return": -1.0025094745928005
+  },
+  {
+   "start_hour": 16085,
+   "log_return": -0.9927628849892649
+  }
+ ],
+ "real-worst-7d": [
+  {
+   "start_hour": 33041,
+   "log_return": -1.2410146306680652
+  },
+  {
+   "start_hour": 15941,
+   "log_return": -1.2012095581359077
+  },
+  {
+   "start_hour": 10776,
+   "log_return": -1.0820864473762501
+  }
+ ],
+ "real-worst-30d": [
+  {
+   "start_hour": 32489,
+   "log_return": -1.5448494176489014
+  },
+  {
+   "start_hour": 15389,
+   "log_return": -1.467654838383897
+  },
+  {
+   "start_hour": 18110,
+   "log_return": -1.3583079701643488
+  }
+ ]
+}

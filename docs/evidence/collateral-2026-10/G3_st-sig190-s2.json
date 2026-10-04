@@ -1,0 +1,148 @@
+[
+ {
+  "param": "claimThresholdBps",
+  "current": 11000,
+  "recommended": 12500,
+  "verdict": "CHANGE",
+  "binding": "constraint claim_incentive violated at the current value",
+  "metrics": {
+   "primary": "claim.theta",
+   "decision": "current violates claim_incentive",
+   "improvement": -0.136364,
+   "aggregate": "worst"
+  }
+ },
+ {
+  "param": "classMin[0]",
+  "current": 34560,
+  "recommended": 34560,
+  "verdict": "KEEP",
+  "binding": "verification: every constraint holds (locktime)",
+  "metrics": {
+   "primary": "zero",
+   "decision": "every constraint holds at the current value",
+   "improvement": 0,
+   "aggregate": "worst"
+  }
+ },
+ {
+  "param": "classMin[1]",
+  "current": 103681,
+  "recommended": 103681,
+  "verdict": "KEEP",
+  "binding": "verification: every constraint holds (locktime)",
+  "metrics": {
+   "primary": "het.max",
+   "decision": "every constraint holds at the current value",
+   "improvement": 0,
+   "aggregate": "worst"
+  }
+ },
+ {
+  "param": "classMin[2]",
+  "current": 420481,
+  "recommended": 420481,
+  "verdict": "KEEP",
+  "binding": "verification: every constraint holds (locktime)",
+  "metrics": {
+   "primary": "het.max",
+   "decision": "every constraint holds at the current value",
+   "improvement": 0,
+   "aggregate": "worst"
+  }
+ },
+ {
+  "param": "classMax[0]",
+  "current": 103680,
+  "recommended": 103680,
+  "verdict": "KEEP",
+  "binding": "verification: every constraint holds (locktime)",
+  "metrics": {
+   "primary": "het.max",
+   "decision": "every constraint holds at the current value",
+   "improvement": 0,
+   "aggregate": "worst"
+  }
+ },
+ {
+  "param": "classMax[1]",
+  "current": 420480,
+  "recommended": 420480,
+  "verdict": "KEEP",
+  "binding": "verification: every constraint holds (locktime)",
+  "metrics": {
+   "primary": "het.max",
+   "decision": "every constraint holds at the current value",
+   "improvement": 0,
+   "aggregate": "worst"
+  }
+ },
+ {
+  "param": "classMax[2]",
+  "current": 2102400,
+  "recommended": 2102400,
+  "verdict": "KEEP",
+  "binding": "verification: every constraint holds (locktime)",
+  "metrics": {
+   "primary": "zero",
+   "decision": "every constraint holds at the current value",
+   "improvement": 0,
+   "aggregate": "worst"
+  }
+ },
+ {
+  "param": "baseRatioBps[0]",
+  "current": 50000,
+  "recommended": 70000,
+  "verdict": "CHANGE",
+  "binding": "constraint bad_debt_A violated at the current value",
+  "metrics": {
+   "primary": "ratio.A",
+   "decision": "current violates bad_debt_A",
+   "improvement": -0.4,
+   "aggregate": "worst",
+   "tolerance": 0.005
+  }
+ },
+ {
+  "param": "baseRatioBps[1]",
+  "current": 40000,
+  "recommended": 70000,
+  "verdict": "BLOCKED",
+  "binding": "policy constraint bad_debt_B cannot be met within the registry bounds",
+  "metrics": {
+   "primary": "ratio.B",
+   "decision": "no candidate satisfies bad_debt_B; least violating: baseRatioBps[1]=70000",
+   "improvement": 0,
+   "aggregate": "worst",
+   "tolerance": 0.01
+  }
+ },
+ {
+  "param": "baseRatioBps[2]",
+  "current": 30000,
+  "recommended": 60000,
+  "verdict": "BLOCKED",
+  "binding": "policy constraint bad_debt_C cannot be met within the registry bounds",
+  "metrics": {
+   "primary": "ratio.C",
+   "decision": "no candidate satisfies bad_debt_C; least violating: baseRatioBps[2]=60000",
+   "improvement": 0,
+   "aggregate": "worst",
+   "tolerance": 0.02
+  }
+ },
+ {
+  "param": "emergencyRatioBps",
+  "current": 10500,
+  "recommended": 10500,
+  "verdict": "PROVISIONAL",
+  "binding": "emerg.shortfall subject to the invariants",
+  "metrics": {
+   "primary": "emerg.shortfall",
+   "decision": "current is (jointly) best",
+   "improvement": 0,
+   "aggregate": "worst"
+  }
+ }
+]
