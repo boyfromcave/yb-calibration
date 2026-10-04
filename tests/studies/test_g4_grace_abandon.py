@@ -38,7 +38,9 @@ def test_runbook_and_dev_absence():
     assert G4.ceil_days(24_768) == 25_344
 
 
-def _grace_table(rows: dict[int, tuple[float, float]], cur: int = 34_560, A: int = 34_560) -> ResultTable:
+def _grace_table(
+    rows: dict[int, tuple[float, float]], cur: int = 34_560, A: int = 34_560, shares=(0.8,) * 10
+) -> ResultTable:
     """rows: grace → (P(miss), weighted ΔP); w_owner = w_debt = 1."""
     pol = Policy()
     base = mainnet()
@@ -66,7 +68,7 @@ def _grace_table(rows: dict[int, tuple[float, float]], cur: int = 34_560, A: int
                 "J",
                 True,
                 {"owner_miss": pm <= pol.max_owner_miss_prob},
-                meta={"shares": [0.8] * 10, "provenance": "synthetic", "share_provenance": "judgement"},
+                meta={"shares": list(shares), "provenance": "synthetic", "share_provenance": "judgement"},
             ),
         )
     return t
@@ -90,6 +92,24 @@ def test_grace_rule_keep_change_blocked():
     # nobody meets the owner tolerance → BLOCKED with the least violating grace
     recs = {r.param: r for r in st.decide(_grace_table({34_560: (0.02, 0.01), 41_472: (0.015, 0.02)}), pol)}
     assert recs["grace"].verdict == "BLOCKED" and recs["grace"].recommended == 41_472
+
+
+def test_abandon_unmeetable_bound_is_blocked_not_a_change():
+    """D-RD-COL-8: share samples below enforcementResume make P(false abandonment) ≈ 1 at every
+    abandonBlocks; the rule must not 'recommend' the registry ceiling (which still violates)."""
+    st = G4.make_study()
+    pol = Policy()
+    rows = {34_560: (0.004, 0.019), 17_280: (0.009, 0.010)}
+    shares = (0.50, 0.52) + (0.75,) * 18
+    assert G4.lost_share_fraction(mainnet(), shares) == pytest.approx(0.1)
+    recs = {r.param: r for r in st.decide(_grace_table(rows, shares=shares), pol)}
+    a = recs["abandonBlocks"]
+    assert a.verdict == "BLOCKED" and a.recommended == a.current == 34_560
+    assert "enforcementResume" in a.metrics["decision"]
+    # an enforcing majority well above the resume threshold: the grace bound decides (KEEP)
+    recs = {r.param: r for r in st.decide(_grace_table(rows, shares=(0.72,) * 20), pol)}
+    a = recs["abandonBlocks"]
+    assert a.verdict in ("KEEP", "PROVISIONAL") and a.recommended == 34_560
 
 
 def test_owner_miss_analytic_matches_wp4():
