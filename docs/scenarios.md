@@ -32,11 +32,20 @@ per path.
 | `tags` | labels; `"core"` puts the scenario in the quick budget's set |
 | `horizon_days`, `resolution` | horizon; `"block"` (≤ 120 days, PLAN §3.3) or `"hour"` |
 | `p0_usd` | start price (default $0.40) |
-| `[base]` | `model` (`gbm`, `merton`, `garch`, `regime`, `bootstrap`, `flat`), `params` (overrides on the YEC-like preset), `fallback` (bootstrap without data; default `garch`), `center` (default true) |
+| `[base]` | `model` (`gbm`, `merton`, `garch`, `regime`, `bootstrap`, `flat`, `replay`), `params` (overrides on the YEC-like preset; for `replay` see below), `fallback` (bootstrap or replay without data; default `garch`), `center` (default true; ignored by `replay`) |
 | `[[segments]]` | the price program (below) |
 | `[schedules.<name>]` | `default`, `changes = [{at_*, value}]`, `ramps = [{start_*, duration_*, to}]`, optional `outages = {rate_per_day, mean_hours, value}` (stochastic, per path) |
 | `[constants]` | scalars for the studies (e.g. `attacker_bias_bps`, `dev_absence_days`) |
 | `[[variants]]` | a family: each variant has `name`, optional `description`/`tags`/`horizon_days`, and `set = {"dotted.path" = value}` overrides on the body |
+
+**Replay base (D-RD-ORA-4).** `model = "replay"` replays a window of the real hourly history *in
+order* (log-linear onto blocks), identical on every path (paths then differ only in the oracle's
+draws). `params`: either `start` (an ISO time) or `select` = `worst_drawdown` (the window of
+`window_days` — default the horizon — whose running minimum falls furthest below its first price),
+`best_rally` or `max_vol`, with `rank` k for the k-th such window (non-overlapping, daily starts).
+It needs real data (`--data yec-hourly.csv`; studies pass `env.data["price"]`); without it the
+`fallback` preset is used and `meta["base_fallback"]` is set. G1's `realise` keeps a replay base
+instead of bootstrapping the real returns.
 
 **Centring.** With `center = true` the base's expected log drift (e.g. −σ²/2 for a zero-μ GBM) is
 removed, so the program alone sets the trend and the base only adds noise around it. Without it a
@@ -143,3 +152,17 @@ Write `scenarios/<name>.toml` with the keys above (or add a `[[variants]]` entry
 then run `pytest tests/data/test_scenarios.py`: every file must load, generate deterministically
 at both resolutions, and use only known schedule names. Tag it `core` only if the quick budget
 must run it.
+
+### Real history and the real pool landscape (D-RD-ORA-4)
+
+- **replay-worst-30d-{1,2,3}**, **replay-worst-90d** — the worst real 30-day (three, non-overlapping)
+  and 90-day drawdowns of YEC, replayed hour by hour.
+- **replay-cycle-2025-26-{rally,fall,spring}** — the 2025–26 cycle in 120-day block windows: the run-up
+  from 2025-10-01 ($0.026 → $1.11), the fall from the 2025-11-14 peak, the 2026 spring rallies.
+- **replay-wick-2025-12-28** — CoinGecko's largest one-hour print (+61.7 % then −62.0 %) and the days
+  around it.
+- **rogue-pool-52-{up,grief,withhold,offline}** — the largest real pool (52 % of blocks, 72 % of the
+  quotes when the three identified pools tag) turns rogue from day 5: quotes +10 % for 20 days, −30 %
+  (HALT-3 griefing), keeps mining but stops quoting for 10 days, or stops mining for 10 days. G1's
+  `rogue_metrics` runs the first three on the real miner sequence (the attack on that pool itself,
+  not a carved-out coalition).
