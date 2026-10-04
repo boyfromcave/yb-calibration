@@ -148,3 +148,23 @@ def test_cli_landscape_writes_the_coalition_and_valve_tables(tmp_path, capsys):
     assert text[0].startswith("activate_extra_days") or "coalition" in text[0]
     assert len(text) > 2 and (tmp_path / "land-valve.csv").exists()
     assert "valve" in capsys.readouterr().out
+
+
+def test_devnet_steps_round_trip_through_make_schedule(tmp_path):
+    import json
+
+    from ybcal.devnet.scenarios import FUNDING_BLOCKS, make_schedule
+
+    sig = np.r_[np.ones(630, bool), np.zeros(315, bool)]
+    for mode in ("active", "funding"):
+        doc = L.devnet_steps(sig, 31.5, bootstrap=mode, seed=2)
+        assert doc["format"] == "ybcal-steps/1" and len(doc["steps"]) == 30
+        assert [s["signal_share_bps"] for s in doc["steps"][:20]] == [10_000] * 20
+        assert doc["steps"][-1]["signal_share_bps"] == 0
+        f = tmp_path / f"{mode}.json"
+        f.write_text(json.dumps(doc))
+        sched = make_schedule(str(f), regtest())
+        assert "dark_miner" in sched.needs
+        assert sched.steps[0].blocks == FUNDING_BLOCKS
+        extra = 0 if mode == "funding" else 1          # the activation bootstrap step
+        assert len(sched.steps) == 1 + extra + 30
