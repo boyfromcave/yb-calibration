@@ -133,7 +133,39 @@ def fit_returns_of(pp: PricePath, path: int = 0) -> tuple[np.ndarray, float]:
     vals, counts = np.unique(spacing, return_counts=True)
     m = int(vals[np.argmax(counts)])
     r = np.diff(lp)[spacing == m]
-    return r, m * step_dt
+    return drop_stale_runs(r), m * step_dt
+
+
+#: A run of at least this many consecutive exactly-zero returns is a stale feed, not a market.
+STALE_RUN_RETURNS = 6
+
+
+def drop_stale_runs(r: np.ndarray, min_run: int = STALE_RUN_RETURNS) -> np.ndarray:
+    """Drop runs of ≥ ``min_run`` exactly-zero returns and the return that ends each run.
+
+    An aggregator that stops updating (CoinMarketCap's YEC feed held one price for 359 hours in
+    2025) prints exact zeros: a GARCH likelihood then drives the variance to ~0 and "fits" a
+    model with no volatility, and every σ estimate is biased low. The return that closes the run
+    carries the whole stale period's move at one step, so it goes too. Short runs (a quiet hour)
+    are kept: they are market behaviour."""
+    r = np.asarray(r, dtype=np.float64)
+    if min_run <= 0 or len(r) < min_run:
+        return r
+    zero = r == 0.0
+    keep = np.ones(len(r), dtype=bool)
+    i = 0
+    n = len(r)
+    while i < n:
+        if zero[i]:
+            j = i
+            while j < n and zero[j]:
+                j += 1
+            if j - i >= min_run:
+                keep[i : min(j + 1, n)] = False
+            i = j
+        else:
+            i += 1
+    return r[keep]
 
 
 def _native_to_dt(n_steps: int, dt: float, dt_native: float) -> tuple[int, int, int]:
@@ -450,6 +482,20 @@ class Garch(PriceModel):
         """α + β."""
         return self.alpha + self.beta
 
+    def at_bounds(self) -> list[str]:
+        """Parameters sitting on the fit's bounds (α = 0.5, ν → 2, α + β → 1): the likelihood
+        wanted to leave the GARCH(1,1)-t family, so the fit is not a usable generator — its
+        unconditional variance is dominated by an explosive tail. YEC's hourly and daily data
+        both land here (docs/real-data-2026-10.md); use the block bootstrap instead."""
+        out = []
+        if self.alpha >= 0.499:
+            out.append("alpha")
+        if self.nu <= 2.1:
+            out.append("nu")
+        if self.persistence >= 0.999:
+            out.append("persistence")
+        return out
+
     @property
     def unconditional_var(self) -> float:
         """ω / (1 − α − β), per native step."""
@@ -542,8 +588,12 @@ class RegimeSwitch(PriceModel):
     def states(self, n_paths: int, n_steps: int, dt: float, rng: np.random.Generator) -> np.ndarray:
         """Regime per step, ``(n_paths, n_steps)`` int8."""
         d = as_dt(dt)
-        p01 = 1.0 - math.exp(-self.q01 * d)
-        p10 = 1.0 - math.exp(-self.q10 * d)
+        # exact CTMC transition probabilities over d (exp(Q d)), so the simulated chain keeps the
+        # stationary distribution ``self.stationary`` at any step size (see embed_two_state)
+        q = self.q01 + self.q10
+        jump = 1.0 - math.exp(-q * d) if q > 0 else 0.0
+        p01 = self.stationary[1] * jump
+        p10 = self.stationary[0] * jump
         s = np.empty((n_paths, n_steps), dtype=np.int8)
         s[:, 0] = rng.random(n_paths) < self.stationary[1]
         u = rng.random((n_paths, n_steps))
@@ -600,12 +650,28 @@ class RegimeSwitch(PriceModel):
         mu = m / dt + 0.5 * sig**2
         p01 = min(max(P[0, 1], 1e-12), 1 - 1e-12)
         p10 = min(max(P[1, 0], 1e-12), 1 - 1e-12)
+        q01, q10 = embed_two_state(p01, p10, dt)
         return cls(
             mu=(float(mu[0]), float(mu[1])),
             sigma=(float(sig[0]), float(sig[1])),
-            q01=-math.log(1 - p01) / dt,
-            q10=-math.log(1 - p10) / dt,
+            q01=q01,
+            q10=q10,
         )
+
+
+def embed_two_state(p01: float, p10: float, dt: float) -> tuple[float, float]:
+    """Rates ``(q01, q10)`` of the two-state CTMC whose transition matrix over ``dt`` is the fitted
+    discrete chain: ``exp(Q dt)`` has off-diagonals ``π_j (1 − e^{−q dt})`` with ``q = q01 + q10``,
+    so ``q = −ln(1 − p01 − p10)/dt`` and ``q01 = q·p01/(p01 + p10)``.
+
+    The earlier per-state map ``q = −ln(1 − p)/dt`` is exact only when switching is rare per step;
+    on YEC's hourly fit (p01 ≈ 0.17, p10 ≈ 0.41) it moved the stationary turbulent share from
+    0.30 to 0.26, and with an 8.4/yr turbulent σ that left a +1.4/yr log drift the zero-drift
+    shift could not see. A chain with ``p01 + p10 ≥ 1`` (anti-persistent) has no embedding; it is
+    clamped to ``1 − 1e-9``."""
+    tot = min(p01 + p10, 1.0 - 1e-9)
+    q = -math.log(1.0 - tot) / dt
+    return q * p01 / (p01 + p10), q * p10 / (p01 + p10)
 
 
 def _forward_backward(
@@ -703,7 +769,11 @@ class BlockBootstrap(PriceModel):
         if mean_block is None:
             week = (7 * 86400) / (dt * 365 * 86400)
             mean_block = max(1.0, min(week, len(r) / 4))
-        return cls(returns=r, mean_block=float(mean_block), dt_native=dt)
+        # Demeaned by default (zero log drift, a flat median path): a sample's mean return is noise
+        # at YEC's volatility — the 2025-10..2026-10 CoinGecko year carries +184 %/yr of log drift,
+        # which a 5-year bootstrap compounds into the PRICE_MAX clamp (D-RD-1). Set
+        # ``demean = False`` explicitly to replay the sample's own drift.
+        return cls(returns=r, mean_block=float(mean_block), dt_native=dt, demean=True)
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -730,9 +800,44 @@ def preset(name: str, **overrides: Any) -> PriceModel:
     return m
 
 
-def fit(name: str, pp: PricePath, path: int = 0) -> PriceModel:
-    """Fit model ``name`` to ``pp``."""
-    return MODELS[name].fit(pp, path)
+DRIFTS: tuple[str, ...] = ("zero", "fitted")
+
+
+def neutralise_drift(model: PriceModel) -> PriceModel:
+    """Shift ``model``'s drift so its expected log return is zero (a flat median path), keeping
+    every other parameter (the regime switch keeps the *difference* between its states' drifts).
+
+    Drift is not identifiable from a few years of YEC data (its standard error is σ/√T ≈ 230 %/yr
+    over one year), so a fitted drift is noise that would dominate a multi-year simulation (D-RD-1).
+    """
+    eld = model.expected_log_drift()
+    if isinstance(model, GBM | Merton):
+        model.mu -= eld
+    elif isinstance(model, Garch):
+        model.mu = 0.0
+    elif isinstance(model, RegimeSwitch):
+        model.mu = (model.mu[0] - eld, model.mu[1] - eld)
+    elif isinstance(model, BlockBootstrap):
+        model.demean = True
+    meta = getattr(model, "meta", None)
+    if isinstance(meta, dict):
+        meta["drift"] = "zero"
+        meta["fitted_log_drift"] = eld
+    return model
+
+
+def fit(name: str, pp: PricePath, path: int = 0, drift: str = "zero") -> PriceModel:
+    """Fit model ``name`` to ``pp``; ``drift="zero"`` (default) neutralises the fitted drift
+    (:func:`neutralise_drift`), ``"fitted"`` keeps the sample's."""
+    if drift not in DRIFTS:
+        raise ValueError(f"drift must be one of {DRIFTS}")
+    model = MODELS[name].fit(pp, path)
+    if drift == "zero":
+        neutralise_drift(model)
+    elif isinstance(model, BlockBootstrap):
+        model.demean = False
+        model.meta["drift"] = "fitted"  # type: ignore[attr-defined]
+    return model
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -1137,6 +1242,9 @@ def describe_model(m: PriceModel | SpreadModel | PoolModel | HashrateDrift) -> d
         d: dict[str, Any] = {"model": m.name, **m.params()}
         if isinstance(m, Garch):
             d["annual_vol"] = m.annual_vol
+            hit = m.at_bounds()
+            if hit:
+                d["at_bounds"] = hit
         elif isinstance(m, Merton):
             d["annual_vol"] = m.total_vol
         elif isinstance(m, RegimeSwitch):

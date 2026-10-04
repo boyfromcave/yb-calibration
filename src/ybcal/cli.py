@@ -50,6 +50,9 @@ ROUTES: dict[tuple[str, ...], Route] = {
     ("data", "import"): Route("ybcal.data.cli", "cli_import", "WP-2"),
     ("data", "synth"): Route("ybcal.data.cli", "cli_synth", "WP-2"),
     ("data", "describe"): Route("ybcal.data.cli", "cli_describe", "WP-2"),
+    ("data", "splice"): Route("ybcal.data.cli", "cli_splice", "WP-2"),
+    ("data", "spreads"): Route("ybcal.data.cli", "cli_spreads", "WP-2"),
+    ("data", "volume"): Route("ybcal.data.cli", "cli_volume", "WP-2"),
     ("study",): Route("ybcal.studies.cli", "cli_study", "WP-8"),
     ("sensitivity",): Route("ybcal.optimize.cli", "cli_sensitivity", "WP-6"),
     ("recommend",): Route("ybcal.report.cli", "cli_recommend", "WP-8"),
@@ -155,7 +158,14 @@ def build_parser() -> argparse.ArgumentParser:
     # data
     dg = group("data", "price / spread / pool-share / depth data and synthetic paths")
     p = subs[("data", "fetch")] = dg.add_parser("fetch", help="download price data (needs network)")
-    p.add_argument("--source", choices=("coingecko", "nonkyc", "tickers"), default="coingecko")
+    p.add_argument(
+        "--source",
+        choices=(
+            "coingecko", "nonkyc", "tickers", "coinmarketcap", "coincodex", "nonkyc-candles",
+            "safetrade-candles", "orderbooks", "inzyght",
+        ),
+        default="coingecko",
+    )
     p.add_argument("--days", type=int, default=365)
     p.add_argument("--out", required=True)
     p = subs[("data", "import")] = dg.add_parser("import", help="import a CSV/JSON file")
@@ -170,6 +180,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=None)
     p.add_argument("--out", default=None)
     p = subs[("data", "describe")] = dg.add_parser("describe", help="realised vol, drawdowns, gaps, tails")
+    p.add_argument("file")
+    p = subs[("data", "splice")] = dg.add_parser(
+        "splice", help="join two price CSVs at the primary's start; print the overlap check"
+    )
+    p.add_argument("primary")
+    p.add_argument("secondary")
+    p.add_argument("--out", default=None)
+    p = subs[("data", "spreads")] = dg.add_parser(
+        "spreads", help="reconstruct a spreads.py-shaped log from an aggregate series and venue candles"
+    )
+    p.add_argument("--aggregate", required=True, help="aggregate price CSV (the coingecko column)")
+    p.add_argument("--out", required=True)
+    p = subs[("data", "volume")] = dg.add_parser("volume", help="daily USD volume percentiles of a price CSV")
     p.add_argument("file")
 
     # single-level commands

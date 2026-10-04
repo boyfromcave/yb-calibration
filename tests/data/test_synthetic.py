@@ -270,3 +270,34 @@ def test_renewal_outages_fraction():
 def test_returns_to_path_clamps():
     pp = syn.returns_to_path(np.array([[50.0, -100.0]]), 400_000, DT_HOUR)
     assert pp.prices.tolist() == [[400_000, PRICE_MAX, PRICE_MIN]]
+
+
+def test_regime_fast_switching_keeps_stationary_share():
+    # hourly switching probabilities like YEC's fit (p01 ≈ 0.17, p10 ≈ 0.41): the simulated chain's
+    # turbulent share must equal the model's stationary share, so the zero-drift shift holds
+    q01, q10 = syn.embed_two_state(0.17, 0.41, DT_HOUR)
+    m = syn.RegimeSwitch(mu=(0.0, 0.0), sigma=(0.5, 8.0), q01=q01, q10=q10)
+    assert m.stationary[1] == pytest.approx(0.17 / 0.58)
+    st = m.states(50, 20_000, DT_HOUR, rng(21))
+    assert st.mean() == pytest.approx(m.stationary[1], abs=0.01)
+    syn.neutralise_drift(m)
+    assert m.expected_log_drift() == pytest.approx(0.0, abs=1e-9)
+    r = m.log_returns(200, 8761, "hour", rng(22))
+    assert r.sum(axis=1).mean() == pytest.approx(0.0, abs=0.5)  # one year of log returns
+
+
+def test_fit_neutralises_drift_by_default():
+    pp = syn.GBM(mu=3.0, sigma=1.0).simulate(1, 2 * HOURS_PER_YEAR, "hour", rng(23))
+    pp.meta["source_file"] = "x"
+    for name in ("gbm", "merton", "garch", "regime", "bootstrap"):
+        m = syn.fit(name, pp)
+        assert m.expected_log_drift() == pytest.approx(0.0, abs=1e-6), name
+    assert syn.fit("gbm", pp, drift="fitted").expected_log_drift() > 1.0
+    assert syn.fit("bootstrap", pp, drift="fitted").demean is False
+
+
+def test_stale_runs_dropped_from_fit():
+    r = np.array([0.01, -0.02] + [0.0] * 10 + [0.3, 0.01, 0.0, 0.0, -0.01])
+    out = syn.drop_stale_runs(r, 6)
+    # the 10 zeros and the 0.3 that closes the stale run go; the short 2-zero run stays
+    np.testing.assert_allclose(out, [0.01, -0.02, 0.01, 0.0, 0.0, -0.01])

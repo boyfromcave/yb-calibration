@@ -165,6 +165,9 @@ class HttpClient:
             except urllib.error.HTTPError as e:
                 retry_after = e.headers.get("Retry-After") if e.headers is not None else None
                 last_err = f"HTTP {e.code} {e.reason}"
+                detail = _error_detail(e)
+                if detail:
+                    last_err += f" ({detail})"
                 # 403 from the egress proxy and 407 mean "blocked here", not a venue error
                 if e.code == 407 or (e.code == 403 and "proxy" in str(e.reason).lower()):
                     raise NetworkBlockedError(url, last_err) from e
@@ -191,6 +194,39 @@ class HttpClient:
         if blocked or last_err:
             raise NetworkBlockedError(url, last_err or "unreachable")
         raise FetchError(f"{url}: failed")  # pragma: no cover
+
+
+def _error_detail(e: urllib.error.HTTPError, cap: int = 4096) -> str:
+    """The venue's own error message from an HTTP error body, if it has one (CoinGecko's
+    ``error_message``, e.g. the free plan's 365-day limit, would otherwise read as a bare 401)."""
+    try:
+        raw = e.read(cap) if e.fp is not None else b""
+    except (OSError, ValueError):
+        return ""
+    if not raw:
+        return ""
+    try:
+        obj = json.loads(raw.decode(errors="replace"))
+    except ValueError:
+        return ""
+
+    def find(o: Any) -> str:
+        if isinstance(o, dict):
+            for k in ("error_message", "message", "error"):
+                v = o.get(k)
+                if isinstance(v, str) and v:
+                    return v
+            for v in o.values():
+                m = find(v)
+                if m:
+                    return m
+        return ""
+
+    return find(obj)[:300].strip()
+
+
+#: CoinGecko's public/demo plan serves this many days of history.
+COINGECKO_FREE_DAYS = 365
 
 
 def _cg_headers(api_key: str | None) -> dict[str, str]:
@@ -221,6 +257,7 @@ class FetchResult:
     rows: list[dict[str, Any]] = field(default_factory=list)
     fetched_at: str = field(default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
     notes: list[str] = field(default_factory=list)
+    candles: Any = None  #: :class:`ybcal.data.venues.Candles` for candle sources
 
 
 def parse_market_chart(obj: Any) -> PriceSeries:
@@ -295,6 +332,28 @@ def fetch_coingecko_market_chart(
     client = client or HttpClient(max_body=HISTORY_MAX_BODY_BYTES)
     hdr = _cg_headers(api_key)
     base = f"{COINGECKO_BASE}/coins/{urllib.parse.quote(coin)}"
+    try:
+        return _cg_market_chart(base, hdr, days, vs, granularity, client, now, coin)
+    except FetchError as e:
+        if days > COINGECKO_FREE_DAYS and ("365 days" in str(e) or "HTTP 401" in str(e)):
+            raise FetchError(
+                f"{e}. The free CoinGecko plan serves only the past {COINGECKO_FREE_DAYS} days: pass "
+                f"--days {COINGECKO_FREE_DAYS}, a paid key, or use --source coinmarketcap (hourly/daily "
+                "from 2020-03) / --source coincodex (daily from the 2019 fork) for longer history"
+            ) from e
+        raise
+
+
+def _cg_market_chart(
+    base: str,
+    hdr: dict[str, str],
+    days: int,
+    vs: str,
+    granularity: str,
+    client: HttpClient,
+    now: int | None,
+    coin: str,
+) -> FetchResult:
     urls: list[str] = []
     notes: list[str] = []
     if granularity == "hourly" and days > 90:

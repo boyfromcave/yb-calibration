@@ -14,8 +14,9 @@ Formats (documented in ``data/README.md``):
 * **pool shares** (``--kind hashrate``) — ``height,payout_key`` (one row per block; the key is any
   stable pool identifier: payout address, coinbase tag, ``yed_listminers`` key).
 * **depth** — either a summary ``ts,depth_2pct_usd,volume_24h_usd[,bid_depth_2pct_usd]`` or an
-  order-book snapshot list ``ts,side,price_usd,size_yec`` (``side`` = ``bid``/``ask``), summarised
-  per snapshot to the USD depth within ±2 % of the mid.
+  order-book snapshot list ``ts,side,price_usd,size_yec[,venue]`` (``side`` = ``bid``/``ask``),
+  summarised per snapshot to the USD depth within ±2 % of the mid (of each venue's own book when a
+  ``venue`` column is present, summed over venues).
 
 Owner: WP-2.
 """
@@ -247,6 +248,11 @@ def load_price_csv(source: str | Path | TextIO) -> PriceSeries:
             f"{PRICE_VALUE_COLUMNS}; got {fields}"
         )
     vcol = next((c for c in ("volume_24h_usd", "volume_usd", "total_volume") if c in fields), None)
+    # candle CSVs (ybcal.data.venues) carry ``volume`` + ``volume_kind``; only a 24 h USD figure
+    # (CoinMarketCap's) is a USD volume — a venue candle's volume is base units per candle
+    kind_col = vcol is None and "volume" in fields and "volume_kind" in fields
+    if kind_col:
+        vcol = "volume"
     ts: list[int] = []
     vals: list[tuple[float, float]] = []
     read = skipped = 0
@@ -268,6 +274,8 @@ def load_price_csv(source: str | Path | TextIO) -> PriceSeries:
             try:
                 v = float(rec.get(vcol) or "nan")
             except ValueError:
+                v = math.nan
+            if kind_col and rec.get("volume_kind", "") != "usd_24h":
                 v = math.nan
         ts.append(t)
         vals.append((p, v))
@@ -615,7 +623,10 @@ def load_depth_csv(source: str | Path | TextIO) -> DepthSeries:
             )
         form = "summary"
     elif {"ts", "side", "price_usd", "size_yec"} <= set(fields):
-        books: dict[int, list[tuple[str, float, float]]] = {}
+        # With a ``venue`` column, each venue's book is summarised around its own mid and the
+        # depths are summed: pooling books across venues would take the mid from the best bid of
+        # one venue and the best ask of another (a crossed or skewed "mid" when venues disagree).
+        books: dict[int, dict[str, list[tuple[str, float, float]]]] = {}
         for r in recs:
             try:
                 t = parse_ts(r["ts"])
@@ -627,12 +638,16 @@ def load_depth_csv(source: str | Path | TextIO) -> DepthSeries:
             if side not in ("bid", "ask") or not (p > 0 and s >= 0):
                 skipped += 1
                 continue
-            books.setdefault(t, []).append((side, p, s))
+            books.setdefault(t, {}).setdefault(r.get("venue", ""), []).append((side, p, s))
         ts = sorted(books)
         vals = []
         for t in ts:
-            d, b = summarise_book(books[t])
-            vals.append((d, math.nan, b))
+            parts = [summarise_book(lv) for lv in books[t].values()]
+            parts = [pb for pb in parts if not math.isnan(pb[0])]
+            if parts:
+                vals.append((sum(d for d, _ in parts), math.nan, sum(b for _, b in parts)))
+            else:
+                vals.append((math.nan, math.nan, math.nan))
         form = "book"
     else:
         raise DataFormatError(

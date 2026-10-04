@@ -30,25 +30,65 @@ OWNER_WP = "WP-2"
 DRAWDOWN_HORIZONS_DAYS: tuple[int, ...] = (30, 90, 180, 365, 730, 1095, 1825)
 
 
-def _returns(pp: PricePath, path: int | None = None, observed_only: bool = True) -> np.ndarray:
-    """Finite log returns of one path (or all, flattened), dropping steps into forward-filled points."""
-    r = log_returns(pp)
+def _observed_mask(pp: PricePath) -> np.ndarray | None:
+    """The loader's per-point "observed" mask (``~meta['filled']``), or None for synthetic paths."""
     filled = pp.meta.get("filled")
-    if observed_only and isinstance(filled, np.ndarray) and filled.shape[-1] == pp.n_steps:
-        f = np.broadcast_to(filled.astype(bool), pp.prices.shape)[:, 1:]
-        if f.mean() < 0.5:  # mostly observed: just drop the filled steps
-            r = np.where(f, np.nan, r)
+    if isinstance(filled, np.ndarray) and filled.shape[-1] == pp.n_steps:
+        return ~np.broadcast_to(filled.astype(bool), pp.prices.shape)
+    return None
+
+
+def native_returns(pp: PricePath, path: int = 0) -> tuple[np.ndarray, int]:
+    """Log returns between consecutive **observed** points of one path at their modal spacing,
+    and that spacing in grid steps.
+
+    A real file resampled onto the hour grid carries ``meta['filled']``. Daily data on the hour
+    grid is 23/24 forward-filled: its hour-to-hour returns are mostly exact zeros, which leave the
+    variance sum intact but wreck kurtosis, the Hill index and every autocorrelation. Returns are
+    therefore taken observed point to observed point (as ``synthetic.fit_returns_of`` fits), so
+    daily data is described as daily returns. Without a mask (synthetic paths) every step counts."""
+    obs = _observed_mask(pp)
+    p = pp.prices[path].astype(np.float64)
+    ok = p > 0
+    if obs is not None:
+        ok &= obs[path]
+    idx = np.nonzero(ok)[0]
+    if len(idx) < 2:
+        return np.zeros(0), 1
+    lp = np.log(p[idx])
+    spacing = np.diff(idx)
+    vals, counts = np.unique(spacing, return_counts=True)
+    m = int(vals[np.argmax(counts)])
+    r = np.diff(lp)[spacing == m]
+    return r[np.isfinite(r)], m
+
+
+def _returns(pp: PricePath, path: int | None = None, observed_only: bool = True) -> np.ndarray:
+    """Finite log returns of one path (or all, flattened). For a real file (one path with a filled
+    mask) these are :func:`native_returns`; for synthetic ensembles, every step of every path."""
+    if observed_only and _observed_mask(pp) is not None and (path is not None or pp.n_paths == 1):
+        return native_returns(pp, path or 0)[0]
+    r = log_returns(pp)
     if path is not None:
         r = r[path]
     return r[np.isfinite(r)]
 
 
+def _native_steps(pp: PricePath) -> int:
+    """Grid steps per return in :func:`_returns` (1 except for coarser real data on a finer grid)."""
+    if _observed_mask(pp) is not None and pp.n_paths == 1:
+        return native_returns(pp, 0)[1]
+    return 1
+
+
 def realised_vol(pp: PricePath, path: int | None = None) -> float:
-    """Annualised sd of log returns (all paths pooled when ``path`` is None)."""
+    """Annualised sd of log returns (all paths pooled when ``path`` is None), annualised at the
+    returns' own spacing (daily data → daily returns × √365)."""
     r = _returns(pp, path)
     if len(r) < 2:
         return math.nan
-    return float(np.std(r, ddof=1) * math.sqrt(steps_per_year(pp.resolution)))
+    per_year = steps_per_year(pp.resolution) / _native_steps(pp)
+    return float(np.std(r, ddof=1) * math.sqrt(per_year))
 
 
 def rolling_vol(pp: PricePath, window_steps: int, path: int = 0) -> np.ndarray:
@@ -179,13 +219,58 @@ def gap_stats(pp: PricePath) -> dict[str, Any]:
     }
 
 
+def realised_vol_by_horizon(
+    pp: PricePath, horizons_hours: Sequence[int] = (1, 4, 24, 168), path: int = 0
+) -> dict[str, float]:
+    """Annualised vol from non-overlapping ``h``-hour log returns of one path (gaps forward-filled).
+
+    Equal values across horizons mean returns are serially uncorrelated; vol falling with the
+    horizon means negative autocorrelation at short lags (bid-ask bounce, aggregator noise, stale
+    venues), so the 1-hour figure overstates the volatility that matters over days."""
+    step_h = STEP_SECONDS[pp.resolution] / 3600.0
+    p = pp.prices[path].astype(np.float64)
+    p = np.where(p > 0, p, np.nan)
+    idx = np.where(np.isfinite(p), np.arange(len(p)), 0)
+    np.maximum.accumulate(idx, out=idx)
+    lp = np.log(p[idx])
+    native_h = _native_steps(pp) * step_h
+    out: dict[str, float] = {}
+    for h in horizons_hours:
+        if h < native_h - 1e-9:
+            continue
+        k = max(1, round(h / step_h))
+        r = np.diff(lp[::k])
+        r = r[np.isfinite(r)]
+        out[str(int(h))] = float(np.std(r, ddof=1) * math.sqrt(8760.0 / h)) if len(r) > 10 else math.nan
+    return out
+
+
+def flat_stats_of(pp: PricePath, path: int = 0) -> dict[str, float]:
+    """Stale/flat stretches among the observed points of one path: share of exactly-zero returns
+    and the length distribution of runs of an unchanged price (a thin market printing the same
+    trade for hours; medians and σ estimates react to it)."""
+    from ybcal.data.venues import flat_stats  # local: venues imports the loaders
+
+    obs = _observed_mask(pp)
+    p = pp.prices[path]
+    ok = p > 0
+    if obs is not None:
+        ok &= obs[path]
+    idx = np.nonzero(ok)[0]
+    step = STEP_SECONDS[pp.resolution] * (native_returns(pp, path)[1] if obs is not None else 1)
+    return flat_stats(p[idx].astype(np.float64), step)
+
+
 def describe(pp: PricePath, horizons_days: Sequence[int] = DRAWDOWN_HORIZONS_DAYS) -> dict[str, Any]:
     """Everything above, as one JSON-safe dict."""
     r = _returns(pp)
     step = STEP_SECONDS[pp.resolution]
     span_days = (pp.n_steps - 1) * step / 86400.0
     p = pp.prices[pp.prices > 0]
+    native = _native_steps(pp)
     lags = (1, 2, 3, 6, 12, 24) if pp.resolution == "hour" else (1, 2, 4, 12, 48, 576)
+    if native > 1:
+        lags = (1, 2, 3, 5, 10, 20)  # in native steps (e.g. days)
     return {
         "provenance": pp.provenance,
         "resolution": pp.resolution,
@@ -213,6 +298,10 @@ def describe(pp: PricePath, horizons_days: Sequence[int] = DRAWDOWN_HORIZONS_DAY
         "hill_upper": hill_tail_index(r, "upper"),
         "acf_returns": {str(k): v for k, v in autocorrelation(r, lags).items()},
         "acf_abs_returns": {str(k): v for k, v in autocorrelation(np.abs(r), lags).items()},
+        "native_step_hours": native * step / 3600.0,
+        "realised_vol_by_horizon_hours": realised_vol_by_horizon(pp) if pp.n_paths == 1 else {},
+        "n_returns": len(r),
+        "flat": flat_stats_of(pp),
         "gaps": gap_stats(pp),
         "meta": {k: v for k, v in pp.meta.items() if isinstance(v, str | int | float | bool)},
     }
@@ -250,6 +339,22 @@ def format_description(d: dict[str, Any]) -> str:
     lines.append(
         "|returns| acf    lag: " + "  ".join(f"{k}:{_f(v)}" for k, v in d["acf_abs_returns"].items())
     )
+    lines.append(
+        f"returns: {d.get('n_returns', '-')} at a native step of {d.get('native_step_hours', 1):g} h"
+        + (" (autocorrelation lags in native steps)" if d.get("native_step_hours", 1) > 1 else "")
+    )
+    vh = d.get("realised_vol_by_horizon_hours") or {}
+    if vh:
+        lines.append(
+            "realised vol by return horizon: " + "  ".join(f"{h} h {_f(v, True)}" for h, v in vh.items())
+        )
+    fl = d.get("flat")
+    if fl:
+        lines.append(
+            f"flat stretches: zero returns {_f(fl['zero_return_share'], True)}  runs {fl['runs']}  "
+            f"(>= 6 h: {fl['runs_ge_6h']})  run p50 {fl['run_p50_hours']:g} h  "
+            f"p90 {fl['run_p90_hours']:g} h  max {fl['run_max_hours']:g} h"
+        )
     g = d["gaps"]
     lines.append(
         f"gaps: zero steps {g['zero_steps']}  longest {g['longest_gap_hours']:.1f} h  "
