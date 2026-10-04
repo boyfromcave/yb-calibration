@@ -1169,7 +1169,11 @@ class G6Study(FamilyStudy):
         s_eq = float(pol.expected_enforcing_share) / max(1, int(pol.expected_pool_count))
         r_eq_tag = s_eq * dens / max(1e-9, float(np.sum(judge_stream(env, "calm-90d").shares)))
         # rounded to 0.01 % of the time: smaller differences are not a reason to move a wallet default
-        v["pen.honest_excluded"] = round(1.0 - (1.0 - r_eq_tag * fp_calm) ** npen, 4)
+        he = 1.0 - (1.0 - r_eq_tag * fp_calm) ** npen
+        # below a tenth of the policy budget the exclusion is noise, not a reason to move a wallet default
+        he_floor = judgement(pol, "max_honest_exclusion") / 10
+        v["pen.honest_excluded_raw"] = he
+        v["pen.honest_excluded"] = 0.0 if he < he_floor else round(he, 4)
         v["pen.honest_excluded_stress"] = round(1.0 - (1.0 - r_eq_tag * fp_worst) ** npen, 4)
         v["pen.liar_excluded"] = 1.0 - (1.0 - rate_min) ** npen
         c["liar_excluded"] = v["pen.liar_excluded"] >= judgement(pol, "min_liar_exclusion")

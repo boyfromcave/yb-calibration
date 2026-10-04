@@ -745,11 +745,13 @@ def _fams() -> tuple[Family, ...]:
                report=(*cap, "cap.harm_seats", "cap.grief_seats"), sens_metric="cap.grief_prob"),
         Family("interval", ("attestInterval", "attestMaxAge"), ("attestInterval",),
                "attestInterval k (attestMaxAge = 2k): verify — relay load 1/k ≤ attest_relay_budget_per_"
-               "block, honest calm MINT-10 refusals with attestations up to k blocks old ≤ "
-               "max_mint10_refusal_prob (D-RD-ATT-5) and liveness; else the nearest k that passes. A k "
+               "block, the honest calm MINT-10 refusals the attestations' age adds (k vs one-block-old "
+               "attestations) ≤ max_mint10_refusal_prob (D-RD-ATT-5) and liveness; else the nearest k "
+               "that passes. A k "
                "change moves the locked attestMaxAge (D-3).",
                kind="verify", constraints=("relay", "staleness", "unavail"),
-               report=("k.refusal_calm", "k.stale_p99_bps", "k.relay", *live), sens_metric="k.refusal_calm",
+               report=("k.refusal_calm", "k.refusal_from_age", "k.stale_p99_bps", "k.relay", *live),
+               sens_metric="k.refusal_calm",
                provenance_key="vol_provenance"),
         Family("arm_min", ("attestArmMin",), ("attestArmMin",),
                "attestArmMin: verify — an equal-weight founding set of that size gives no single "
@@ -930,9 +932,16 @@ class G8Study(FamilyStudy):
         # D-RD-ATT-5: staleness is judged where it bites — MINT-10 refusals of honest calm mints with
         # attestations up to k blocks old (the aggregated-feed model below); the closed form
         # 2.326·σ·√(maxAge) at YEC's hourly σ (440 %/yr, inflated by the hourly points' noise) is reported
-        v["k.refusal_calm"] = refusal_rate(mint10_gaps(env, cand, "calm-90d"), int(P["divergeBpsAttest"]))
+        # what the attestation *age* adds: refusals at k minus refusals with attestations one block old
+        # (pFast, a 2-hour median, lags the market; that lag dominates MINT-10 and is not k's doing)
+        div_c = int(P["divergeBpsAttest"])
+        v["k.refusal_calm"] = refusal_rate(mint10_gaps(env, cand, "calm-90d"), div_c)
+        v["k.refusal_calm_fresh"] = refusal_rate(
+            mint10_gaps(env, cand.replace({"attestInterval": 1}) if int(P["attestInterval"]) != 1 else cand,
+                        "calm-90d"), div_c)
+        v["k.refusal_from_age"] = v["k.refusal_calm"] - v["k.refusal_calm_fresh"]
         tol = float(getattr(pol, "max_mint10_refusal_prob", 0.01))
-        c["staleness"] = math.isfinite(v["k.refusal_calm"]) and v["k.refusal_calm"] <= tol
+        c["staleness"] = math.isfinite(v["k.refusal_from_age"]) and v["k.refusal_from_age"] <= tol
         meta["vol_provenance"] = "real-data" if vprov == "real-data" else "judgement"
 
         # arming
