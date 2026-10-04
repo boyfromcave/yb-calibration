@@ -118,6 +118,9 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-AUD-7](#d-rd-aud-7-2026-10-03-audit--a-blocked-sigmamultmaxbps-reports-the-bound-and-what-drives-the-need) | audit | a BLOCKED `sigmaMultMaxBps` reports the bound and what drives the need |
 | [D-RD-AUD-8](#d-rd-aud-8-2026-10-03-audit--peermin-must-hold-at-the-participation-floor) | audit | `peerMin` must hold at the participation floor |
 | [D-RD-AUD-9](#d-rd-aud-9-2026-10-03-audit--forced-moves-are-minimal-g1-reads-real-pool-shares) | audit | forced moves are minimal; G1 reads real pool shares |
+| [D-RD-AUD-10](#d-rd-aud-10-2026-10-03-audit--heterogeneity-is-not-a-constraint-neighbours-name-the-rules-own-constraints) | audit | heterogeneity is not a constraint; neighbours name the rule's own constraints |
+| [D-RD-AUD-11](#d-rd-aud-11-2026-10-03-audit--volstep--pfastwindow--2) | audit | `volStep ≥ pFastWindow / 2` |
+| [D-RD-AUD-12](#d-rd-aud-12-2026-10-03-audit--quick-budget-verdicts-are-not-lock-grade-seed-and-policy-robustness) | audit | quick-budget verdicts are not lock-grade: seed and policy robustness |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -1301,7 +1304,10 @@ the first year, minimise; ties toward current): a larger cap is a benefit only w
 demand, and materiality applies to that benefit. (2) `depth_bound` holds only when the cap-bound
 debt is zero or at least `cap_min_uncensored_share` (0.5, JUDGEMENT) of it opens its claim path in
 the book; otherwise it is *unverified* and counts as violated. (3) When no swept cap has any
-cap-bound debt, the family keeps the current value ("uninformative").
+cap-bound debt, the family keeps the current value ("uninformative"). (4) When the *current* cap's
+bound debt is itself mostly censored, the book can neither confirm nor refute it: KEEP
+("unverifiable") — added after the standard-budget seed check, where (2) alone ratcheted the cap
+down to 250 bps (a cap admitting nothing) on one seed and BLOCKED it on another.
 **Consequence.** Quick/synthetic standalone: KEEP 1,500 (B/C stay refused 91 % at 15 % and at 20 %;
 the early-cap design note, fact 1.5-2, carries the real issue). A real depth file and a longer book
 are what can justify a different cap.
@@ -1371,4 +1377,44 @@ longer pMid is robust across tagging shares 0.76–0.90 (it rides out single-poo
 cost is slower recovery after an all-feeds outage (26.5 h vs 16.5 h per 6-hour outage). With a
 concentrated real pool landscape G1 may turn BLOCKED on `max_no_price_hours`: that is a real
 availability risk (the largest pool's feed uptime), not a window choice.
+
+## D-RD-AUD-10 (2026-10-03, audit) — heterogeneity is not a constraint; neighbours name the rule's own constraints
+
+**Finding.** G3 put `het_{A,B,C}` (within-class term heterogeneity, a design-note trigger) into every
+candidate's constraints, and the report's "why not the neighbours" listed every violated constraint
+of the whole set: `emergencyRatioBps` −1 step "violates het_A, bad_debt_B, het_B, bad_debt_C,
+het_C" — none of which its rule reads.
+**Decision.** Heterogeneity stays a value (`het.*`, `viol.het_*`) and drives G3-DN6 only.
+`report.explain.neighbours_text` names only constraints that appear in the recommendation's own
+`constraints_current`; a neighbour failing only other rules' constraints is compared on the primary.
+
+## D-RD-AUD-11 (2026-10-03, audit) — `volStep ≥ pFastWindow / 2`
+
+**Finding.** At the standard budget (seeds 1, 2) G2 minimised the calm CV of σ̂ by taking the
+smallest step on the grid (volStep 12, volWindow 3,456) and then calibrated `sigmaRefBps` to 3,500–
+4,000. σ̂ samples pFast, a rolling median over `pFastWindow` (96) blocks; sampled every 12 blocks
+its increments overlap and are smoothed, so the K13 annualisation (iid increments) measures the
+median filter, not the price: σ̂ falls with the step and its CV falls for the wrong reason. The
+low reference then inflated every multiplier and BLOCKED the cap.
+**Decision.** New G2 constraint `sampling`: `volStep · 2 ≥ pFastWindow` (`g2_volatility.sampling_ok`).
+The shipped pair (48, 96) sits exactly on it.
+
+## D-RD-AUD-12 (2026-10-03, audit) — quick-budget verdicts are not lock-grade: seed and policy robustness
+
+**Evidence** (standalone studies at the shipped set, synthetic, `.work/seeds.py`, `.work/g3pol.py`):
+- *Stable across seeds 1–3 (quick) and 1–2 (standard):* B and C BLOCKED (700 % / 600 % least
+  violating); `emergencyRatioBps` KEEP; `peerMin` 8; `qLowBps` 3,500; `dormancyMinBundles` 12;
+  `walletConfirmations` 24; `bondMin` 30,000 YEC; `divergeBpsAttest` 1,100; `nPenalty` 144;
+  `accuracyBandBps` 100; the fee pair BLOCKED at the shipped ratios (low-adoption attestor revenue
+  $22–26/month vs the $50 floor with a 2 % fee-share cap).
+- *Unstable at quick:* `baseRatioBps[0]` 725 % (seed 20261003) vs BLOCKED at 800 % (seeds 1–3) —
+  standard gives 775 %/800 %; G1 windows (seed 2 chose 48/864/1,152); G7 cap/halt/divergence;
+  G2 window/step (fixed by D-RD-AUD-11).
+- *Policy sensitivity of class A* (quick, default seed): `ensemble_agg = mean` → 525 %;
+  `sigma_mult_at = p90` → 525 %; `term_distribution` short-heavy → 625 %, long-heavy → 800 %;
+  `price_drift = martingale` → BLOCKED. B and C are BLOCKED under every one of these.
+**Decision.** No code change: the quick budget is a smoke run. A value is lock-grade only from a
+standard (or deep) run whose verdict is the same on at least two seeds; class A's ratio is decided
+by the worst member (the regime-switch preset) and by three owner policy choices, which the owner
+must confirm before it is locked. Recorded for the integrator's real-data runs.
 

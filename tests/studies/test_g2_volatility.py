@@ -205,3 +205,13 @@ def test_determinism_per_seed():
     G1.clear_caches()
     b = st.evaluate(mainnet(), env_for(seed=3)).values
     assert a == b
+
+
+def test_sampling_constraint():
+    """D-RD-AUD-11: σ̂ may not sample the pFast median finer than half its window."""
+    from ybcal.params.paramset import mainnet as _m
+
+    b = _m()
+    assert G.sampling_ok(b)  # 48 ≥ 96/2
+    assert not G.sampling_ok(b.replace(volStep=24))
+    assert G.sampling_ok(b.replace(volStep=24, pFastWindow=48))

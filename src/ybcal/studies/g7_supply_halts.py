@@ -635,13 +635,21 @@ class G7Study(FamilyStudy):
         cap), or the cap-bound vaults' claims opening beyond the book — would otherwise always pick
         the top of the grid."""
         if fam.name == "cap":
-            cur = family_table(table, fam).current()
-            if cur is not None and bool(cur.metrics.constraints.get("depth_bound", True)):
-                rows = family_table(table, fam)
+            rows = family_table(table, fam)
+            cur = rows.current()
+            if cur is not None:
+                cv = cur.metrics.values
                 if all(not r.metrics.values.get("cap.bound_debt_usd", 1.0) for r in rows):
                     return cur, "KEEP", (
                         "depth bound uninformative at this set: no cap-bound debt at any swept cap (every "
                         "class minimum ≥ recapRatioBps bypasses the soft cap, W20); current kept"
+                    )
+                if cv.get("cap.bound_debt_usd", 0.0) > 0 and not cv.get("cap.informative", 1.0):
+                    unc = cv.get("cap.bound_uncensored_share", math.nan)
+                    return cur, "KEEP", (
+                        f"depth bound unverifiable at the current cap: only {unc:.0%} of the cap-bound "
+                        "debt opens its claim path inside the book, so the book can neither confirm nor "
+                        "refute it; current kept (no evidence to move either way)"
                     )
         return super().decide_family(table, fam, policy)
 

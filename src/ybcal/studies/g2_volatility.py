@@ -332,6 +332,10 @@ class G2Study:
         constraints = {
             "max_sigma_lag_blocks": bool(v["responsiveness_blocks"] <= lag),
             "k12_trap_le_max_sigma_lag": bool(v["k12_trap_after_feed_blocks"] <= lag),
+            # D-RD-AUD-11: pFast is a rolling median over pFastWindow blocks; sampled more finely than
+            # half that window its increments overlap and are smoothed, so the K13 annualisation (iid
+            # increments) no longer measures volatility and the calm CV falls for the wrong reason
+            "sampling": sampling_ok(cand),
         }
         meta = {
             "budget": env.budget.name,
@@ -372,8 +376,9 @@ def make_study() -> G2Study:
 RULE_WS = (
     "volWindow/volStep minimise the coefficient of variation of σ̂ (pFast-based) in a "
     "stationary calm regime, subject to: σ̂ reaching 90 % of a calm → turbulent shift within "
-    "max_sigma_lag_blocks ({lag:,} blocks, median path), and the K12 cap trap after a 6-hour feed "
-    "outage ending within the same bound. Keep the current pair unless the CV improves by more "
+    "max_sigma_lag_blocks ({lag:,} blocks, median path), the K12 cap trap after a 6-hour feed "
+    "outage ending within the same bound, and volStep ≥ pFastWindow / 2 (samples of the pFast median "
+    "no finer than half its window, D-RD-AUD-11). Keep the current pair unless the CV improves by more "
     "than materiality ({mat:.0%})."
 )
 RULE_REF = (
@@ -406,6 +411,11 @@ def _row_for(results: ResultTable, **kv) -> Any:
         if all(r.params[k] == v for k, v in kv.items()):
             return r
     return None
+
+
+def sampling_ok(params) -> bool:
+    """D-RD-AUD-11: volStep ≥ pFastWindow / 2 (σ̂ samples the pFast median no finer than half its window)."""
+    return int(params["volStep"]) * 2 >= int(params["pFastWindow"])
 
 
 def decide_g2(results: ResultTable, policy: Policy) -> list[Recommendation]:

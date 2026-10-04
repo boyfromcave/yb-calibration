@@ -198,3 +198,17 @@ def test_calm_halt3_hours_share_the_availability_budget(tiny_run):
         assert c["calm_availability"] == (v["div.calm_halt_hours_per_year"] <= pol.max_no_price_hours)
     assert "calm_availability" in _fam("divergence").constraints
     assert run.table.current().metrics.values["cap.informative"] in (0.0, 1.0)
+
+
+def test_unverifiable_current_cap_is_kept():
+    """D-RD-AUD-5: when the current cap's bound debt is mostly censored, the book cannot judge it:
+    KEEP rather than ratchet the cap down to one that admits nothing."""
+    base = mainnet()
+    st = G.make_study()
+    t = ResultTable(base)
+    cen = {"cap.bound_debt_usd": 9e3, "cap.bound_uncensored_share": 0.1, "cap.informative": 0.0}
+    _row(t, base, {"cap.bc_refused": 0.91, **cen}, {"depth_bound": False})
+    _row(t, base.replace(supplyCapBps=250), {"cap.bc_refused": 0.92, "cap.bound_debt_usd": 0.0,
+                                             "cap.informative": 0.0}, {"depth_bound": True})
+    row, verdict, reason = st.decide_family(t, _fam("cap"), Policy())
+    assert verdict == "KEEP" and row.params["supplyCapBps"] == 1500 and "unverifiable" in reason
