@@ -56,6 +56,7 @@ ROUTES: dict[tuple[str, ...], Route] = {
     ("study",): Route("ybcal.studies.cli", "cli_study", "WP-8"),
     ("sensitivity",): Route("ybcal.optimize.cli", "cli_sensitivity", "WP-6"),
     ("recommend",): Route("ybcal.report.cli", "cli_recommend", "WP-8"),
+    ("robust",): Route("ybcal.report.robust", "cli_robust", "infra"),
     ("verify",): Route("ybcal.model.cli", "cli_verify", "WP-1"),
     ("devnet", "build"): Route("ybcal.devnet.cli", "cli_build", "WP-9"),
     ("devnet", "run"): Route("ybcal.devnet.cli", "cli_run", "WP-9"),
@@ -118,6 +119,9 @@ def _common_run_args(p: argparse.ArgumentParser, *, budget: bool = True) -> None
     p.add_argument("--seed", type=int, default=None, help="RNG seed (default: policy.seed)")
     p.add_argument("--data", action="append", default=[], metavar="FILE",
                    help="data file (repeatable); synthetic data is used when none is given")
+    p.add_argument("--policy-set", dest="policy_set", action="append", default=[], metavar="KEY=VALUE",
+                   help="override one policy key (TOML value, repeatable), e.g. "
+                        "--policy-set price_drift='martingale'")
     p.add_argument("--window", default=None, metavar="WINDOW",
                    help="restrict price data: full, last365, 2021-22, 2025-26, lastN or "
                         "YYYY-MM-DD:YYYY-MM-DD (default full)")
@@ -213,6 +217,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", default=None, help="report directory (default reports/<date>-<hash>/)")
     p.add_argument("--synthetic", action="store_true", help="synthetic data only (CI)")
     p.add_argument("--manifest", default=None, help="reproduce the run recorded in this manifest.json")
+    p = subs[("robust",)] = top.add_parser(
+        "robust", help="recommend across seeds × data windows × price models; stability tables")
+    _common_run_args(p)
     subs[("verify",)] = top.add_parser("verify", help="kernel parity vs reference model + C++ examples")
 
     # devnet

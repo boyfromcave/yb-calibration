@@ -86,6 +86,10 @@ def config_from_args(
         workers = workers or rc["workers"]
         window = window or rc.get("window")
     policy = Policy.load(policy_path)
+    sets = list(getattr(args, "policy_set", None) or [])
+    if man and not sets:
+        sets = list(rc.get("policy_set") or [])
+    policy, _ = policy.with_overrides(sets)
     from ybcal.data.inputs import parse_window
 
     parse_window(window)  # fail early on a bad --window
@@ -108,6 +112,7 @@ def config_from_args(
         cache_dir=args.cache,
         mini=mini,
         window=window,
+        policy_set=sets,
     )
     if title:
         cfg.title = title
@@ -136,7 +141,7 @@ def cli_recommend(args: argparse.Namespace) -> int:
     """All studies, the joint pass, sensitivity and the report (PLAN §7)."""
     try:
         cfg = config_from_args(args, groups=_groups(args.groups))
-    except (FileNotFoundError, ValueError) as e:
+    except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"ybcal recommend: {e}", file=sys.stderr)
         return 2
     res = run_recommend(cfg)

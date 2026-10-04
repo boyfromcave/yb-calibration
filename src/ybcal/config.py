@@ -38,7 +38,7 @@ def _adoption_default() -> dict[str, dict[str, float]]:
     }
 
 
-def _owner_pinned_default() -> dict[str, str]:
+def _owner_pinned_default() -> dict[str, Any]:
     """Parameters whose value the owner fixed by decision (D-RD-INF-2), with the decision reference.
     Plan citations (workspace ``docs/plans/``): v3 §2 W20/W21, §6.2 D-R-6/D-R-11/D-R-12; proposal
     §16 D-3/D-4 (``docs/reference/yellowback-price-attestation.md``); v2 §0 revision 4 L3 and
@@ -57,10 +57,11 @@ def _owner_pinned_default() -> dict[str, str]:
         "attestFeeBps": "D-3",
         "attestArmMin": "D-4",
         "attestArmDelay": "D-4",
-        "activationThreshold": "L3 (mint halt keeps 75 %)",
-        "participationFloor": "L3 (mint halt keeps 60 %)",
-        "enforcementFloor": "L3",
-        "enforcementResume": "L3",
+        # L3 fixes shares of the signal window, so they are pinned as fractions of signalWindow
+        "activationThreshold": {"ref": "L3", "of": "signalWindow"},
+        "participationFloor": {"ref": "L3", "of": "signalWindow"},
+        "enforcementFloor": {"ref": "L3", "of": "signalWindow"},
+        "enforcementResume": {"ref": "L3", "of": "signalWindow"},
         "valveBlocks": "L7",
     }
 
@@ -79,6 +80,7 @@ class Policy:
     term_distribution: str = "uniform"
     sigma_mult_at: str = "median"
     price_drift: str = "centred"
+    real_price_model: str = "bootstrap"
     claimant_min_profit_bps: int = 200
     claimant_slippage_pctl: int = 90
     # oracle (G1, G2)
@@ -189,12 +191,17 @@ class Policy:
     max_rounds_joint: int = 3
     insensitive_total_order: float = 0.01
     # owner decisions (D-RD-INF-2): param → decision reference; studied, never changed
-    owner_pinned: dict[str, str] = field(default_factory=_owner_pinned_default)
+    owner_pinned: dict[str, Any] = field(default_factory=_owner_pinned_default)
 
     def __post_init__(self) -> None:
         from ybcal.params.registry import REGISTRY
 
         bad = [k for k in self.owner_pinned if k not in REGISTRY or not REGISTRY[k].tunable]
+        for k, v in self.owner_pinned.items():
+            if isinstance(v, dict):
+                of = v.get("of")
+                if "ref" not in v or (of is not None and (of not in REGISTRY or not REGISTRY[of].tunable)):
+                    bad.append(f"{k} ({v})")
         if bad:
             raise KeyError(f"owner_pinned: not tunable registry parameters: {', '.join(bad)}")
 
@@ -238,6 +245,25 @@ class Policy:
             raise FileNotFoundError(p)
         with p.open("rb") as fh:
             return cls.from_mapping(tomllib.load(fh))
+
+    def with_overrides(self, items: Sequence[str]) -> tuple[Policy, dict[str, Any]]:
+        """Apply ``KEY=VALUE`` overrides (VALUE parsed as TOML; a bare word is a string). Returns the
+        new policy and the parsed overrides. Unknown keys raise ``KeyError``."""
+        out: dict[str, Any] = {}
+        for it in items:
+            if "=" not in it:
+                raise ValueError(f"--policy-set {it!r}: expected KEY=VALUE")
+            k, v = (x.strip() for x in it.split("=", 1))
+            if k not in self.field_names():
+                raise KeyError(f"--policy-set: unknown policy key {k!r}")
+            try:
+                val = tomllib.loads(f"x = {v}")["x"]
+            except tomllib.TOMLDecodeError:
+                val = v
+            if k == "sigma_accept_band" and isinstance(val, list):
+                val = tuple(val)
+            out[k] = val
+        return (self.replace(**out) if out else self), out
 
     def replace(self, **kw: Any) -> Policy:
         """A copy with fields changed (for conservative / lenient presets)."""

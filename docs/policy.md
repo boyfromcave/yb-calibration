@@ -58,6 +58,7 @@ The fastest way to see how much a key matters is to rerun one group with a chang
 | `term_distribution` | `"uniform"` | enum: uniform, short-heavy, long-heavy | How lock terms are spread within each class when P(bad debt) is averaged over terms. | G3, G4, joint pass (top-risk model), agents | Use real wallet data if any exists. `long-heavy` is the conservative choice (long terms carry most drawdown). |
 | `sigma_mult_at` | `"median"` | enum: median, p90 | The σ multiplier assumed when sizing base ratios: the path's median or its 90th percentile. | G3, G4 | `median` matches what a typical mint pays. `p90` credits the multiplier more and so recommends lower base ratios; use it only if you trust the σ multiplier to be high when it matters. |
 | `price_drift` | `"centred"` | enum: centred, martingale, model | Drift convention of the long-horizon solvency price paths (the G3/G4 hour ensemble and the joint top-risk model; every other study is centred, D-WP2-5). `centred`: expected log drift 0 (the median price is flat). `martingale`: expected price flat, so the log price bleeds σ²/2 a year (−72 %/yr at 120 % vol). `model`: each preset's own drift, and a real bootstrap's sample drift (D-RD-AUD-1). | G3, G4, joint pass | `centred` takes no view on direction. `martingale` is a stress: at YEC-like volatility it makes multi-year classes look near-certain to fail whatever the ratio. Never use `model` with real data: one year's drift (+176 %/yr to 2026-10) would decide the ratios. |
+| `real_price_model` | "bootstrap" | name | How studies model real price data: `bootstrap` = demeaned stationary block bootstrap of the hourly series (default); `regime` / `garch` = that model fitted on the longest real series (`price_daily` when given) and centred. Synthetic runs ignore it. | G1, G2, G3, G4, G6, joint risk model (`g1_price_windows.real_model`) | The robustness harness (`ybcal robust --models`) varies it; a lock-grade value should not depend on it (D-RD-INF-5). |
 
 ## `[claims]` — claimant incentive (G3)
 
@@ -186,7 +187,7 @@ The fastest way to see how much a key matters is to rerun one group with a chang
 
 | Key | Default | Unit | Meaning | Read by | How to choose |
 |---|---|---|---|---|---|
-| `owner_pinned` | 17 parameters (below) | param → decision reference | Parameters whose value the owner fixed by decision. The study still runs and its evidence is kept, but the value is **kept**: verdict `KEEP (owner decision <ref>)`, never CHANGE, never in `params.cpp.patch`; the group's other parameters are decided with the pin held (the joint pass treats it as fixed). Where the evidence points elsewhere, the executive summary and the parameter section say "evidence points to X because …; risk of keeping: …". | optimizer runner (`optimize/pins.py`), report, lock-readiness | Remove a line to let the study move that value; add one (a tunable registry name) when the owner decides another. |
+| `owner_pinned` | 17 parameters (below) | param → decision reference | Parameters whose value the owner fixed by decision. The study still runs and its evidence is kept, but the value is **kept**: verdict `KEEP (owner decision <ref>)`, never CHANGE, never in `params.cpp.patch`; the group's other parameters are decided with the pin held (the joint pass treats it as fixed). Where the evidence points elsewhere, the executive summary and the parameter section say "evidence points to X because …; risk of keeping: …". | optimizer runner (`optimize/pins.py`), report, lock-readiness | Remove a line to let the study move that value; add one (a tunable registry name) when the owner decides another. A value may be `{ ref = "L3", of = "signalWindow" }`: the shipped *fraction* of the parent is kept, so the value follows the parent (the decision fixes a share, not a count). |
 
 The shipped pins, with their plan citations (workspace `docs/plans/`; "proposal" =
 `docs/reference/yellowback-price-attestation.md`):
@@ -199,8 +200,8 @@ The shipped pins, with their plan citations (workspace `docs/plans/`; "proposal"
 | supplyCapBps | 1,500 | W20 / D-R-11: stays 1,500, soft above `RECAP_RATIO_BPS` | v3 §2 W20, §3.1, §6.2 |
 | attestFeeBps | 2,500 | D-3: additive, 25 % of `feeZat` | proposal §16, v3 §3.1 |
 | attestArmMin, attestArmDelay | 5, 1,152 | D-4: automatic arming, 5 ELIGIBLE attestors then one day | proposal §16, v3 §1 item 5, §3.1 |
-| activationThreshold, participationFloor | 1,512, 1,210 of 2,016 | L3: "the mint halt keeps 60 % / 75 %" | v2 §0 revision 4 |
-| enforcementFloor, enforcementResume | 1,008, 1,210 | L3: suspend below 50 %, resume at 60 % | v2 §0 revision 4 |
+| activationThreshold, participationFloor | 75 %, 60 % of `signalWindow` (1,512, 1,210 of 2,016) | L3: "the mint halt keeps 60 % / 75 %" — pinned as fractions | v2 §0 revision 4 |
+| enforcementFloor, enforcementResume | 50 %, 60 % of `signalWindow` (1,008, 1,210 of 2,016) | L3: suspend below 50 %, resume at 60 % — pinned as fractions | v2 §0 revision 4 |
 | valveBlocks | 6 | L7: work valve at 6 blocks | v2 §0 revision 5 |
 
 Owner decisions on values that are not tunable registry fields are honoured by derivation, not

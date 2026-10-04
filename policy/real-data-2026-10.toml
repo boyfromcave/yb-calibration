@@ -21,6 +21,7 @@ require_real_data_for_lock = true  # lock-readiness needs real-data provenance f
 class_heterogeneity_max = 0.50     # max relative spread of P(bad debt) within one class before a split/merge is suggested (§5.3)
 term_distribution = "uniform"      # lock-term distribution within each class: "uniform" | "short-heavy" | "long-heavy" (§5.3)
 sigma_mult_at = "median"           # σ multiplier assumed when sizing base ratios: "median" | "p90" (§5.3)
+real_price_model = "bootstrap"      # model of real price data in the studies: "bootstrap" (demeaned block bootstrap of the hourly series) | "regime" | "garch" (fitted on the longest real series, centred) (D-RD-INF-5)
 
 [risk.max_bad_debt_prob]           # max P(collateral < debt when the claim path opens), per term class (§5.3, §12.1)
 A = 0.005
@@ -178,8 +179,9 @@ supplyCapBps = "W20 (D-R-11)"                                    # v3 §2 W20, �
 attestFeeBps = "D-3"                                             # proposal §16 D-3: additive, 25 % of feeZat (v3 §3.1 ATTEST_FEE_BPS 2,500)
 attestArmMin = "D-4"                                             # proposal §16 D-4: automatic arming, 5 ELIGIBLE attestors ...
 attestArmDelay = "D-4"                                           # ... then one day (ATTEST_ARM_DELAY 1,152)
-activationThreshold = "L3 (mint halt keeps 75 %)"                # v2 revision 4 L3: the mint halt keeps 60 % / 75 % (1,210 / 1,512 of 2,016)
-participationFloor = "L3 (mint halt keeps 60 %)"
-enforcementFloor = "L3"                                          # v2 revision 4 L3: ENFORCEMENT_FLOOR = 1,008 (50 %)
-enforcementResume = "L3"                                         # v2 revision 4 L3: ENFORCEMENT_RESUME = 1,210 (60 %)
+# L3 fixes SHARES of the signal window: pinned as fractions of signalWindow (signalWindow itself is not pinned)
+activationThreshold = { ref = "L3", of = "signalWindow" }        # v2 revision 4 L3: the mint halt keeps 75 % (1,512 of 2,016)
+participationFloor = { ref = "L3", of = "signalWindow" }         # ... and 60 % (1,210 of 2,016)
+enforcementFloor = { ref = "L3", of = "signalWindow" }           # v2 revision 4 L3: ENFORCEMENT_FLOOR = 50 % (1,008 of 2,016)
+enforcementResume = { ref = "L3", of = "signalWindow" }          # v2 revision 4 L3: ENFORCEMENT_RESUME = 60 % (1,210 of 2,016)
 valveBlocks = "L7"                                               # v2 revision 5 L7: VALVE_BLOCKS = 6

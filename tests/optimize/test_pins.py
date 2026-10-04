@@ -124,3 +124,80 @@ def test_joint_pass_treats_pins_as_fixed_and_report_renders_them(tmp_path):
     assert "Owner decisions the evidence argues against" in html
     check = [ln for ln in md.splitlines() if ln.startswith("| Owner-pinned parameters hold")]
     assert check and "| pass |" in check[0] and "evidence points elsewhere for feeBps" in check[0]
+
+
+THR = ("activationThreshold", "participationFloor", "enforcementFloor", "enforcementResume")
+
+
+class FracStudy:
+    """G5 toy: candidates scale signalWindow with the thresholds at the shipped fractions or not."""
+
+    group = "G5"
+
+    def __init__(self, best: str) -> None:
+        from ybcal.params.registry import params_for_group
+
+        self.params = params_for_group("G5")
+        self.best = best
+
+    def space(self, base, budget):
+        sw = base.as_int("signalWindow")
+        scaled = base.replace({"signalWindow": 2592, **{t: round(base.as_int(t) * 2592 / sw) for t in THR}})
+        raw = base.replace({"signalWindow": 2592, "activationThreshold": 2000})
+        return [base, scaled, raw]
+
+    def evaluate(self, cand, env):
+        from ybcal.studies.base import Metrics
+
+        loss = 1.0
+        if cand.as_int("signalWindow") == 2592:
+            loss = 0.5 if (cand.as_int("activationThreshold") == 2000) == (self.best == "raw") else 0.7
+        return Metrics({"loss": loss}, "loss", True, {"ok": True}, "real-data")
+
+    def decide(self, results, policy):
+        from ybcal.studies.base import Recommendation, decide_with_materiality
+
+        d = decide_with_materiality(results, 0.0)
+        return [Recommendation(p, results.base[p], d.row.params[p], d.verdict, "toy", "loss")
+                for p in self.params]
+
+    def explain(self, rec, results):
+        return "toy"
+
+
+@pytest.mark.parametrize("best", ["scaled", "raw"])
+def test_fraction_pins_follow_the_signal_window(best):
+    pins = {t: {"ref": "L3", "of": "signalWindow"} for t in THR}
+    run = run_group(FracStudy(best), BASE, env(pins), workers=1, neighbours=0)
+    recs = {r.param: r for r in run.recommendations}
+    assert recs["signalWindow"].recommended == 2592
+    assert [recs[t].recommended for t in THR] == [1944, 1556, 1296, 1556]
+    a = recs["activationThreshold"]
+    assert a.verdict == "CHANGE" and pin_info(a)["evidence_points_elsewhere"] == (best == "raw")
+    assert verdict_label(a, a.verdict) == "CHANGE (owner decision L3: 75% of signalWindow)"
+
+
+def test_policy_accepts_fraction_pins_and_rejects_bad_parents():
+    Policy(owner_pinned={"activationThreshold": {"ref": "L3", "of": "signalWindow"}})
+    with pytest.raises(KeyError):
+        Policy(owner_pinned={"activationThreshold": {"ref": "L3", "of": "nope"}})
+    assert Policy().owner_pinned["enforcementFloor"] == {"ref": "L3", "of": "signalWindow"}
+
+
+def test_environment_blocked_rows_are_not_blocked_after_the_joint_pass():
+    from ybcal.studies.envlimit import env_info
+
+    class EnvBlocked(StubStudy):
+        def decide(self, results, policy):
+            recs = super().decide(results, policy)
+            for r in recs:
+                if r.param == "feeBps":
+                    r.verdict = "BLOCKED"
+                    r.metrics["environment_blocked"] = {"constraints": ["c"], "note": "G6-ENV-X",
+                                                        "why": "w", "exposure": "e"}
+            return recs
+
+    e = Env(Policy(owner_pinned={}), TINY, seed=2, provenance="real-data")
+    j = joint_pass(BASE, e, groups=["G6"], loader=stub_loader({"G6": EnvBlocked("G6")}), workers=1)
+    r = j.recommendations["feeBps"]
+    assert r.verdict == "KEEP" and env_info(r)["note"] == "G6-ENV-X"

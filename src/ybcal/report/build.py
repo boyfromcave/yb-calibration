@@ -339,10 +339,10 @@ def lock_readiness(
 
 def _pin_check(joint: JointResult, policy: Policy, pinned: Sequence[str], lst: Callable) -> CheckItem:
     """Owner-pinned parameters hold their decided (shipped) values (D-RD-INF-2)."""
-    from ybcal.optimize.pins import pin_info
+    from ybcal.optimize.pins import parse_pin, pin_info
 
-    pins = dict(getattr(policy, "owner_pinned", {}) or {})
-    moved = [p for p in pins if joint.recommended[p] != joint.base[p]]
+    pins = {p: parse_pin(p, v) for p, v in (getattr(policy, "owner_pinned", {}) or {}).items()}
+    moved = [p for p, pin in pins.items() if not pin.holds(joint.recommended, joint.base)]
     against = []
     for p in pinned:
         info = pin_info(joint.recommendations[p]) or {}
@@ -1123,6 +1123,7 @@ class RecommendConfig:
     title: str = "Ycash Yellowback (YED) parameter recommendation"
     mini: bool = False  #: restrict the report to ``groups`` (``ybcal study``)
     window: str | None = None  #: price-data window (:func:`ybcal.data.inputs.parse_window`)
+    policy_set: list[str] = field(default_factory=list)  #: ``--policy-set KEY=VALUE`` overrides (applied)
 
 
 @dataclass
@@ -1151,6 +1152,7 @@ def default_out_dir(cfg: RecommendConfig, seed: int, data_hashes: Mapping[str, s
                 "d": dict(data_hashes),
                 "g": cfg.groups,
                 "w": cfg.window,
+                "set": cfg.policy_set,
             },
             sort_keys=True,
         ).encode()
@@ -1249,6 +1251,10 @@ def run_recommend(
         timings["sensitivity"] = time.perf_counter() - t
     dev = devnet_status(joint.recommended)
     ptext, ppath = policy_text(cfg.policy_path)
+    if cfg.policy_set:
+        ptext += "\n# overrides (--policy-set), applied on top of the file above:\n" + "\n".join(
+            f"# {s}" for s in cfg.policy_set
+        ) + "\n"
     man = RunManifest.create(
         budget=cfg.budget.name,
         seed=seed,
@@ -1260,6 +1266,7 @@ def run_recommend(
     man.extra["workers"] = cfg.workers
     man.extra["groups"] = cfg.groups
     man.extra["window"] = cfg.window
+    man.extra["policy_set"] = list(cfg.policy_set)
     man.extra["python"] = sys.version.split()[0]
     man.extra["pid_cpu_count"] = os.cpu_count()
     ctx = ReportContext(
@@ -1295,6 +1302,7 @@ def reproduce_config(manifest_path: str | Path) -> dict[str, Any]:
     m = RunManifest.load(manifest_path)
     probs = [p for p, ok in m.verify_data().items() if not ok]
     pol = Policy.load(m.policy_path) if m.policy_path and Path(m.policy_path).exists() else Policy()
+    pol, _ = pol.with_overrides(list(m.extra.get("policy_set") or []))
     if pol.digest() != m.policy_hash:
         probs.append(f"policy {m.policy_path or '(built-in)'} changed since the run")
     return {
@@ -1305,6 +1313,7 @@ def reproduce_config(manifest_path: str | Path) -> dict[str, Any]:
         "data_files": list(m.data_hashes),
         "groups": m.extra.get("groups"),
         "window": m.extra.get("window"),
+        "policy_set": m.extra.get("policy_set") or [],
         "workers": m.extra.get("workers"),
         "problems": probs,
     }

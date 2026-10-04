@@ -340,6 +340,13 @@ def _restate(
                 "Joint pass: metrics at the current value are from round 1 (other groups then "
                 "at their round-1 values)."
             )
+    from ybcal.studies.envlimit import env_info
+
+    if rec.verdict == "BLOCKED" and env_info(rec) is not None:
+        # D-RD-INF-3: a study that marks a BLOCKED row environment-limited has picked its least-harm
+        # value; the verdict is KEEP/CHANGE (re-labelled below), the report says why
+        rec.notes.append("Environment limit: BLOCKED re-stated as the least-harm value (D-RD-INF-3).")
+        rec.verdict = "KEEP"
     want = final[p]
     if rec.recommended != want:
         rec.notes.append(
@@ -568,7 +575,9 @@ def _hourly(env: Env) -> tuple[tuple, np.ndarray, str]:
             try:
                 hp = real if real.resolution == "hour" else None
                 if hp is not None:
-                    model = SY.BlockBootstrap.fit(hp)
+                    from ybcal.studies.g1_price_windows import real_model
+
+                    model = real_model(env, hp)
                     prov = "real-data"
             except Exception:
                 model = SY.preset("garch")

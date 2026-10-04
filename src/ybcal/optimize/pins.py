@@ -22,21 +22,61 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ybcal.params.paramset import ParamSet
+from ybcal.params.registry import REGISTRY
 from ybcal.studies.base import Recommendation, ResultRow, ResultTable, Study, relative_improvement
 
 if TYPE_CHECKING:
     from ybcal.config import Policy
 
-__all__ = ["apply_owner_pins", "pin_info", "pinned_for", "verdict_label"]
+__all__ = ["Pin", "apply_owner_pins", "parse_pin", "pin_info", "pinned_for", "verdict_label"]
 
 
-def pinned_for(policy: Policy | None, params: Sequence[str]) -> dict[str, str]:
-    """``param → decision reference`` for the pinned parameters among ``params``."""
+@dataclass(frozen=True)
+class Pin:
+    """One owner pin: the decision reference and, for a relative pin, the parent whose shipped
+    fraction is kept (``activationThreshold`` = 75 % of ``signalWindow``)."""
+
+    param: str
+    ref: str
+    of: str | None = None
+
+    @property
+    def fraction(self) -> float:
+        if self.of is None:
+            return 1.0
+        return float(REGISTRY[self.param].mainnet) / float(REGISTRY[self.of].mainnet)  # type: ignore[arg-type]
+
+    def target(self, ps: Mapping[str, Any], base: Mapping[str, Any]) -> Any:
+        """The pinned value given the set ``ps`` (its parent) — ``base[param]`` for an absolute pin."""
+        if self.of is None:
+            return base[self.param]
+        return round(self.fraction * int(ps[self.of]))
+
+    def holds(self, ps: Mapping[str, Any], base: Mapping[str, Any]) -> bool:
+        if self.of is None:
+            return ps[self.param] == base[self.param]
+        return abs(int(ps[self.param]) - self.fraction * int(ps[self.of])) <= 1.0
+
+    @property
+    def label(self) -> str:
+        return self.ref if self.of is None else f"{self.ref}: {self.fraction:.0%} of {self.of}"
+
+
+def parse_pin(param: str, v: Any) -> Pin:
+    """A policy ``owner_pinned`` entry: ``"W21"`` or ``{ref = "L3", of = "signalWindow"}``."""
+    if isinstance(v, Mapping):
+        return Pin(param, str(v.get("ref", "?")), str(v["of"]) if v.get("of") else None)
+    return Pin(param, str(v))
+
+
+def pinned_for(policy: Policy | None, params: Sequence[str]) -> dict[str, Pin]:
+    """``param → Pin`` for the pinned parameters among ``params``."""
     pins = getattr(policy, "owner_pinned", None) or {}
-    return {p: str(pins[p]) for p in params if p in pins}
+    return {p: parse_pin(p, pins[p]) for p in params if p in pins}
 
 
 def pin_info(rec: Recommendation) -> Mapping[str, Any] | None:
@@ -129,10 +169,11 @@ def apply_owner_pins(
     evidence = {p: copy.deepcopy(by[p]) for p in pins if p in by}
     ev_values = {k: base[k] for k in names}
     ev_values.update({r.param: r.recommended for r in recs if r.param in ev_values})
-    moved = [p for p, r in evidence.items() if r.recommended != base[p]]
+    ev_full = {**base.to_dict(), **ev_values}
+    moved = [p for p in evidence if not pins[p].holds(ev_full, base)]
     final = recs
     if moved:
-        sub = table.filter(lambda row: all(row.params[p] == base[p] for p in pins))
+        sub = table.filter(lambda row: all(pins[p].holds(row.params, base) for p in pins))
         try:
             if not len(sub) or sub.current(list(pins)) is None:
                 raise ValueError("no evaluated row holds every pinned value")
@@ -144,24 +185,31 @@ def apply_owner_pins(
             )
             final = recs
     risk_txt, failing, risk_m = _risk(table, base, ev_values, list(names))
+    fin = {**base.to_dict(), **{r.param: r.recommended for r in final}}
     out: list[Recommendation] = []
     for r in final:
         if r.param not in pins:
             if moved:
                 r.notes.append(
-                    f"Owner pins: decided with {', '.join(f'{p} = {base[p]}' for p in pins)} held "
+                    "Owner pins: decided with "
+                    + ", ".join(pins[p].label if pins[p].of else f"{p} = {base[p]}" for p in pins)
+                    + " held "
                     "(policy owner_pinned)."
                 )
             out.append(r)
             continue
         ev = evidence.get(r.param, r)
-        ref = pins[r.param]
-        elsewhere = ev.recommended != base[r.param]
+        pin = pins[r.param]
+        ref = pin.label
+        kept = pin.target(fin, base)
+        elsewhere = r.param in moved
         dec = ev.metrics.get("decision") if isinstance(ev.metrics, Mapping) else None
         because = "; ".join(str(x) for x in (ev.binding, dec) if x and x != "—") or ev.rule
         info: dict[str, Any] = {
             "ref": ref,
-            "kept": base[r.param],
+            "kept": kept,
+            "of": pin.of,
+            "fraction": pin.fraction if pin.of else None,
             "evidence_value": ev.recommended,
             "evidence_verdict": ev.verdict,
             "evidence_points_elsewhere": bool(elsewhere),
@@ -172,14 +220,15 @@ def apply_owner_pins(
             **{f"risk_{k}": v for k, v in risk_m.items()},
         }
         r.metrics = {**(r.metrics if isinstance(r.metrics, Mapping) else {}), "owner_pin": info}
-        r.recommended = base[r.param]
-        r.verdict = "KEEP"
-        r.rule = f"Owner decision {ref}: the value is kept; the study still ran. {r.rule}".strip()
+        r.recommended = kept
+        r.verdict = "KEEP" if kept == base[r.param] else "CHANGE"
+        what = "the value is kept" if pin.of is None else f"the fraction of {pin.of} is kept"
+        r.rule = f"Owner decision {ref}: {what}; the study still ran. {r.rule}".strip()
         if elsewhere:
             r.notes.insert(
                 0,
                 f"Owner pin {ref}: the evidence points to {ev.recommended} ({ev.verdict}) because "
-                f"{because}; risk of keeping {base[r.param]}: {info['risk']}.",
+                f"{because}; risk of keeping {kept}: {info['risk']}.",
             )
         elif ev.verdict == "BLOCKED":
             r.notes.insert(

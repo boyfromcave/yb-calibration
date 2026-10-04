@@ -137,6 +137,7 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-INF-2](#d-rd-inf-2-2026-10-04-infra--owner-pinned-parameters-are-studied-and-kept) | infra (wave 2) | owner-pinned parameters are studied and kept |
 | [D-RD-INF-3](#d-rd-inf-3-2026-10-04-infra--policy-unmeetable-in-this-environment-is-not-blocked) | infra (wave 2) | "policy unmeetable in this environment" is not BLOCKED |
 | [D-RD-INF-4](#d-rd-inf-4-2026-10-04-infra--g9-on-real-data-no-zero-amounts-thin-market-and-majority-pool-are-environment-limits) | infra (wave 2) | G9 on real data: no zero amounts; thin market and majority pool are environment limits |
+| [D-RD-INF-5](#d-rd-inf-5-2026-10-04-infra--the-robustness-harness-windows-price-models-policy-overrides) | infra (wave 2) | the robustness harness: windows, price models, policy overrides |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -1731,4 +1732,38 @@ minOutput $1 KEEP, maxOutput $100,000 KEEP, residualMinZat 100,000 KEEP, carrier
 walletConfirmations 6 → 24 CHANGE (environment-limited: the 52 % pool is unbounded), DEFAULT_REF_LAG
 2 KEEP. G9 is closed-form; price data enters only through the reference price (minMint's fee-floor
 bound), so seeds and price models cannot move it, windows can (robustness harness, D-RD-INF-5).
+
+**Amendment (2026-10-04, integrator note).** L3 fixes *shares* of the signal window, so
+`activationThreshold`, `participationFloor`, `enforcementFloor` and `enforcementResume` are pinned as
+fractions: `{ ref = "L3", of = "signalWindow" }` keeps 75 / 60 / 50 / 60 % of whatever `signalWindow`
+the study chooses (signalWindow itself is not pinned), e.g. 2,592 → 1,944 / 1,556 / 1,296 / 1,556. A
+fraction pin is re-decided on the rows holding the fraction (±1 block); its verdict is CHANGE when
+the parent moved, rendered `CHANGE (owner decision L3: 75% of signalWindow)`. The joint pass also
+reads `metrics["environment_blocked"]` on a BLOCKED row (a study's own environment limit, e.g. the
+valve) and re-states it as the least-harm KEEP/CHANGE (D-RD-INF-3).
+
+## D-RD-INF-5 (2026-10-04, infra) — the robustness harness: windows, price models, policy overrides
+
+**Decision.** `ybcal robust` runs `ybcal recommend` (a subprocess per combination, `nice` 10) over
+seeds × `--window` (full / last365 / 2021-22 / 2025-26 / lastN / A:B, D-RD-INF-1) × price models,
+each in `<out>/runs/<window>__<model>__s<seed>/`, and tabulates per tunable parameter: value and
+verdict of every run (`(pin)` / `(env)` marked), modal value and agreement, verdict agreement, the
+modal value per window / model / seed, and flags `unstable` (agreement < `--agree`, 0.8),
+`window-sensitive`, `model-sensitive`, `seed-noise`. Bounded CPU (`--jobs` × `--workers`, warned if
+above the core count); resumable (a run with `robust-run.json` exit 0 and the same command is
+skipped); `--cache` shares the on-disk evaluation cache (its keys include seed, policy and data);
+`--table-only` re-tabulates; `--dry-run` prints the commands. Price models: `bootstrap` (the
+demeaned block bootstrap, default), `regime` / `garch` — new policy key `real_price_model`: that
+model fitted on the longest real series (`price_daily` when given) and wrapped `Centred` (zero
+expected log drift), routed through one helper `g1_price_windows.real_model(env, pp)` at every site
+that bootstrapped real data (G1, G2, G3, G6 ×2, the joint risk model); `martingale` = `price_drift`.
+`data_fingerprint` includes the model so memoised ensembles do not leak across models. Policy
+overrides per run: `--policy-set KEY=VALUE` (TOML value; `--set` was taken by `sensitivity`) on
+`recommend`/`study`/`robust`, recorded in the manifest and appended to the report's policy text,
+re-applied by `--manifest`.
+**Reason.** The briefing's "battle tested" bar: stable across ≥ 3 seeds, the four windows and the
+three price models. Subprocesses keep runs isolated, killable and resumable; the long table makes
+the final report a join over runs, not a re-run.
+**Consequence.** A full `standard` sweep (3 × 4 × 3 = 36 runs) is hours of CPU; run it in a
+resumable script (`.work/runs/`), group subsets (`--groups`) for a study agent's own parameters.
 

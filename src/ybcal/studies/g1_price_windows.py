@@ -122,6 +122,32 @@ def long_price(env: Env) -> PricePath | None:
     return real_price(env)
 
 
+_MODELS: dict[tuple, Any] = {}
+
+
+def real_model(env: Env, pp: PricePath | None = None) -> Any:
+    """The price model of real data (policy ``real_price_model``, D-RD-INF-5): ``bootstrap`` = the
+    demeaned block bootstrap of ``pp`` (default :func:`real_price`); ``regime`` / ``garch`` = that model
+    fitted on :func:`long_price` (the daily series when given) and centred. Memoised per data and kind."""
+
+    kind = str(getattr(env.policy, "real_price_model", "bootstrap") or "bootstrap")
+    src = pp if pp is not None else real_price(env)
+    if src is None:
+        raise ValueError("real_model needs a real price path")
+    if kind == "bootstrap":
+        return SY.BlockBootstrap.fit(src)
+    if kind not in ("regime", "garch"):
+        raise ValueError(f"real_price_model must be bootstrap, regime or garch (got {kind!r})")
+    lp = long_price(env) or src
+    key = (kind, hashlib.sha1(np.ascontiguousarray(lp.prices).tobytes()).hexdigest()[:16])
+    hit = _MODELS.get(key)
+    if hit is None:
+        inner = SY.MODELS[kind].fit(lp)
+        hit = SY.Centred(inner, meta=dict(getattr(inner, "meta", {}) or {}, centred=True))
+        _MODELS[key] = hit
+    return hit
+
+
 def provenance_of(env: Env) -> str:
     """``real-data`` when a real price path drives the run, else ``synthetic``."""
     return "real-data" if real_price(env) is not None else "synthetic"
@@ -137,6 +163,9 @@ def data_fingerprint(env: Env) -> str:
     if isinstance(d, PricePath):  # D-RD-INF-1: a long series changes long-horizon results
         h.update(b"daily")
         h.update(np.ascontiguousarray(d.prices).tobytes())
+    kind = str(getattr(env.policy, "real_price_model", "bootstrap") or "bootstrap")
+    if kind != "bootstrap":  # D-RD-INF-5: the model of the data changes every memoised ensemble
+        h.update(kind.encode())
     return h.hexdigest()[:16]
 
 
@@ -347,7 +376,7 @@ def realise(
     rng = env.rng_for("G1G2", "true", name, P, h)
     real = real_price(env)
     if real is not None:
-        model = SY.BlockBootstrap.fit(real)
+        model = real_model(env, real)
         model.demean = True
         n = scen.n_steps("block", h)
         base = model.simulate(P, n, "block", env.rng_for("G1G2", "bootstrap", name, P, h), p0=scen.p0)

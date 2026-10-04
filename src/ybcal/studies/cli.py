@@ -30,7 +30,7 @@ def cli_study(args: argparse.Namespace) -> int:
         cfg = config_from_args(
             args, groups=groups, mini=args.group != "all", title=f"Yellowback study {args.group}"
         )
-    except (FileNotFoundError, ValueError) as e:
+    except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"ybcal study: {e}", file=sys.stderr)
         return 2
     if cfg.max_rounds is None:

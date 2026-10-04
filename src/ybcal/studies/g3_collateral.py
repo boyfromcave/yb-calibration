@@ -86,6 +86,7 @@ from ybcal.studies.g1_price_windows import (
     evidence_dir,
     out_dir_of,
     plot_style,
+    real_model,
     real_price,
 )
 from ybcal.units import BLOCKS_PER_DAY, BLOCKS_PER_HOUR, BPS, COIN
@@ -263,7 +264,7 @@ def ensemble(env: Env, params: Mapping) -> Ensemble:
             # filter (D-RD-INF-1)
             meta["filled"] = filled
         pp = make_path(rp.t0, "hour", real[None, :], "real", meta)  # type: ignore[union-attr]
-        model = SY.BlockBootstrap.fit(pp)
+        model = real_model(env, pp)
         true["bootstrap"] = _drifted_prices(
             model, P, n, env.rng_for("ybcal-hour-ensemble", "bootstrap"), drift, int(real[-1])
         )
