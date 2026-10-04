@@ -212,3 +212,25 @@ def test_unverifiable_current_cap_is_kept():
                                              "cap.informative": 0.0}, {"depth_bound": True})
     row, verdict, reason = st.decide_family(t, _fam("cap"), Policy())
     assert verdict == "KEEP" and row.params["supplyCapBps"] == 1500 and "unverifiable" in reason
+
+
+def test_real_sys_bad_prob_on_a_hand_built_history():
+    """D-RD-ORA-7: P(min within grace ≤ 1/halt of the start), daily starts, on the series itself."""
+    from datetime import UTC, datetime
+
+    import numpy as np
+
+    from ybcal.studies import g7_supply_halts as G7
+    from ybcal.types import PricePath
+    from ybcal.units import BLOCKS_PER_DAY
+
+    p = np.full(24 * 100, 1_000_000, dtype=np.int64)
+    p[24 * 60 : 24 * 61] = 300_000  # one day at −70 %
+    pp = PricePath(datetime(2024, 1, 1, tzinfo=UTC), "hour", p[None, :], "real")
+    grace = 30 * BLOCKS_PER_DAY
+    pr = G7.real_sys_bad_prob(pp, 25_000, grace)  # 1/2.5 = 40 % of the start: the dip qualifies
+    starts = len(range(0, 24 * 100 - 24 * 30, 24))
+    # starts on days 30..59 see the dip within 30 days (day 60 itself starts inside it)
+    assert pr == pytest.approx(30 / starts)
+    assert G7.real_sys_bad_prob(pp, 20_000, grace) == pytest.approx(30 / starts)  # ≤ 50 %: same days
+    assert G7.real_sys_bad_prob(pp, 40_000, grace) == 0.0  # 1/4 = 25 %: the dip (30 %) is not that deep
