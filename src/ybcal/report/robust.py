@@ -414,8 +414,8 @@ def tabulate(cfg: RobustConfig) -> dict[str, Any]:
                  "group": REGISTRY[p].group, "current": base[p], "recommended": v, "verdict": verdict,
                  "label": label}
             )
-        if not runs:
-            continue
+        if not runs or all(lab == "NOT RUN" for lab in labels):
+            continue  # a group outside --groups (or never run): nothing to tabulate
         cons = consolidate(p, base[p], per_run_feas)
         mv, agree = _mode(vals)
         none_feasible = cons["value"] is not None and cons["k"] == 0
