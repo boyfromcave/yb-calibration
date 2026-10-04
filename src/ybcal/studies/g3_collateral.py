@@ -22,9 +22,10 @@ call per new value. Scenario values are aggregated with ``optimize.robust.aggreg
 policy's ``ensemble_agg`` (default ``"worst"``, i.e. minimax over the presets).
 
 **Long-horizon members (wave 2, D-RD-COL-1).** When ``env.data`` also holds a daily price path
-(``price_daily`` / ``price_long``: the 2019-07 → daily history), three members fitted on it join the
-real-data ensemble — ``daily-bootstrap`` (30-day mean blocks, demeaned), ``daily-regime`` (centred)
-and ``daily-history`` (the real daily path, every start date) — fitted on the window from
+(``price_daily`` / ``price_long``: the 2019-07 → daily history), two members fitted on it join the
+real-data ensemble — ``daily-bootstrap`` (30-day mean blocks, demeaned) and ``daily-history`` (the
+real daily path, every start date; the regime switch fitted on daily data fails the volatility-by-
+horizon check and is a frontier stress only, D-RD-COL-3) — fitted on the window from
 ``long_window_start`` (2020-01-01: the fork-airdrop launch fall is excluded, D-RD-COL-2). The hourly
 file alone has 1.5 years of start dates for a 5-year term. Daily members are priced at the σ
 multiplier the *hourly* history implies (their bridged intraday noise is not market data), see
@@ -108,7 +109,9 @@ CLASS_NAMES = ("A", "B", "C")
 SYNTHETIC_PRESETS = ("gbm", "merton", "garch", "regime")
 REAL_MEMBERS = ("bootstrap", "history")
 #: Members fitted on the daily history when one is supplied (D-RD-COL-1).
-DAILY_MEMBERS = ("daily-bootstrap", "daily-regime", "daily-history")
+#: The daily regime switch is not one: it misses the data's 7-day..1-year volatility by +36..+110 %
+#: (no multi-day mean reversion) and stays a stress row of the frontier (D-RD-COL-3).
+DAILY_MEMBERS = ("daily-bootstrap", "daily-history")
 CRASH_SCENARIOS = ("crash-70-1d", "crash-90-30d")
 #: Hour-mode kernel sub-steps (WP-4 default, D-WP4-4: within 0.1 pp of 12 sub-steps).
 HOUR_SUBSTEPS = VB.DEFAULT_HOUR_SUBSTEPS
@@ -138,6 +141,13 @@ JUDGEMENT: dict[str, Any] = {
     "claim_coverages": (1.05, 1.15, 1.3, 1.6),  # claim study: coverage at claim open, × threshold
     "claim_stride_hours": 168,  # claim study: one claim-open hour per week of each path
     "claim_horizon_days": 365,  # claim study: first crossing must happen within a year
+    # claim study (D-RD-COL-6): who claims and how sure. At YEC's liquidity (bid depth ≈ $120 within
+    # 2 %, volume p10 ≈ $700/day) selling a $1,000 vault's collateral costs 20 %+ and a $10,000 one
+    # cannot be sold at all, so the claimant that exists is a YEC holder who keeps the collateral
+    # ("hold"; "sell" = the pre-wave-2 seller into the book), and the threshold must make ~90 % of
+    # triggered claims pay ("p10"; "mean_bps" = the pre-wave-2 rule)
+    "claimant_model": "hold",
+    "claim_margin_stat": "p10_bps",
     "emergency_coverages": (1.02, 1.1, 1.25, 1.5),  # emergency study: coverage at crash start, × threshold
     "emergency_open_hours": 48,  # emergency study: vaults are claimable from this hour (medians full)
     "emergency_stress_premium_bps": -2000,  # YED price, emergency study's depeg stress row (D-RD-AUD-4)
@@ -319,7 +329,7 @@ def ensemble(env: Env, params: Mapping) -> Ensemble:
                     true[name] = H.daily_to_hourly(dw.price)
                     continue
                 blk = int(pget(env.policy, "long_block_days"))
-                model = H.fit_member("regime" if name == "daily-regime" else f"bootstrap-{blk}d", dw)
+                model = H.fit_member(f"bootstrap-{blk}d", dw)
                 true[name] = _drifted_prices(
                     model, P, n, env.rng_for("ybcal-hour-ensemble", name), drift, int(real[-1])
                 )
@@ -1111,14 +1121,23 @@ RULES_FIXED = (
         "claim",
         ("claimThresholdBps",),
         ("claimThresholdBps",),
-        "claimThresholdBps = the smallest threshold (250-bps lattice) at which the expected claimant margin "
-        "at the first RED-4(a) trigger — collateral less FEE-1 and the network fee, sold at the true price "
-        "less the policy slippage, minus the YED burned — is ≥ claimant_min_profit_bps (worst ensemble "
-        "member); KEEP unless more than materiality lower; BLOCKED (highest margin) when no threshold "
-        "within bounds clears it.",
+        "claimThresholdBps = the smallest threshold (250-bps lattice) at which the claimant margin at the "
+        "first RED-4(a) trigger — collateral less FEE-1 and the network fee, valued at the true price "
+        "(claimant_model hold: a YEC holder keeps it; sell: sold into the bid-side depth less the policy "
+        "slippage), minus the YED burned — is ≥ claimant_min_profit_bps at claim_margin_stat (p10: nine "
+        "triggered claims in ten pay; worst ensemble member, D-RD-COL-6); KEEP unless more than "
+        "materiality lower; BLOCKED (highest margin) when no threshold within bounds clears it.",
         primary="claim.theta",
         constraints=("claim_incentive",),
-        report=("claim.mean_bps", "claim.p50_bps", "claim.show_up", "claim.bad", "claim.forfeit_bps"),
+        report=(
+            "claim.p10_bps",
+            "claim.mean_bps",
+            "claim.show_up",
+            "claim.bad",
+            "claim.forfeit_bps",
+            "claim_sell.mean_bps",
+            "claim_sell.show_up",
+        ),
         sens_metric="claim.mean_bps",
     ),
     Rule(
@@ -1268,7 +1287,15 @@ class G3Study:
         values["het.max"] = float(np.nanmax(hets)) if np.isfinite(hets).any() else math.nan
         # claimant incentive
         depth = depth_p10_usd(env, float(pol.claimant_slippage_pctl))
-        cs = claim_stats(ens, cand, pol, depth)[int(cand["claimThresholdBps"])]
+        model = str(pget(pol, "claimant_model"))
+        th = int(cand["claimThresholdBps"])
+        cs = claim_stats(ens, cand, pol, depth, sell=model == "sell")[th]
+        # the other claimant, as evidence: a seller of the test vault into the bid side of the book
+        cs_sell = cs if model == "sell" else claim_stats(ens, cand, pol, depth, sell=True)[th]
+        for s in ("mean_bps", "p10_bps", "show_up"):
+            values[f"claim_sell.{s}"] = agg(
+                [cs_sell[f"{m}.{s}"] for m in hourly_members(ens)], how, minimize=False
+            )
         values["claim.theta"] = float(cand["claimThresholdBps"])
         for s in ("mean_bps", "p10_bps", "p50_bps", "show_up"):
             values[f"claim.{s}"] = agg([cs[f"{m}.{s}"] for m in hourly_members(ens)], how, minimize=False)
@@ -1278,7 +1305,7 @@ class G3Study:
         for m in hourly_members(ens):
             values[f"claim.mean_bps.{m}"] = cs[f"{m}.mean_bps"]
         need = float(pol.claimant_min_profit_bps)
-        cm = values["claim.mean_bps"]
+        cm = values[f"claim.{pget(pol, 'claim_margin_stat')}"]
         cons["claim_incentive"] = bool(np.isfinite(cm) and cm >= need)
         values["viol.claim_incentive"] = (
             0.0

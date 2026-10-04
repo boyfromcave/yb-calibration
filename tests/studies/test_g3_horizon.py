@@ -137,7 +137,7 @@ def test_g3_ensemble_adds_daily_members():
     ens = G3.ensemble(env, mainnet())
     assert ens.names == ("bootstrap", "history", *G3.DAILY_MEMBERS)
     assert G3.hourly_members(ens) == ("bootstrap", "history")
-    s = G3.member_sigma(ens, "daily-regime", "median", G3.warmup_hours(mainnet()))
+    s = G3.member_sigma(ens, "daily-bootstrap", "median", G3.warmup_hours(mainnet()))
     assert isinstance(s, int) and s >= 10_000
     assert G3.member_sigma(ens, "bootstrap", "median", 0) == "median"
     # without a daily path the ensemble is the pre-wave-2 one

@@ -627,6 +627,7 @@ def run_studies(
     out: Path,
     groups: Sequence[str] = ("G3", "G4"),
     overrides: Mapping[str, Any] | None = None,
+    base_overlay: str | None = None,
 ) -> dict[str, list[Any]]:
     """G3 (and G4) on the real hourly file plus the daily history as ``price_daily`` — the study API
     path until ``recommend`` takes two price files (infra). Writes ``<out>/<group>.json`` with every
@@ -650,9 +651,14 @@ def run_studies(
     env = Env(pol, Budget.named(budget), int(seed), data=data, provenance=prov,  # type: ignore[arg-type]
               out_dir=str(out / "evidence"))
     studies = {"G3": G3Study(), "G4": G4Study()}
+    base = mainnet()
+    if base_overlay:
+        from ybcal.devnet.overlay import load_overlay
+
+        base = load_overlay(base_overlay, base)
     res: dict[str, list[Any]] = {}
     for g in groups:
-        run = run_group(studies[g], mainnet(), env, workers=workers, explain=False)
+        run = run_group(studies[g], base, env, workers=workers, explain=False)
         rows = []
         for r in run.recommendations:
             rows.append({"param": r.param, "current": r.current, "recommended": r.recommended,
@@ -733,6 +739,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         sp.add_argument("--workers", type=int, default=2)
         sp.add_argument("--groups", default="G3,G4")
         sp.add_argument("--set", action="append", default=[], help="policy override KEY=JSON")
+        sp.add_argument("--overlay", help="base parameter set (JSON / recommended.json) instead of shipped")
         sp.add_argument("--out", required=True)
         b = sp.parse_args(argv[1:])
         o = Path(b.out)
@@ -740,7 +747,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         ov = {k: json.loads(v) for k, v in (x.split("=", 1) for x in b.set)}
         res = run_studies(hourly=b.hourly, daily=b.daily, extra=b.data, policy_path=b.policy,
                           budget=b.budget, seed=b.seed, workers=b.workers, out=o,
-                          groups=[g for g in b.groups.split(",") if g], overrides=ov)
+                          groups=[g for g in b.groups.split(",") if g], overrides=ov,
+                          base_overlay=b.overlay)
         for g, rows in res.items():
             for r in rows:
                 print(f"{g} {r['param']:22s} {r['verdict']:12s} {r['current']} -> {r['recommended']}")
