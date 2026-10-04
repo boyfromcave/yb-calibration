@@ -1347,7 +1347,7 @@ participation is weakest.
 analytic P(not evaluated) at the density scaled to the participation floor
 (`floor_density = density · min(1, floor/expected_enforcing_share)`) must also be ≤
 `max_not_evaluated_prob`; `adjust_changes` re-checks peerMin at that density when peerLag moves.
-**Consequence.** quick/synthetic: peerMin 5 → 7 (PROVISIONAL) instead of 12. A real pool-share log
+**Consequence.** quick/synthetic: peerMin 5 → 8 (PROVISIONAL; P(not evaluated) at the floor 4.0 %) instead of 12. A real pool-share log
 sets the density; few pools with one dominant change the picture further (a dominant pool's own tags
 fill its peer window — modelling limitation, see the audit report).
 
