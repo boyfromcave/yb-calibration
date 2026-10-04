@@ -1,0 +1,12 @@
+# The worst 90 days of real YEC history, replayed in order (D-RD-ORA-4).
+name = "replay-worst-90d"
+description = "the worst real 90-day drawdown of YEC, replayed hour by hour (real data required)"
+stresses = "slow real bust: pClaim lag, HALT-3 on step falls, sigma multiplier over months"
+tags = ["price", "real-history"]
+horizon_days = 96
+resolution = "block"
+p0_usd = 0.40
+
+[base]
+model = "replay"
+params = { select = "worst_drawdown", window_days = 90, rank = 1 }

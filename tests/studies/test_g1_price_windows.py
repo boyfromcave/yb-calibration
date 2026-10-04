@@ -340,3 +340,17 @@ def test_environment_adjust_picks_least_harm(tmp_path):
     assert _rec(G.make_study().decide(t2, Policy()), "pMidWindow").recommended == 576
 
 
+
+
+def test_rogue_majority_pool_captures_every_median():
+    """D-RD-ORA-4: a pool with most of the quotes moves every median by its bias (the windows only
+    delay it) and, withholding, leaves the medians undefined."""
+    log = _log("AAAAAAABBC", 2000)  # A 70 % of blocks
+    env = Env(Policy(tagging_pools=("A", "B")), TINY, seed=7, data={"pool_shares": log})
+    G.clear_caches()
+    m = G.rogue_metrics(env, mainnet())
+    assert m["rogue_attack_days"] == pytest.approx(20.0, abs=0.01)
+    assert m["rogue_up_mint_share"] > 0.8 and m["rogue_down_claim_share"] > 0.8
+    assert m["rogue_up_capture_h_fast"] < m["rogue_up_capture_h_mid"] < m["rogue_up_capture_h_slow"] < 48
+    assert m["rogue_withhold_noprice_share"] > 0.95 and m["rogue_withhold_onset_h"] < 2
+    assert G.rogue_metrics(env_for(), mainnet()) == {}

@@ -621,10 +621,24 @@ class G7Study(FamilyStudy):
         meta["global_ratio_true"] = r0
         # ---- HALT-3 ---------------------------------------------------------------------------------
         v.update(divergence_metrics(env, cand))
+        # the real history replayed (D-RD-ORA-3): HALT-3 on YEC's own price, per era
+        from ybcal.studies import oracle_replay as R
+
+        ev = R.halt_evidence(env, cand)
+        v.update({f"div.{k}": x for k, x in ev.items()})
+        false_eras = [x for k, x in ev.items() if k.startswith("replay_halt3_false_h_per_year_")]
+        v["div.real_false_h_max"] = max(false_eras) if false_eras else math.nan
         c["recall"] = v["div.recall"] >= float(pol.halt_recall_floor)
         # HALT-3 in a calm market stops minting like NO_PRICE does: it shares the availability budget
         # (D-RD-AUD-6). Synthetic calm is GBM 60 %; with real data the calm base is a bootstrap.
-        c["calm_availability"] = v["div.calm_halt_hours_per_year"] <= float(pol.max_no_price_hours)
+        # With a real price the budget is read on the real history (D-RD-ORA-6): HALT-3 hours outside
+        # every real ≥ 20 % weekly fall, in the worst era. The bootstrap calm-90d is not calm — it
+        # resamples the real crash days too — so it counted correct halts as false ones.
+        avail = v["div.real_false_h_max"]
+        if not math.isfinite(avail):
+            avail = v["div.calm_halt_hours_per_year"]
+        v["div.availability_h_per_year"] = float(avail)
+        c["calm_availability"] = avail <= float(pol.max_no_price_hours)
         prov = "real-data" if price_prov == "real-data" else "synthetic"
         return Metrics(v, "zero", True, c, prov, meta)
 

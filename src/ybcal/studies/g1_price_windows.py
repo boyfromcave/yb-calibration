@@ -411,12 +411,18 @@ def realise(
     horizon: float | None = None,
     attack: tuple[float, float] | None = None,
     label: str = "",
+    rogue: tuple[float, str] | None = None,
 ) -> ScenarioRealisation:
     """Realise scenario ``name`` at block resolution through the oracle (memoised per process).
 
     ``attack = (share, bias_bps)`` adds a coalition (carved out of the honest pools) active over the
     scenario's ``attacker_share`` window; ``(share, 0)`` is the clean counterpart with the same pools
     and draws (common random numbers, as ``oracle.attack_effect``).
+
+    ``rogue = (bias_bps, mode)`` turns the *largest real tagging pool* rogue over the same window
+    (mode ``bias`` or ``withhold``: it keeps mining but stops quoting), on the real miner sequence;
+    the realisation without ``rogue`` is its clean counterpart (same miners and draws). Needs a
+    pool-share log (D-RD-ORA-4).
     """
     scen = scenario(env, name)
     P = int(n_paths or paths_for(env.budget))
@@ -437,6 +443,7 @@ def realise(
         land.fingerprint() if land is not None else None,
         attack,
         label,
+        rogue,
     )
     hit = _REAL.get(key)
     if hit is not None:
@@ -468,6 +475,14 @@ def realise(
         if bias == 0:
             cfg = cfg.with_attacks(())
     orng = env.rng_for("G1G2", "oracle", name, P, h)
+    if rogue is not None:
+        ti = land.top_tagging if land is not None else None
+        if ti is None:
+            raise ValueError("rogue needs a pool-share log with a tagging pool")
+        b, mode = rogue
+        st, en = marks.get("attack", WARMUP_BLOCKS), marks.get("attack_end", n)
+        att = O.Attack(pools=(ti,), bias_bps=float(b), start=st, end=en, mode=mode)  # type: ignore[arg-type]
+        cfg = cfg.with_attacks((att,))
     miner = real_miners(env, land, P, n, name, h) if attack is None else None
     inp = O.generate_block_inputs(true, cfg, rng=orng, miner=miner)
     valid = inp.tag_present & (inp.tag_price > 0)
@@ -650,7 +665,8 @@ def landscape_metrics(land: PoolLandscape | None, cand) -> dict[str, float]:
       every window means it sets every median alone, whatever the windows (``attack_env_blocked``);
     * ``no_price_seq_h_per_year`` — NO_PRICE from the real sequence with the policy's tagging set,
       no feed outages; ``no_price_all_tag_h_per_year`` the same if every named key tagged;
-      ``no_price_top_withholds_h_per_year`` if the largest tagging key mines but stops tagging.
+      ``no_price_top_withholds_h_per_year`` if the largest tagging key mines but stops tagging;
+      ``no_price_top{2,3,4}_h_per_year`` if exactly the 2, 3, 4 largest keys tag (adoption ladder).
     Empty without a pool-share log."""
     if land is None:
         return {}
@@ -677,9 +693,84 @@ def landscape_metrics(land: PoolLandscape | None, cand) -> dict[str, float]:
     out["no_price_all_tag_h_per_year"] = no_price_from_mask(
         land.tag_mask(tuple(True for _ in land.keys)), win, fil
     )[0]
+    for k in (2, 3, 4):  # adoption ladder: the k largest keys tag
+        if k <= len(land.keys):
+            flags = tuple(i < k for i in range(len(land.keys)))
+            out[f"no_price_top{k}_h_per_year"] = no_price_from_mask(land.tag_mask(flags), win, fil)[0]
     if ti is not None:
         wh = tuple(t and i != ti for i, t in enumerate(land.tagging))
         out["no_price_top_withholds_h_per_year"] = no_price_from_mask(land.tag_mask(wh), win, fil)[0]
+    return out
+
+
+#: The rogue-pool scenario (the largest real pool turns rogue; D-RD-ORA-4) and its quote biases.
+ROGUE_SCENARIO = "rogue-pool-52-up"
+ROGUE_BIASES_BPS = (1000, -1000, -3000)
+
+
+def _capture_hours(att: np.ndarray, cln: np.ndarray, st: int, en: int, sign: int, thr: float) -> float:
+    """Median over paths of hours from ``st`` until ``att`` sits ``thr`` beyond ``cln`` (sign +1 up,
+    −1 down) for the first time; never within ``[st, en)`` → the window length."""
+    a, c = att[:, st:en].astype(float), cln[:, st:en].astype(float)
+    ok = (a > 0) & (c > 0)
+    hit = ok & ((a - c) / np.where(ok, c, 1.0) * sign >= thr)
+    first = np.where(hit.any(axis=1), hit.argmax(axis=1), en - st).astype(float)
+    return float(np.median(first)) / _H
+
+
+def rogue_metrics(env: Env, cand) -> dict[str, float]:
+    """What the largest real pool can do by turning rogue (D-RD-ORA-4), on the real miner sequence
+    and its clean counterpart (common random numbers). Per quote bias b (+10 %, −10 %, −30 %):
+
+    * ``rogue_{up,down,grief}_capture_h_{fast,mid,slow}`` — hours until each median sits b/2 off
+      the clean one (how long the windows delay a majority pool);
+    * ``rogue_up_mint_share`` / ``rogue_down_claim_share`` — share of attack blocks with pMint ≥ 5 %
+      above / pClaim ≥ 5 % below the clean run (before the attestation layer arms, the harm itself;
+      once ARMED, PRICE-2 bounds it: pMint = min(x, a), pClaim = max(x, a));
+    * ``rogue_grief_halt3_share`` / ``rogue_up_halt3_share`` — share of attack blocks with HALT-3;
+    * ``rogue_withhold_noprice_share``, ``rogue_withhold_onset_h``, ``rogue_withhold_recovery_h`` —
+      the pool mines but stops quoting: NO_PRICE share of the outage, hours to NO_PRICE, hours after
+      it resumes until a price is defined again.
+    Empty without a pool-share log."""
+    land = pool_landscape(env)
+    if land is None or land.top_tagging is None:
+        return {}
+    name = ROGUE_SCENARIO
+    clean = realise(env, name)
+    pc = prices(clean, cand)
+    st, en = clean.marks.get("attack", WARMUP_BLOCKS), clean.marks.get("attack_end", clean.n)
+    out: dict[str, float] = {}
+    for b, tag in zip(ROGUE_BIASES_BPS, ("up", "down", "grief"), strict=True):
+        r = realise(env, name, rogue=(float(b), "bias"))
+        pr = prices(r, cand)
+        sign = 1 if b > 0 else -1
+        thr = abs(b) / 2 / BPS
+        trio = (("fast", pr.p_fast, pc.p_fast), ("mid", pr.p_mid, pc.p_mid), ("slow", pr.p_slow, pc.p_slow))
+        for w, a, c in trio:
+            out[f"rogue_{tag}_capture_h_{w}"] = _capture_hours(a, c, st, en, sign, thr)
+        sl = slice(st, en)
+        xa, xc = pr.x_mint[:, sl].astype(float), pc.x_mint[:, sl].astype(float)
+        ok = (xa > 0) & (xc > 0)
+        if tag == "up":
+            up = (xa - xc) / np.where(ok, xc, 1) >= 0.05
+            out["rogue_up_mint_share"] = float(up[ok].mean()) if ok.any() else 0.0
+        ca, cc = pr.x_claim[:, sl].astype(float), pc.x_claim[:, sl].astype(float)
+        okc = (ca > 0) & (cc > 0)
+        if tag == "down":
+            out["rogue_down_claim_share"] = (
+                float(((cc - ca) / np.where(okc, cc, 1) >= 0.05)[okc].mean()) if okc.any() else 0.0
+            )
+        out[f"rogue_{tag}_halt3_share"] = float(pr.halt3[:, sl].mean())
+    w = realise(env, name, rogue=(0.0, "withhold"))
+    pw = prices(w, cand)
+    npw = pw.no_price[:, st:en]
+    out["rogue_withhold_noprice_share"] = float(npw.mean())
+    on = np.where(npw.any(axis=1), npw.argmax(axis=1), en - st).astype(float)
+    out["rogue_withhold_onset_h"] = float(np.median(on)) / _H
+    after = pw.no_price[:, en:]
+    rec = np.where((~after).any(axis=1), (~after).argmax(axis=1), after.shape[1]).astype(float)
+    out["rogue_withhold_recovery_h"] = float(np.median(rec)) / _H
+    out["rogue_attack_days"] = (en - st) / BLOCKS_PER_DAY
     return out
 
 
@@ -729,6 +820,7 @@ class G1Study:
         v["attack_share_min"] = float(np.nanmin(shares)) if not all(math.isnan(x) for x in shares) else 0.0
         v["tagging_share"] = tag
         v.update(landscape_metrics(land, cand))
+        v.update(rogue_metrics(env, cand))
 
         # manipulation resistance — simulated at the policy's attack_share_min, ±bias
         a_name = ROLES["attack"][0]

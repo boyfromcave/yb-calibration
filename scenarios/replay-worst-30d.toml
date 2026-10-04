@@ -1,0 +1,29 @@
+# The worst 30 days of real YEC history (largest fall from a window's first price to its running
+# minimum, daily starts), replayed in order — not a bootstrap. Needs real hourly data (--data
+# yec-hourly.csv); without it the base falls back to the GARCH preset. D-RD-ORA-4.
+name = "replay-worst-30d"
+description = "the worst real 30-day drawdown of YEC, replayed hour by hour (real data required)"
+stresses = "crash tracking of the real medians, HALT-3 on a real crash, sigma multiplier in a real bust"
+tags = ["price", "real-history"]
+horizon_days = 36
+resolution = "block"
+p0_usd = 0.40
+
+[base]
+model = "replay"
+params = { select = "worst_drawdown", window_days = 30, rank = 1 }
+
+[[variants]]
+name = "replay-worst-30d-1"
+description = "the worst real 30-day drawdown of YEC, replayed hour by hour"
+set = {}
+
+[[variants]]
+name = "replay-worst-30d-2"
+description = "the second-worst real 30-day drawdown (non-overlapping), replayed"
+set = { "base.params.rank" = 2 }
+
+[[variants]]
+name = "replay-worst-30d-3"
+description = "the third-worst real 30-day drawdown (non-overlapping), replayed"
+set = { "base.params.rank" = 3 }

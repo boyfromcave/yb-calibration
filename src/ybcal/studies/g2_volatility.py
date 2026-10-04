@@ -140,6 +140,10 @@ def realise_ensemble(env: Env, kind: str, P: int, days: float) -> G1.ScenarioRea
     """An ensemble's true prices through the honest oracle (memoised with the G1 realisations)."""
     n = round(days * BLOCKS_PER_DAY) + 1
     pol = env.policy
+    # the same oracle as G1: the real pool landscape and its miner sequence when a pool-share log is
+    # loaded, else the policy's equal pools (D-RD-ORA-1)
+    cfg = G1.oracle_config(env)
+    land = G1.pool_landscape(env)
     key = (
         int(env.seed),
         f"G2:{kind}",
@@ -148,18 +152,15 @@ def realise_ensemble(env: Env, kind: str, P: int, days: float) -> G1.ScenarioRea
         G1.data_fingerprint(env),
         float(pol.expected_enforcing_share),
         int(pol.expected_pool_count),
+        tuple((round(p.share, 9), p.tags) for p in cfg.pools),
+        land.fingerprint() if land is not None else None,
     )
     hit = G1._REAL.get(key)
     if hit is not None:
         return hit
     true, label = ensemble_prices(env, kind, P, n)
-    cfg = O.OracleConfig.from_policy(
-        pol,
-        outage_rate_per_day=float(getattr(pol, "pool_outage_rate_per_day", G1.POOL_OUTAGE_RATE_PER_DAY)),
-        outage_mean_hours=float(getattr(pol, "pool_outage_mean_hours", G1.POOL_OUTAGE_MEAN_HOURS)),
-        outage_mode="signal",
-    )
-    inp = O.generate_block_inputs(true, cfg, rng=env.rng_for("G2", "oracle", kind, P, n))
+    miner = G1.real_miners(env, land, P, n, f"G2:{kind}")
+    inp = O.generate_block_inputs(true, cfg, rng=env.rng_for("G2", "oracle", kind, P, n), miner=miner)
     valid = inp.tag_present & (inp.tag_price > 0)
     r = G1.ScenarioRealisation(
         key,
@@ -291,6 +292,10 @@ class G2Study:
             # true-price realised vol (context for D-WP3-6)
             tr = np.diff(np.log(r.true[:, lo:].astype(float)), axis=1)
             v[f"true_vol_bps_{kind}"] = float(tr.std() * math.sqrt(BLOCKS_PER_YEAR) * BPS)
+        # the real history replayed through the same oracle (D-RD-ORA-3): evidence per era
+        from ybcal.studies import oracle_replay as R
+
+        v.update(R.sigma_evidence(env, cand))
         ref = cand.as_int("sigmaRefBps")
         v["m14_ratio"] = v["sigma_hat_p50_realised"] / ref if ref > 0 else math.nan
         v["turb_p99_uncapped"] = max(v["sigma_hat_p99_turbulent"] / ref, 1.0) if ref > 0 else math.nan

@@ -1,0 +1,30 @@
+# The 2025-26 cycle: $0.026 (2025-10-01) -> $1.108 (2025-11-14) -> $0.09 (2026-03-27) -> $0.36.
+# Block mode allows 120 days, so the file covers the run-up and the first crash; the variants the
+# fall from the peak and the 2026 spring rallies. Hour resolution (for the solvency studies) takes
+# the whole year with a longer horizon. D-RD-ORA-4.
+name = "replay-cycle-2025-26"
+description = "real 2025-26 cycle from 2025-10-01: x40 rally to $1.11, then the fall, replayed hour by hour"
+stresses = "pump overpricing on a real x40 rally, crash lag on the real fall, HALT-3 and sigma in a real cycle"
+tags = ["price", "real-history"]
+horizon_days = 120
+resolution = "block"
+p0_usd = 0.40
+
+[base]
+model = "replay"
+params = { start = "2025-10-01T00:00:00+00:00" }
+
+[[variants]]
+name = "replay-cycle-2025-26-rally"
+description = "real 2025-26 run-up from 2025-10-01 ($0.026 -> $1.11) and the first fall, replayed"
+set = {}
+
+[[variants]]
+name = "replay-cycle-2025-26-fall"
+description = "real fall from the 2025-11-14 peak ($1.11) over 120 days ($0.19 by mid-March 2026), replayed"
+set = { "base.params.start" = "2025-11-14T00:00:00+00:00" }
+
+[[variants]]
+name = "replay-cycle-2025-26-spring"
+description = "real 2026 spring: $0.10 -> $0.75 -> $0.14 (2026-03-20 + 120 days), replayed"
+set = { "base.params.start" = "2026-03-20T00:00:00+00:00" }
