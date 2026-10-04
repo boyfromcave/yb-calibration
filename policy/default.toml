@@ -53,6 +53,10 @@ max_flaps_per_year = 2.0           # max halt/clear cycles per year at the expec
 operator_upgrade_window_blocks = 2016  # activationDelay must be >= this (time for operators to upgrade, §5.5)
 orphan_rate = 0.005                # orphan rate used for valve false-trip estimates (§5.5)
 max_valve_false_trips_per_year = 1.0   # excluded param valveBlocks: tolerated false trips/year (§5.5)
+enforcing_pools = []               # payout-key prefixes of the operators expected to enforce (pool-share log); [] = largest first up to expected_enforcing_share (D-RD-ACT-1)
+activation_reach_days = 0.0        # activation_reliability is P(lock-in within this many days); 0 = in the first eligible window (D-RD-ACT-3)
+max_spurious_lock_prob = 1.0       # max P(a sub-60 % coalition of the largest operators locks in within the reach) on a pool-share log; 1 = off (D-RD-ACT-4)
+valve_attack_days = 0.0            # valveBlocks: valve_minority_trip_max bounds P(trip within this many days of a sustained race attack); 0 = per race (D-RD-ACT-5)
 
 [abandonment]
 max_false_abandon_prob = 0.001     # max P(ENFORCEMENT set for abandonBlocks without a real abandonment) per year (§5.4)

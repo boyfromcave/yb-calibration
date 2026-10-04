@@ -1,0 +1,71 @@
+# The real Ycash pool landscape (data/local/pool-shares.csv, blocks 2,983,806-3,053,805; docs/real-data-2026-10.md
+# §8; G5 wave 2, D-RD-ACT-6). Enforcing = the three identified operators ninjaraider (52.0 %), mining-dutch
+# (13.7 %) and dapool (6.1 %) = 71.9 % of blocks; not enforcing = the 25 % "flex" hash (an unidentified key
+# until block 3,043,700, then zpool.ca) and a 3 % key. Base case: ninjaraider, the 52 % operator, goes
+# offline at day 30 for 7 days; every operator it takes along leaves the signal and the tags too.
+# The schedules are the window-scale shares; the per-block real sequence itself (lumpy shares, bursts)
+# is replayed by ybcal.sim.landscape inside the G5 study.
+name = "real-pools-ninja-offline"
+description = "real landscape (enforcing 71.9 %); the 52 % operator offline at day 30 for 7 days"
+stresses = "ACT-4/ACT-6 detection and recovery when the one majority operator leaves; W19 freeze window"
+tags = ["activation"]
+horizon_days = 90
+resolution = "block"
+p0_usd = 0.36
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 1.20 }
+
+[schedules.enforcing_share]
+default = 0.719
+changes = [{ at_days = 30, value = 0.413 }, { at_days = 37, value = 0.719 }]
+
+[schedules.signal_share]
+default = 0.719
+changes = [{ at_days = 30, value = 0.413 }, { at_days = 37, value = 0.719 }]
+
+[schedules.tagging_share]
+default = 0.719
+changes = [{ at_days = 30, value = 0.413 }, { at_days = 37, value = 0.719 }]
+
+[constants]
+majority_operator_share = 0.52
+start_active = 1           # 1: the chain is ACTIVE at day 0 (window full at the day-0 share); 0: signalling starts at day 0
+# While ninjaraider is gone the chain loses 52 % of its hash: the remaining enforcing operators hold
+# 19.8 / 48 = 41.3 % of the blocks (shares renormalise; difficulty adjusts within hours on Ycash).
+
+[[variants]]
+name = "real-pools-ninja-offline-7d"
+description = "the 52 % operator offline at day 30 for 7 days (the base case)"
+set = {}
+
+[[variants]]
+name = "real-pools-ninja-offline-1d"
+description = "the 52 % operator offline for one day (a pool outage)"
+set = { "schedules.enforcing_share.changes.1.at_days" = 31, "schedules.signal_share.changes.1.at_days" = 31, "schedules.tagging_share.changes.1.at_days" = 31 }
+
+[[variants]]
+name = "real-pools-ninja-offline-45d"
+description = "the 52 % operator gone for 45 days: longer than abandonBlocks (30 d), the module abandons itself"
+set = { "schedules.enforcing_share.changes.1.at_days" = 75, "schedules.signal_share.changes.1.at_days" = 75, "schedules.tagging_share.changes.1.at_days" = 75 }
+
+[[variants]]
+name = "real-pools-ninja-rogue"
+description = "the 52 % operator keeps signalling but stops enforcing at day 30 (a faked signal majority)"
+set = { "schedules.enforcing_share.changes.0.value" = 0.198, "schedules.signal_share.changes.0.value" = 0.719, "schedules.tagging_share.changes.0.value" = 0.719, "schedules.enforcing_share.changes.1.value" = 0.198, "schedules.signal_share.changes.1.value" = 0.719, "schedules.tagging_share.changes.1.value" = 0.719 }
+
+[[variants]]
+name = "real-pools-fake-signal-flex"
+description = "the 25 % flex hash signals without enforcing from day 30 (TAG-3: any coinbase can carry the bit)"
+set = { "schedules.enforcing_share.changes.0.value" = 0.719, "schedules.signal_share.changes.0.value" = 0.969, "schedules.tagging_share.changes.0.value" = 0.969, "schedules.enforcing_share.changes.1.value" = 0.719, "schedules.signal_share.changes.1.value" = 0.969, "schedules.tagging_share.changes.1.value" = 0.969, "schedules.enforcing_share.changes.1.at_days" = 90, "schedules.signal_share.changes.1.at_days" = 90, "schedules.tagging_share.changes.1.at_days" = 90 }
+
+[[variants]]
+name = "real-pools-zpool-hop"
+description = "the flex 25 % hash hops on (enforcing via zpool) for 8 days at day 30 and off again"
+set = { "schedules.enforcing_share.changes.0.value" = 0.969, "schedules.signal_share.changes.0.value" = 0.969, "schedules.tagging_share.changes.0.value" = 0.969, "schedules.enforcing_share.changes.1.at_days" = 38, "schedules.signal_share.changes.1.at_days" = 38, "schedules.tagging_share.changes.1.at_days" = 38 }
+
+[[variants]]
+name = "real-pools-launch-hop"
+description = "only ninjaraider (52 %) signals at launch; a 28 % auto-switching pool joins for days 2-6 (spurious lock-in), then leaves"
+set = { "schedules.enforcing_share.default" = 0.52, "schedules.signal_share.default" = 0.52, "schedules.tagging_share.default" = 0.52, "schedules.enforcing_share.changes.0.at_days" = 2, "schedules.enforcing_share.changes.0.value" = 0.80, "schedules.signal_share.changes.0.at_days" = 2, "schedules.signal_share.changes.0.value" = 0.80, "schedules.tagging_share.changes.0.at_days" = 2, "schedules.tagging_share.changes.0.value" = 0.80, "schedules.enforcing_share.changes.1.at_days" = 6, "schedules.enforcing_share.changes.1.value" = 0.52, "schedules.signal_share.changes.1.at_days" = 6, "schedules.signal_share.changes.1.value" = 0.52, "schedules.tagging_share.changes.1.at_days" = 6, "schedules.tagging_share.changes.1.value" = 0.52, "constants.start_active" = 0 }

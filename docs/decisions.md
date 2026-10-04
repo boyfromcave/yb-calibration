@@ -1796,3 +1796,158 @@ On the activation agent's five G5 standard runs: `signalWindow` 2,592 feasible i
 fails in s3 and h1), thresholds 1,944 / 1,556 / 1,296 / 1,556 (3/5), `valveBlocks` none-feasible
 (valve_minority in 5/5; environment-limited).
 
+## D-RD-ACT-1 (2026-10-04, activation) — the enforcing coalition is named, and the real landscape is what it is
+
+**Finding.** The rd2 quick report BLOCKED every G5 threshold with 1,001 false-halt hours a year.
+That number was an artefact: `share_samples` took "the largest pools whose cumulative share is
+closest to `expected_enforcing_share`", which on the real log is ninjaraider (52.0 %) + the
+unidentified key s1jrMEF9 (21.3 %). That key mined nothing after block ≈ 3,043,700 (day 52 of 60),
+when zpool.ca rose from 0 to 27–29 % of the blocks the same day: one ≈ 25 % block of hash
+("flex") moved between payout keys, so the "coalition" lost a third of itself mid-sample.
+The data agent's 0.70 is a different coalition: ninjaraider + mining-dutch + dapool (71.9 %).
+**Environment facts** (data/local/pool-shares.csv, 70,000 blocks, `ybcal data landscape`):
+- Without ninjaraider the rest of the chain is 48.0 %: no coalition without it reaches the L3
+  majority, so **activation without ninjaraider is impossible at any threshold ≥ 50 %**, and a
+  threshold below 50 % would activate a minority that sits in the ENFORCEMENT halt at once. Every
+  activating coalition contains ninjaraider; it alone can switch enforcement off (by leaving) or fake
+  it (by signalling without enforcing, scenario `real-pools-ninja-rogue`). No parameter changes this.
+- A 2,016-block window's share of the identified coalition has sd 3.9 points (binomial: 1.0), min
+  60.3 %, and is ≥ 75 % in 18 % of windows: lock-in at the shipped 75 % happens on day-scale
+  excursions, not on the mean.
+**Decision.** New policy key `enforcing_pools` (payout-key prefixes); the real-data policy names the
+three identified operators. Without it the auto rule takes the largest operators until their share
+first reaches `expected_enforcing_share`. `share_samples` (the synthetic-path mixture and G4's false
+abandonment) uses the same coalition.
+
+## D-RD-ACT-4 (2026-10-04, activation) — the activation threshold is the lock-in bar; spurious lock-in is a design note
+
+**Finding.** With the real landscape and the old rule ("minimise false-halt hours subject to
+reach"), the activation family drove `activationThreshold` from 75 % to 60 %: a lower bar shortens
+PARTICIPATION halts because ACT-4 clears only at `activationThreshold` (`state.cpp:1243`). But the
+threshold is what keeps a coalition that cannot hold the floors from switching enforcement on.
+Measured on the real landscape (64 paths × 2 years, 7 bootstrap variants, `grid2`): at 70 %
+ninjaraider + mining-dutch (65.7 %) locks in within 30 days with probability 0.34–0.97 and then
+halts minting 1,700–4,500 h/yr; at 75 % it locks in with 0.00–0.09 within 90 days. A hop is worse:
+ninjaraider + zpool (55.6 % on average, zpool 0 % for 52 days then 28 % for 8) locks in within 30
+days with 0.50–0.97 at W ≤ 3,456 (0.03–0.66 at 4,032) and then spends 7,000–8,000 h/yr in
+ENFORCEMENT — ACT-2 is a single-window test, so a few days of an auto-switching pool's hash are
+enough.
+**Decision.** The activation family minimises `act.spurious_lock` (the largest lock-in probability
+among the top-6 coalitions with a 40–60 % mean share) subject to the expected coalition locking in
+within `activation_reach_days` and the halt budgets; without a pool log it keeps the false-halt
+objective. `max_spurious_lock_prob` (default 1 = off) can make it a constraint; the real-data
+policy leaves it off because no window inside the runbook bound (W ≤ 6,912, D-2) brings the hop
+below ≈ 0.4: **design note G5-DN-HOP** — the defence is procedural (publish `startHeight` only after
+the operators who will enforce have committed, and watch `yed_getactivation` for a lock-in carried
+by a pool that does not run the module) or a rule change (lock in only after two consecutive
+windows above the threshold, `state.cpp:1084`; a consensus change, not proposed here).
+The shipped 75 % stays (owner-pinned L3 as a fraction; the evidence supports it).
+
+## D-RD-ACT-5 (2026-10-04, activation) — the work valve under a sustained race attack; the 64-note cap
+
+**Finding.** The valve rule was "a non-enforcing minority's trip probability per incident ≤ 0.01"
+(gambler's ruin). An incident is not rare: any owner of a matured vault can keep a sweep that does
+not burn YED in every stock pool's mempool for free; each stock block mined on the enforcers' tip
+starts a race, and a lost race returns the transaction to the mempool for the next one. On the
+real block sequence (the non-enforcing operators' blocks, 30-day attack, 128 paths, 3 seeds and both
+halves of the log; `valve2`): with the identified coalition enforcing (stock 28.1 %), P(trip within
+30 days) is 1.00 at `valveBlocks` 6 (median 8 hours) and 8, 0.70–0.99 at 10–12, 0.35–0.62 at 16–24
+and 0 at 32; with ninjaraider + flex (stock 23 %) 0 from 16; with everyone but the 3 % key 0.40–0.60
+at 6 and 0 from 8 — a small miner's bursts (four blocks in a row) are enough at 6. The real sequence
+is far burstier than iid blocks (iid at 28 % would give ≈ 0 at 16).
+A long valve has its own failure: when enforcers are a genuine minority the stock branch grows
+faster than its lead, and once a rejected root holds `VALVE_NOTE_CAP` = 64 notes (`index.h:65`,
+`index.cpp:607`) the valve stops noting — the node stays split until an operator restarts it.
+Exact (DP over lead × notes), at a stock share of 55 % (`detection_drop_share` 45 %): the share of
+genuine-minority episodes that end stuck is 0 at 6–8, 1 % at 10, 4.3 % at 12, 21 % at 16, 68 % at 24.
+**Decision.** New metrics `valve.attack_trip` (with `valve_attack_days`, real-data policy 30) and
+`valve.capstuck` (constraint ≤ 0.05, `JUDGEMENT["valve_capstuck_max"]`). When no length meets the
+attack bound the family reports the least-harm value — the smallest attack trip probability that
+keeps the cap bound — with verdict BLOCKED: **12** on the real data (attack trip 0.80–0.84 in 30
+days, median ≈ 8.5 days instead of 8 hours; cap-stuck 4.3 %). `valveBlocks` is owner-pinned (L7)
+by the infra policy, so the report says KEEP 6 (owner decision) with this evidence; the risk of
+keeping 6 is a valve trip within hours of a sustained attack.
+**Design note G5-DN-VALVE.** No `valveBlocks` defends the identified coalition: the cure is coverage
+(the flex 25 % enforcing: 16 suffices) or a node-local code change in a patch release — raise
+`VALVE_NOTE_CAP` (≥ 256 makes 16–24 safe for a 55 % stock majority) and/or trip only when the
+heavier branch's lead has persisted (a minority burst decays, a majority's lead grows).
+
+## D-RD-ACT-6 (2026-10-04, activation) — adversarial scenarios from the real landscape
+
+**Decision.** `scenarios/real-pools.toml` (7 scenarios, tag `activation`): ninjaraider offline for
+1, 7 and 45 days (the rest renormalises to 41.3 %), ninjaraider signalling without enforcing, the
+flex 25 % signalling without enforcing, a zpool hop, and a launch where only ninjaraider signals
+and a 28 % pool joins for four days. `confirm_activation` runs every `activation` scenario (with
+`hashrate-drop-*`) at the current and recommended sets: detection, recovery, W19 window,
+abandonment, the blocks with enforcement on while the true enforcing share is below one half, and
+the valve's trip probability under attack.
+**What they show (shipped set; recommended in D-RD-ACT-2).** A one-day ninjaraider outage is not
+detected by ENFORCEMENT (the window still averages above 50 %) but leaves enforcement on with a 41 %
+minority for the whole day (1,152 blocks of ACT-7 exposure: any rule-breaking block trips every
+enforcing node), and the PARTICIPATION halt it triggers holds until 75 % returns. Seven and 45 days:
+ENFORCEMENT within ≈ 1,570 blocks (33 h), W19 opens one window later; 45 days abandons the module
+after 30 (W21, by design). A rogue ninjaraider is never detected (the count stays 71.9 %): enforcement
+stays on with 19.8 % enforcing for the whole scenario — the valve trips at once, which is the only
+defence. The launch hop locks in within 3.4 days and then holds ENFORCEMENT until abandonment.
+
+## D-RD-ACT-2 (2026-10-04, activation) — per-block replay; `signalWindow` 2,016 → 2,592 with the thresholds at their fractions
+
+**Finding.** On the real landscape the shipped window gives the identified coalition (71.9 %)
+43–91 false PARTICIPATION hours a year (0.2–0.9 episodes; budget 24 h, 2 flaps) in 6 of 7
+bootstrap variants: the share swings by days (window sd 3.9 points), and an episode lasts until a
+window reaches 75 % again (`state.cpp:1243`), p95 ≈ 12,000 blocks. ENFORCEMENT never sets (window
+p01 62 % ≫ 50 %). The binomial mixture could not see this (block order), and the window family
+mixed in rows that moved one threshold alone.
+**Decision.** With a pool-share log G5 replays the real blocks (`ybcal.sim.landscape`); the window
+family moves W only (`Family.requires`) on a grid centred on W0; a feasible new window resolves the
+threshold families' halt-budget changes and every threshold keeps its fraction (75/60/50/60 %, the
+L3 fractions). Result: **`signalWindow` 2,592** (2.25 d) with `activationThreshold` 1,944,
+`participationFloor` 1,556, `enforcementFloor` 1,296, `enforcementResume` 1,556. At 2,592 the
+seven variants give 0–22 false-halt h/yr and ≤ 0.16 flaps; detection p95 of a drop to 45 % 2,265
+blocks (≤ 4,032); lock-in within 60 days 1.00 (median 5–8 days); freeze-then-fix runbook
+2·2,592 + 16,128 + 4,608 = 25,920 ≤ `abandonBlocks` 34,560 (W21). 2,304 fails the false-halt budget
+in some variants; ≥ 3,024 fails the 60-day reach in some (half 2: 0.97).
+**Trade-off.** A longer window halts minting later on a real drop (≈ +500 blocks, 10 h) and
+lengthens the W19 freeze window by 0.5 day; in exchange the honest-variance halts that would stop
+minting for days several times a year disappear. With the flex 25 % enforcing every window is fine
+(the shipped 2,016 included), so the change matters exactly in the expected landscape.
+
+## D-RD-ACT-3 (2026-10-04, activation) — activation reach: 60 days, not the first window
+
+**Finding.** `activation_reliability` 0.99 "in the first eligible window" at the policy share
+0.70 against a 75 % threshold is false by construction (P = 9·10⁻⁴): the expected coalition's mean
+is below the bar and it locks in on excursions (18 % of windows). That is an environment fact.
+Frontier for the identified coalition (P(lock-in) within 30 / 60 days, 7 variants):
+W 2,016 0.98–1.00 / 1.00; 2,592 0.84–1.00 / 1.00; 3,024 0.84–0.97 / 0.97–1.00; 4,032
+0.59–0.94 / 0.81–1.00. Only 2,016 reaches 0.99 in 30 days, and it fails the false-halt budget by
+2–4×.
+**Decision.** New key `activation_reach_days` (default 0 = the old rule); the real-data policy sets
+60: one sixth of the 12-month sunset, and the owner's 30-day planning floor (W21) makes a
+one-month launch window too tight to also carry the false-halt budget. The owner chooses the point
+on the frontier: 30 days ⇒ keep 2,016 and accept ≈ 70 false-halt h/yr; 60 days ⇒ 2,592.
+
+## D-RD-ACT-7 (2026-10-04, activation) — what each adoption scenario gets (least harm)
+
+| Coalition (mean share) | Activates? | Shipped set | Recommended (W 2,592) |
+|---|---|---|---|
+| all identified + flex (96.9 %) | first window | 0 false halts | 0 |
+| ninjaraider + flex (77.1 %) | first window | ≈ 0–1 h/yr | 0 |
+| identified (71.9 %, policy) | 30 d 0.98–1.00 | 0–91 h/yr (43–91 in 6 of 7) | 0–22 h/yr |
+| identified + zpool hop (75.6 %) | 30 d 0.97–1.00 | 0–96 h/yr | 0–13 h/yr (47.5 on log half 1) |
+| ninjaraider + mining-dutch (65.7 %) | no (≤ 9 % in 90 d) | must not; does not | does not |
+| ninjaraider + zpool (55.6 %, hopping) | 0.50–0.97 in 30 d (hazard) | 7,000+ h ENFORCEMENT | same (G5-DN-HOP) |
+| without ninjaraider (≤ 48 %) | impossible at any threshold ≥ 50 % | — | — |
+
+Safety vs liveness: the 75 % bar (owner L3) is kept — lowering it to 70 % buys faster lock-in
+(4 → 2 days) at the price of activating the 65.7 % coalition; the window is the knob that buys
+liveness without lowering the bar.
+
+## D-RD-ACT-9 (2026-10-04, activation) — the L3 pins are fractions
+
+**Decision.** The integrator instructed the infra agent to pin `activationThreshold`,
+`participationFloor`, `enforcementFloor` and `enforcementResume` (L3) as fractions of
+`signalWindow` (75 / 60 / 50 / 60 %). G5 recommends their scaled absolute values only as a
+consequence of the window change (each Recommendation's note says "resolved by signalWindow …, the
+current fraction of the new window"); a pin on the absolute value would break the §1.4 ordering
+at any new window. `valveBlocks` (L7) stays pinned: the report shows KEEP 6 with the evidence of
+D-RD-ACT-5 (least harm 12) and the risk of keeping 6.

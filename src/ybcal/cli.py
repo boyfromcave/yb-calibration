@@ -53,6 +53,7 @@ ROUTES: dict[tuple[str, ...], Route] = {
     ("data", "splice"): Route("ybcal.data.cli", "cli_splice", "WP-2"),
     ("data", "spreads"): Route("ybcal.data.cli", "cli_spreads", "WP-2"),
     ("data", "volume"): Route("ybcal.data.cli", "cli_volume", "WP-2"),
+    ("data", "landscape"): Route("ybcal.sim.landscape", "cli_landscape", "WP-5"),
     ("study",): Route("ybcal.studies.cli", "cli_study", "WP-8"),
     ("sensitivity",): Route("ybcal.optimize.cli", "cli_sensitivity", "WP-6"),
     ("recommend",): Route("ybcal.report.cli", "cli_recommend", "WP-8"),
@@ -202,6 +203,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", required=True)
     p = subs[("data", "volume")] = dg.add_parser("volume", help="daily USD volume percentiles of a price CSV")
     p.add_argument("file")
+    p = subs[("data", "landscape")] = dg.add_parser(
+        "landscape", help="real pool landscape: coalition x signalWindow halts, lock-in, valve races (G5)"
+    )
+    p.add_argument("file", help="pool-shares.csv (height,payout_key)")
 
     # single-level commands
     p = subs[("study",)] = top.add_parser("study", help="run one parameter-group study (or all)")
