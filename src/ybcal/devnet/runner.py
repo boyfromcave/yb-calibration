@@ -531,19 +531,52 @@ def apportion(n: int, weights: Sequence[int]) -> list[int]:
     return base
 
 
+class MinerPlan:
+    """Who mines each block, carried across the whole schedule (smooth weighted round robin).
+
+    Every block credits each pool ``share · w_i / Σw`` and the dark miner ``1 − share``; the
+    largest credit mines (ties: pools before the dark miner, lower index first) and pays 1. Exact
+    fractions, so the node replay and the simulator draw the identical sequence. Earlier versions
+    interleaved within each step only: the many one-block steps of a price walk were then all
+    mined by pool 0, so ``pool_weights`` and ``signal_share_bps`` had no effect (D-RD-DEV-2).
+    """
+
+    def __init__(self, n_pools: int, has_dark: bool) -> None:
+        from fractions import Fraction
+
+        self._F = Fraction
+        self.n_pools, self.has_dark = n_pools, has_dark
+        self.credit = [Fraction(0)] * n_pools
+        self.dark_credit = Fraction(0)
+
+    def miners(self, step: ReplayStep) -> list[int]:
+        """The miner of each block of ``step``: a pool index, or ``-1`` for the dark miner."""
+        F = self._F
+        share = 10_000 if step.signal_share_bps is None else step.signal_share_bps
+        if share < 10_000 and not self.has_dark:
+            raise ValueError(f"step {step.label!r} needs a dark miner (signal_share_bps={share})")
+        weights = list(step.pool_weights) if step.pool_weights else [1] * self.n_pools
+        if len(weights) != self.n_pools:
+            raise ValueError(f"pool_weights has {len(weights)} entries for {self.n_pools} pools")
+        tot = sum(weights)
+        out = []
+        for _ in range(step.blocks):
+            for i, w in enumerate(weights):
+                self.credit[i] += F(share * w, 10_000 * tot)
+            self.dark_credit += F(10_000 - share, 10_000)
+            best = max(range(self.n_pools), key=lambda i: (self.credit[i], -i))
+            if self.has_dark and self.dark_credit > self.credit[best]:
+                self.dark_credit -= 1
+                out.append(-1)
+            else:
+                self.credit[best] -= 1
+                out.append(best)
+        return out
+
+
 def block_miners(step: ReplayStep, n_pools: int, has_dark: bool) -> list[int]:
-    """Miner of each block of ``step``: a pool index, or ``-1`` for the dark miner."""
-    share = 10_000 if step.signal_share_bps is None else step.signal_share_bps
-    if share < 10_000 and not has_dark:
-        raise ValueError(f"step {step.label!r} needs a dark miner (signal_share_bps={share})")
-    sig, dark = apportion(step.blocks, [share, 10_000 - share]) if step.blocks else (0, 0)
-    weights = list(step.pool_weights) if step.pool_weights else [1] * n_pools
-    if len(weights) != n_pools:
-        raise ValueError(f"pool_weights has {len(weights)} entries for {n_pools} pools")
-    pool_seq = interleave(apportion(sig, weights)) if sig else []
-    order = interleave([sig, dark])
-    it = iter(pool_seq)
-    return [next(it) if o == 0 else -1 for o in order]
+    """Miner of each block of ``step`` alone (a fresh :class:`MinerPlan`)."""
+    return MinerPlan(n_pools, has_dark).miners(step)
 
 
 def jittered_quote(
@@ -558,6 +591,14 @@ def jittered_quote(
     if q == previous:
         q = q + 1 if q < PRICE_MAX else q - 1
     return q
+
+
+def step_quote(step: ReplayStep, pool: int, jitter_bps: int, rng: random.Random, previous: int | None) -> int:
+    """The quote ``pool`` sets for one block of ``step``: its previous quote again while the pool is
+    in ``frozen_pools`` (no RNG draw), else :func:`jittered_quote`."""
+    if pool in step.frozen_pools and previous is not None:
+        return previous
+    return jittered_quote(step.price, int(step.pool_bias_bps.get(pool, 0)), jitter_bps, rng, previous)
 
 
 def replay(
@@ -592,6 +633,7 @@ def replay(
     if attestor_down is None and driver is not None:
         attestor_down = driver.set_down
     down: set[int] = set()
+    plan = MinerPlan(len(pools), devnet.dark is not None)
     for si, step in enumerate(steps):
         if driver is not None:
             driver.price = step.price
@@ -615,16 +657,14 @@ def replay(
                 if last[j] is not None:
                     c.call("yed_setquote", 0, 0)
                     last[j] = None
-        for m in block_miners(step, len(pools), devnet.dark is not None):
+        for m in plan.miners(step):
             quote: int | None = None
             if m < 0:
                 miner, client = "dark", devnet.dark
             else:
                 miner, client = f"pool{m}", pools[m]
                 if step.price:
-                    quote = jittered_quote(
-                        step.price, int(step.pool_bias_bps.get(m, 0)), jitter_bps, rng, last[m]
-                    )
+                    quote = step_quote(step, m, jitter_bps, rng, last[m])
                     client.call("yed_setquote", quote, 1)
                     last[m] = quote
             if driver is not None:
@@ -687,6 +727,22 @@ class RunResult:
             "params": self.params,
             "replay_args": self.replay_args,
         }
+
+
+def _sigterm_raises() -> Callable[[], None]:
+    """In the main thread, make SIGTERM raise (``KeyboardInterrupt``) so ``run_devnet``'s ``finally``
+    still stops the nodes when the run is killed (``timeout``, a supervisor); returns the restorer.
+    A background shell job ignores SIGINT, so SIGTERM is the signal that reaches it."""
+    import threading
+
+    if threading.current_thread() is not threading.main_thread():
+        return lambda: None
+
+    def handler(signum: int, frame: Any) -> None:
+        raise KeyboardInterrupt(f"signal {signum}")
+
+    old = signal.signal(signal.SIGTERM, handler)
+    return lambda: signal.signal(signal.SIGTERM, old)
 
 
 def closing_txinfo(client: Any, vaults: Sequence[dict[str, Any]]) -> dict[str, Any]:
@@ -787,6 +843,7 @@ def run_devnet(
             dark_miner="dark_miner" in schedule.needs,
         )
         net = (devnet_factory or MinimalDevnet)(cfg)
+    restore = _sigterm_raises()
     try:
         net.start()
         result.node_check = check_node_params(net.primary, sp.params, allow=allow_version_skew)
@@ -826,6 +883,7 @@ def run_devnet(
     finally:
         try:
             net.stop(wipe=not keep)
+            restore()
         finally:
             (run_dir / "run.json").write_text(json.dumps(result.to_dict(), indent=2, default=str) + "\n")
     return result

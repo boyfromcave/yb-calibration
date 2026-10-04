@@ -60,6 +60,8 @@ class ReplayStep:
     label: str = ""
     #: wallet actions run right before the step's first block (:mod:`ybcal.devnet.actions`)
     actions: tuple[Mapping[str, Any], ...] = ()
+    #: pools whose feed is stuck: they repeat their previous quote exactly (PIN-1's target)
+    frozen_pools: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         if self.blocks < 0:
@@ -75,6 +77,7 @@ class ReplayStep:
         d["pool_bias_bps"] = {str(k): v for k, v in self.pool_bias_bps.items()}
         d["attestors_down"] = list(self.attestors_down)
         d["actions"] = [dict(a) for a in self.actions]
+        d["frozen_pools"] = list(self.frozen_pools)
         return d
 
 
@@ -106,6 +109,7 @@ class Schedule:
                 tuple(st.get("attestors_down") or ()),
                 st.get("label", ""),
                 tuple(dict(a) for a in st.get("actions") or ()),
+                tuple(int(x) for x in st.get("frozen_pools") or ()),
             )
             for st in d["steps"]
         )
@@ -208,6 +212,15 @@ def _hashrate_drop(params: ParamSet, rng: random.Random, price: int) -> list[Rep
     return out
 
 
+def _registrations(params: ParamSet) -> tuple[dict[str, Any], ...]:
+    """``max(3, attestArmMin)`` seats, round-robin over pool nodes 0-2 (a wallet may hold several),
+    each with the minimum bond and lock, so the layer arms whatever ``attestArmMin`` the set carries."""
+    bond = -(-int(params["bondMin"]) // 100_000_000)  # whole YEC, rounded up
+    lock = int(params["bondMinLock"])
+    n = max(3, int(params["attestArmMin"]))
+    return tuple({"op": "register", "node": i % 3, "bond": bond, "lock": lock} for i in range(n))
+
+
 def _attestor_outage(params: ParamSet, rng: random.Random, price: int) -> list[ReplayStep]:
     """Three attestor seats (pools 0-2, emulated agents) arm the layer; node 0 mints every
     ``attestInterval + 2`` blocks so bundles are in demand; seat 0's agent is stopped for the middle
@@ -217,9 +230,7 @@ def _attestor_outage(params: ParamSet, rng: random.Random, price: int) -> list[R
     every = int(params["attestInterval"]) + 2
     lock = int(params["classMin[2]"])
     cents = int(params["minMint"])
-    bond = max(1, int(params["bondMin"]) // 100_000_000)
-    bond_lock = int(params["bondMinLock"])
-    reg = tuple({"op": "register", "node": i, "bond": bond, "lock": bond_lock} for i in range(3))
+    reg = _registrations(params)
     prices = _walk(rng, price, arm + n, 50)
     third = n // 3
     out = [ReplayStep(prices[0], 1, actions=reg, label="register seats")]
@@ -228,6 +239,43 @@ def _attestor_outage(params: ParamSet, rng: random.Random, price: int) -> list[R
         acts = ({"op": "mint", "node": 0, "cents": cents, "lock": lock},) if i % every == 0 else ()
         down = (0,) if third <= i < 2 * third else ()
         out.append(ReplayStep(p, 1, attestors_down=down, label="outage", actions=acts))
+    return out
+
+
+def _pin(params: ParamSet, rng: random.Random, price: int) -> list[ReplayStep]:
+    """PIN-1 then PIN-2 on real nodes (D-RD-DEV-4). Seats arm the layer and node 0 mints every
+    ``attestInterval`` blocks, so every pin window holds bundles. Phase 1: pool 1's feed freezes
+    while the price climbs 15 % over one pin window (live attestors move aMint) — PIN-1 should pin
+    pool 1's payout key. Phase 2: pool 1 recovers, the last seat's agent freezes and the price
+    climbs again — PIN-2 should pin that seq. (A frozen seat anchors the low bundle quantile, so
+    the two are exercised one after the other.)"""
+    arm = int(params["bondMaturity"]) + int(params["attestArmDelay"]) + 4
+    every = int(params["attestInterval"])
+    pw = int(params["pinWindow"])
+    mint = {"op": "mint", "node": 0, "cents": int(params["minMint"]), "lock": int(params["classMin[2]"])}
+    reg = _registrations(params)
+
+    def ramp(p0: int) -> list[int]:
+        return [p0 + p0 * 15 * (i + 1) // (100 * pw) for i in range(pw)]
+
+    calm = _walk(rng, price, arm + 2 * pw, 20)
+    r1 = ramp(calm[-1])
+    hold1 = _walk(rng, r1[-1], 2 * pw, 20)
+    r2 = ramp(hold1[-1])
+    hold2 = _walk(rng, r2[-1], 2 * pw, 20)
+    out = [ReplayStep(calm[0], 1, actions=reg, label="register seats")]
+    out += steps_from_prices(calm[1:arm], 1, "maturity + arming")
+    tail: list[tuple[int, str, tuple[int, ...]]] = [(p, "calm", ()) for p in calm[arm:]]
+    tail += [(p, "ramp 1, pool 1 frozen", (1,)) for p in r1]
+    tail += [(p, "hold 1, pool 1 frozen", (1,)) for p in hold1]
+    freeze_at = len(tail)
+    tail += [(p, "ramp 2, last seat frozen", ()) for p in r2]
+    tail += [(p, "hold 2, last seat frozen", ()) for p in hold2]
+    for i, (p, label, frozen) in enumerate(tail):
+        acts: tuple[dict[str, Any], ...] = (dict(mint),) if i % every == 0 else ()
+        if i == freeze_at:
+            acts += ({"op": "freeze", "seat": len(reg) - 1},)
+        out.append(ReplayStep(p, 1, label=label, actions=acts, frozen_pools=frozen))
     return out
 
 
@@ -334,6 +382,11 @@ SCENARIOS: dict[str, tuple[ScenarioFn, frozenset[str], str]] = {
         frozenset({"wallet"}),
         "mint A/B/C, redeem A, crash to 20 %, mint into the halt, claim B, C left claimable",
     ),
+    "pin": (
+        _pin,
+        frozenset({"attestors", "wallet"}),
+        "seats arm, mints every attestInterval; pool 1 frozen through a 15 % climb, then a seat frozen",
+    ),
     "feed-outage": (
         _feed_outage,
         frozenset(),
@@ -350,6 +403,7 @@ SUITE: tuple[str, ...] = (
     "oracle-attack-34",
     "feed-outage",
     "vault-cycle",
+    "pin",
 )
 
 

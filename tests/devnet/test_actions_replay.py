@@ -174,3 +174,43 @@ def test_engine_attest_frame_starts_at_the_first_column():
     s = probe["s"]
     assert s.height0 == s.start_height == 1
     assert E._attest_frame(probe["i"], s) == (1, 1)
+
+
+def test_frozen_pool_repeats_its_quote_in_replay_and_simulator():
+    import random
+
+    from ybcal.devnet.runner import step_quote
+    from ybcal.devnet.scenarios import ReplayStep
+    from ybcal.sim.engine import devnet_inputs
+
+    st = ReplayStep(2_000_000, 3, frozen_pools=(1,))
+    rng = random.Random(0)
+    assert step_quote(st, 1, 10, rng, 1_999_000) == 1_999_000  # frozen: no draw, same quote
+    assert step_quote(st, 0, 10, rng, 1_999_000) != 1_999_000
+    ps = regtest()
+    sched = make_schedule("pin", ps, seed=1)
+    assert Schedule.from_dict(sched.to_dict()) == sched
+    inp = devnet_inputs(ps, sched)
+    blocks = [b for st in sched.steps for b in [st] * st.blocks]
+    frozen = [i for i, b in enumerate(blocks) if 1 in b.frozen_pools]
+    q1 = [int(inp.tag_price[0, j]) for j in frozen if int(inp.tag_pool[0, j]) == 1]
+    assert len(q1) > 3 and len(set(q1)) == 1  # pool 1's tags hold one price while frozen
+    ops = [a["op"] for st in sched.steps for a in st.actions]
+    assert ops.count("register") == 3 and ops.count("freeze") == 1
+
+
+def test_miner_plan_carries_shares_across_one_block_steps():
+    """D-RD-DEV-2: a price walk is one step per block; weights and the dark share must still hold."""
+    from collections import Counter
+
+    from ybcal.devnet.runner import MinerPlan
+    from ybcal.devnet.scenarios import ReplayStep
+
+    plan = MinerPlan(3, True)
+    got = [m for _ in range(300) for m in plan.miners(ReplayStep(1_000_000, 1, signal_share_bps=4500))]
+    c = Counter(got)
+    assert c[-1] == 165 and c[0] == c[1] == c[2] == 45
+    plan = MinerPlan(3, False)
+    got = [m for _ in range(100) for m in plan.miners(ReplayStep(1_000_000, 1, pool_weights=(34, 33, 33)))]
+    assert Counter(got) == {0: 34, 1: 33, 2: 33}
+    assert MinerPlan(3, False).miners(ReplayStep(1_000_000, 6)) == [0, 1, 2, 0, 1, 2]

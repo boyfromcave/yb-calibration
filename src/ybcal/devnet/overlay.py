@@ -110,7 +110,9 @@ def runtime_args(runtime: Mapping[str, ParamValue]) -> list[str]:
 def load_overlay(src: str | Path | Mapping[str, Any] | ParamSet, base: ParamSet | None = None) -> ParamSet:
     """An overlay from a file path, a mapping or a ParamSet.
 
-    Accepted documents: ``ybcal-paramset/1`` (full set), ``ybcal-scaled/1`` (the scaler's output),
+    Accepted documents: a report's ``recommended.json`` (``ybcal-extract/1``: its mainnet column,
+    also given as the report directory), ``ybcal-paramset/1`` (full set), ``ybcal-scaled/1`` (the
+    scaler's output),
     ``ybcal-overlay/1`` (``{"values": {delta}}``), a plain full value dict, or a plain delta dict
     applied over ``base`` (default: the shipped regtest column; derived values recomputed).
     A mainnet-scale set is returned as is — :func:`split` refuses it; scale it first with
@@ -118,8 +120,14 @@ def load_overlay(src: str | Path | Mapping[str, Any] | ParamSet, base: ParamSet 
     """
     if isinstance(src, ParamSet):
         return src
+    if isinstance(src, str | Path) and Path(src).is_dir():  # a report directory
+        src = Path(src) / "recommended.json"
     doc: Mapping[str, Any] = json.loads(Path(src).read_text()) if isinstance(src, str | Path) else src
     fmt = doc.get("format")
+    if fmt == "ybcal-extract/1":  # a report's recommended.json: its mainnet column (scaled by the caller)
+        from ybcal.params.extract import Extracted
+
+        return ParamSet.from_extracted(Extracted.from_dict(dict(doc)), "main")
     if fmt in ("ybcal-paramset/1", "ybcal-scaled/1", "ybcal-overlay/1"):
         values = dict(doc["values"])
     elif fmt is None:

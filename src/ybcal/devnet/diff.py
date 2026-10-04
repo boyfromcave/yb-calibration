@@ -262,7 +262,8 @@ class RunComparison:
     def passed(self) -> bool:
         """Every part passed (absent parts do not count against it)."""
         parts = [self.history, self.vaults, self.claimable]
-        att_ok = self.attest is None or not any(self.attest[k] for k in ("layer", "seats", "bundles"))
+        parts_a = ("layer", "seats", "bundles", "pin1")
+        att_ok = self.attest is None or not any(self.attest.get(k) for k in parts_a)
         ok = all(r.passed for r in parts if r is not None) and att_ok
         return ok and not self.collateral and not self.refusals
 
@@ -279,7 +280,7 @@ class RunComparison:
             lines.append(f"refused mints the simulator admits: {self.refusals}")
         if self.attest is not None:
             a = self.attest
-            bad = {k: len(a[k]) for k in ("layer", "seats", "bundles") if a[k]}
+            bad = {k: len(a[k]) for k in ("layer", "seats", "bundles", "pin1") if a.get(k)}
             lines.append(
                 f"attest: {'PASS' if not bad else 'FAIL ' + str(bad)} ({len(a['compared'])} bundles compared"
                 + (f"; first {[a[k][0] for k in bad]}" if bad else "")
@@ -371,7 +372,14 @@ def compare_run_dir(
         out.refusals = [r for r in vr.refusals if r["sim_verdict"] == "ok"]
     series = captured.get("series")
     if attest is not None and series is not None and getattr(series, "attest", None) is not None:
-        out.attest = compare_attest(adoc, series.attest, adoc.get("mints") or {}, node_vaults)
+        out.attest = compare_attest(
+            adoc,
+            series.attest,
+            adoc.get("mints") or {},
+            node_vaults,
+            series.pinned_pools,
+            series.start_height,
+        )
     return out, node, sim
 
 

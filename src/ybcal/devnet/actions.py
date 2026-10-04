@@ -239,7 +239,15 @@ class WalletDriver:
         if rows is None:
             rows = self.clients[0].call("yed_listattestors")
         att = self.clients[0].call("yed_getinfo").get("attest") or {}
-        self.attest_blocks.append({"height": height, "status": att.get("status")})
+        price = self.clients[0].call("yed_getprice")
+        self.attest_blocks.append(
+            {
+                "height": height,
+                "status": att.get("status"),
+                "pinnedKeys": sorted(str(k) for k in price.get("pinnedKeys") or []),
+                "pinnedSeqs": sorted(int(k) for k in price.get("pinnedSeqs") or []),
+            }
+        )
         for r in rows:
             row = {"height": height, "seq": int(r["seq"]), "status": r.get("status")}
             self.attestor_blocks.append(row | {"pinned": bool(r.get("pinned"))})

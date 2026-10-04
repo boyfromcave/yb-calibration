@@ -169,6 +169,12 @@ def configure_validate(p: argparse.ArgumentParser) -> None:
     _common(p, overlay=True, ycash6=True, seed=True)
     _ports(p)
     p.add_argument("--out", default=None, help="write the suite report JSON here")
+    p.add_argument(
+        "--parallel",
+        type=int,
+        default=1,
+        help="run up to N scenario devnets at once, each on its own port seed (seed, seed+1, …)",
+    )
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -417,15 +423,17 @@ def cli_validate(args: argparse.Namespace) -> int:
     skip_reason = binfo.reason if isinstance(binfo, Skipped) else ""
     if not isinstance(binfo, Skipped):
 
-        def node_runner(sched: Any) -> Any:
+        seed0, base = _port_args(args)
+
+        def run_one(sched: Any, slot: int = 0) -> Any:
             r = run_devnet(
                 sched,
                 sp,
                 ycashd=binfo.ycashd,
                 repo=repo,
                 commit=args.ref,
-                portseed=_port_args(args)[0],
-                port_base=_port_args(args)[1],
+                portseed=seed0 + slot,
+                port_base=base,
                 seed=args.seed or 0,
                 allow_version_skew=args.allow_version_skew,
             )
@@ -434,6 +442,25 @@ def cli_validate(args: argparse.Namespace) -> int:
             if r.status != "ok" or r.scrape is None:
                 return Skipped(f"devnet run {r.status}: {r.message}", "run")
             return r.run_dir
+
+        done: dict[str, Any] = {}
+        if args.parallel > 1:
+            from concurrent.futures import ThreadPoolExecutor
+
+            scheds = {n: make_schedule(n, sp.params, seed=args.seed or 0) for n in names}
+            with ThreadPoolExecutor(max_workers=args.parallel) as ex:
+                futs = {n: ex.submit(run_one, scheds[n], i) for i, n in enumerate(names)}
+            for n, f in futs.items():
+                exc = f.exception()
+                done[n] = exc if exc is not None else f.result()
+
+        def node_runner(sched: Any) -> Any:
+            if sched.name in done:
+                got = done[sched.name]
+                if isinstance(got, BaseException):
+                    raise got
+                return got
+            return run_one(sched)
 
     suite = validate_suite(
         names,

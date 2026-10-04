@@ -90,13 +90,17 @@ def attest_inputs(
 
 def compare_attest(
     actions: Mapping[str, Any], attest_series: Any, mint_info: Mapping[str, Mapping[str, Any]],
-    vaults: Sequence[Mapping[str, Any]],
+    vaults: Sequence[Mapping[str, Any]], pinned_pools: Any = None, start: int = 1,
 ) -> dict[str, list[dict[str, Any]]]:
     """Mismatches (empty lists = pass) of the layer status, seq status / pinned, and MINT bundles."""
     out: dict[str, list[dict[str, Any]]] = {"layer": [], "seats": [], "bundles": [], "compared": []}
     s = attest_series
     h0 = int(s.height0)
     n = int(s.n_blocks)
+    from ybcal.devnet.keys import pool_addresses
+
+    addr = pool_addresses()
+    out["pin1"] = []
     for b in actions.get("attest_blocks", []):
         j = int(b["height"]) - h0
         if not 0 <= j < n:
@@ -104,6 +108,11 @@ def compare_attest(
         sim = LAYER_NAMES[int(s.status[0, j])]
         if sim != b["status"]:
             out["layer"].append({"height": b["height"], "node": b["status"], "sim": sim})
+        if pinned_pools is not None and "pinnedKeys" in b:
+            mask = int(pinned_pools[0, int(b["height"]) - start])
+            sim_keys = sorted(addr[i] for i in range(len(addr)) if mask >> i & 1)
+            if sim_keys != b["pinnedKeys"]:
+                out["pin1"].append({"height": b["height"], "node": b["pinnedKeys"], "sim": sim_keys})
     st = s.attestor_status
     for b in actions.get("attestor_blocks", []):
         j = int(b["height"]) - h0
