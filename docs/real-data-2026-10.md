@@ -268,8 +268,8 @@ farm or several solo miners.
 
 | Logger | PID file | Output | Cadence / end |
 |---|---|---|---|
-| `spreads.py log` (ycash6 `contrib/yellowback/attest/calibrate/spreads.py`, read-only use) | `data/local/spreads-live.pid` | `spreads-live.csv`, log `spreads-live.log` | 300 s, stops itself after 14 days (2026-10-17) |
-| order-book snapshotter `data/local/depth-snapshot-loop.sh` | `data/local/depth-loop.pid` | appends to `depth.csv`, log `depth-loop.log` | 900 s, stops itself after 14 days |
+| `spreads.py log` (ycash6 `contrib/yellowback/attest/calibrate/spreads.py`, read-only use) | `data/local/spreads-live.pid` | `spreads-live.csv`, log `spreads-live.log` | 300 s, stops itself after 14 days (2026-10-18 05:09 UTC) |
+| order-book snapshotter `data/local/depth-snapshot-loop.sh` | `data/local/depth-loop.pid` | appends to `depth.csv`, log `depth-loop.log` | 900 s, stops itself after 14 days (≈ 2026-10-18 05:21 UTC) |
 
 Stop: `kill $(cat data/local/spreads-live.pid) $(cat data/local/depth-loop.pid)`. Both run the
 data agent's worktree venv (`wt/ybcal-data/.venv`); if that worktree is removed, repoint
