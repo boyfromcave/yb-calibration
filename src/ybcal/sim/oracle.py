@@ -193,9 +193,15 @@ def generate_block_inputs(
     attest: dict | None = None,
     meta: dict | None = None,
     enforce_until: int = 0,
+    miner: np.ndarray | None = None,
 ) -> BlockInputs:
     """Tag stream for every block of every path (see the module docstring). Returns
     :class:`ybcal.sim.engine.BlockInputs`.
+
+    ``miner`` (optional, ``(P, n)`` or ``(n,)`` ints) fixes who mined each block instead of drawing it
+    from the pool shares: pool index ``k`` (``0 … K−1``), anything else = a stock, untagged miner. It
+    replays a real block-by-block miner sequence (the pool-share log), so the day-to-day swings of
+    real shares reach the medians' fill. The uniforms are still drawn (common random numbers).
 
     Draw order (fixed, so two configs with the same pools give common random numbers): miner
     uniforms, then per pool in index order its outage process and (if stale) its own noise, then the
@@ -215,7 +221,12 @@ def generate_block_inputs(
     shares = np.array([p.share for p in pools], dtype=np.float64)
     cum = np.cumsum(shares) if K else np.zeros(0)
     u = rng.random((P, n))
-    miner = np.searchsorted(cum, u, side="right").astype(np.int16)  # K = stock miner
+    if miner is None:
+        miner = np.searchsorted(cum, u, side="right").astype(np.int16)  # K = stock miner
+    else:
+        m = np.asarray(miner)
+        m = np.broadcast_to(m if m.ndim == 2 else m[None, :], (P, n))
+        miner = np.where((m >= 0) & (m < K), m, K).astype(np.int16)
     per_pool = []
     for p in pools:
         inside, begin = _outage_mask(rng, P, n, p.outage_rate_per_day, p.outage_mean_hours)

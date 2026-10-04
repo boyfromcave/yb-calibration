@@ -268,27 +268,138 @@ def _marks(scen: SC.Scenario, n: int, schedules: Mapping[str, np.ndarray]) -> di
     return out
 
 
+# ---------------------------------------------------------------------------------------------------
+# The real pool landscape (D-RD-ORA-1)
+
+#: Payout keys kept as named pools: the largest ``LANDSCAPE_TOP`` with at least ``LANDSCAPE_MIN_SHARE``
+#: of the log's blocks (as ``PoolModel.fit``); the rest mine as stock, untagged miners.
+LANDSCAPE_TOP, LANDSCAPE_MIN_SHARE = 8, 0.01
+
+
+@dataclass(frozen=True)
+class PoolLandscape:
+    """The real pool landscape of a pool-share log: named keys, their block shares, which of them tag
+    quotes (policy ``tagging_pools``, else the largest until ``expected_enforcing_share``), and the
+    real block-by-block miner sequence (index into ``keys``; −1 = a key below the cut)."""
+
+    keys: tuple[str, ...]
+    shares: tuple[float, ...]
+    tagging: tuple[bool, ...]
+    sequence: np.ndarray = field(compare=False, repr=False)
+    source: str = ""
+    selection: str = ""
+
+    @property
+    def tagging_share(self) -> float:
+        return float(sum(sh for sh, t in zip(self.shares, self.tagging, strict=True) if t))
+
+    @property
+    def top_tagging(self) -> int | None:
+        """Index of the largest tagging key (``None`` if none tags)."""
+        idx = [i for i, t in enumerate(self.tagging) if t]
+        return max(idx, key=lambda i: self.shares[i]) if idx else None
+
+    def tag_mask(self, tagging: tuple[bool, ...] | None = None) -> np.ndarray:
+        """Per block of the real sequence: mined by a tagging key."""
+        flags = np.asarray(self.tagging if tagging is None else tagging, dtype=bool)
+        seq = self.sequence
+        return np.where(seq >= 0, flags[np.maximum(seq, 0)], False)
+
+    def fingerprint(self) -> tuple:
+        return (tuple(round(x, 9) for x in self.shares), self.tagging, len(self.sequence))
+
+
+def _tagging_flags(keys: tuple[str, ...], shares: tuple[float, ...], policy) -> tuple[tuple[bool, ...], str]:
+    pref = tuple(getattr(policy, "tagging_pools", ()) or ())
+    if pref:
+        flags = tuple(any(k.startswith(p) for p in pref) for k in keys)
+        if any(flags):
+            return flags, "policy tagging_pools"
+    target = float(policy.expected_enforcing_share)
+    out, acc = [], 0.0
+    for sh in shares:
+        on = acc < target - 1e-12
+        out.append(on)
+        acc += sh if on else 0.0
+    why = "largest keys until expected_enforcing_share"
+    return tuple(out), (why + " (tagging_pools matched no key)" if pref else why)
+
+
+def pool_landscape(env: Env) -> PoolLandscape | None:
+    """The real pool landscape when a pool-share log is loaded (``pool_shares`` / ``hashrate``)."""
+    log = None
+    for k in ("pool_shares", "hashrate"):
+        cand = env.data.get(k) if isinstance(env.data, Mapping) else None
+        if cand is not None and hasattr(cand, "shares") and hasattr(cand, "pool"):
+            log = cand
+            break
+    if log is None or not len(log):
+        return None
+    sh = log.shares()
+    keep = [(k, v) for k, v in sh.items() if v >= LANDSCAPE_MIN_SHARE][:LANDSCAPE_TOP]
+    if not keep:
+        return None
+    keys = tuple(k for k, _ in keep)
+    shares = tuple(float(v) for _, v in keep)
+    flags, why = _tagging_flags(keys, shares, env.policy)
+    pos = {k: i for i, k in enumerate(keys)}
+    remap = np.array([pos.get(k, -1) for k in log.keys], dtype=np.int16)
+    seq = remap[np.asarray(log.pool, dtype=np.int64)]
+    return PoolLandscape(keys, shares, flags, seq, str(getattr(log, "source", "")), why)
+
+
+def no_price_from_mask(tag_mask: np.ndarray, windows, fills) -> tuple[float, tuple[float, ...]]:
+    """NO_PRICE hours per year when exactly the blocks in ``tag_mask`` carry a quote (no feed
+    outages): PRICE-1's fill only counts quotes, so this is exact for one real miner sequence.
+    Returns (total, per-window share of time undefined × hours per year)."""
+    m = np.asarray(tag_mask, dtype=np.int64)
+    n = m.size
+    wmax = max(int(w) for w in windows)
+    if n <= wmax:
+        return math.nan, tuple(math.nan for _ in windows)
+    cs = np.concatenate(([0], np.cumsum(m)))
+    L = n - wmax + 1
+    bad = np.zeros(L, dtype=bool)
+    parts = []
+    for w, f in zip(windows, fills, strict=True):
+        w = int(w)
+        cnt = (cs[w:] - cs[:-w])[-L:]
+        b = cnt < max(int(f), 1)
+        parts.append(float(b.mean()) * _PER_YEAR_H)
+        bad |= b
+    return float(bad.mean()) * _PER_YEAR_H, tuple(parts)
+
+
+def real_miners(env: Env, land: PoolLandscape | None, P: int, n: int, *keys: object) -> np.ndarray | None:
+    """``(P, n)`` miners replaying the real block sequence from a random offset per path (cyclic over
+    the log), or ``None`` without a landscape (miners are then drawn from the shares)."""
+    if land is None or not len(land.sequence):
+        return None
+    L = len(land.sequence)
+    offs = env.rng_for("G1G2", "miners", *keys, P, n).integers(0, L, size=P)
+    return land.sequence[(offs[:, None] + np.arange(n)[None, :]) % L]
+
+
 def oracle_config(env: Env) -> O.OracleConfig:
-    """Honest pools for the G1/G2 oracle: the tagging pools of a real pool-share log when one is
-    loaded (``g6.pool_model``, as G6 and G8 use), else ``expected_pool_count`` equal pools sharing
-    ``expected_enforcing_share`` (the policy). Background NO_PRICE is set by the largest pool's share
-    against the ⌈2W/3⌉ fill, so the real pool landscape matters more than the windows (D-RD-AUD-9).
-    Outages follow the policy's per-pool rate and mean length either way."""
+    """Pools for the G1/G2 oracle. With a real pool-share log: its keys (≥ 1 %, largest 8) at their
+    real shares, tagging as :func:`pool_landscape` says (policy ``tagging_pools``, else the largest
+    until ``expected_enforcing_share``), and :func:`realise` replays the real miner sequence.
+    Without one: ``expected_pool_count`` equal pools sharing ``expected_enforcing_share``. Background
+    NO_PRICE is set by who tags against the ⌈2W/3⌉ fill, so the landscape matters more than the
+    windows (D-RD-AUD-9, D-RD-ORA-1). Outages follow the policy's per-pool rate and mean length."""
     pol = env.policy
     kw = dict(
         outage_rate_per_day=float(getattr(pol, "pool_outage_rate_per_day", POOL_OUTAGE_RATE_PER_DAY)),
         outage_mean_hours=float(getattr(pol, "pool_outage_mean_hours", POOL_OUTAGE_MEAN_HOURS)),
         outage_mode="signal",
     )
-    from ybcal.studies.g6_miners_fees import pool_model  # local: g6 imports this module
-
-    pm, prov = pool_model(env)
-    if prov == "real-data":
-        shares = [float(sh) for sh, t in zip(pm.shares, pm.tagging, strict=True) if t and sh > 0]
-        if shares and sum(shares) <= 1 + 1e-9:
-            top = shares[: O.MAX_POOLS]
-            pools = tuple(O.Pool(share=sh, name=f"pool{i}", **kw) for i, sh in enumerate(top))
-            return O.OracleConfig(pools, meta={"source": "pool-share log"})
+    land = pool_landscape(env)
+    if land is not None and land.tagging_share > 0:
+        pools = tuple(
+            O.Pool(share=sh, name=f"pool{i}", tags=t, quotes=t, **kw)
+            for i, (sh, t) in enumerate(zip(land.shares, land.tagging, strict=True))
+        )
+        return O.OracleConfig(pools, meta={"source": "pool-share log", "selection": land.selection})
     return O.OracleConfig.from_policy(pol, **kw)
 
 
@@ -312,6 +423,7 @@ def realise(
     h = float(horizon if horizon is not None else horizon_days(scen, env.budget))
     pol = env.policy
     cfg0 = oracle_config(env)
+    land = pool_landscape(env)
     key = (
         int(env.seed),
         name,
@@ -321,6 +433,8 @@ def realise(
         float(pol.expected_enforcing_share),
         int(pol.expected_pool_count),
         tuple(round(p.share, 9) for p in cfg0.pools),
+        tuple(p.tags for p in cfg0.pools),
+        land.fingerprint() if land is not None else None,
         attack,
         label,
     )
@@ -330,7 +444,10 @@ def realise(
         return hit
     rng = env.rng_for("G1G2", "true", name, P, h)
     real = real_price(env)
-    if real is not None:
+    if scen.base.model == "replay":
+        # a window of the real history in order (D-RD-ORA-4); without real data the fallback model
+        run = scen.generate(rng, P, data=real, resolution="block", horizon_days=h)
+    elif real is not None:
         model = SY.BlockBootstrap.fit(real)
         model.demean = True
         n = scen.n_steps("block", h)
@@ -351,7 +468,8 @@ def realise(
         if bias == 0:
             cfg = cfg.with_attacks(())
     orng = env.rng_for("G1G2", "oracle", name, P, h)
-    inp = O.generate_block_inputs(true, cfg, rng=orng)
+    miner = real_miners(env, land, P, n, name, h) if attack is None else None
+    inp = O.generate_block_inputs(true, cfg, rng=orng, miner=miner)
     valid = inp.tag_present & (inp.tag_price > 0)
     keep = np.ones((1, n))
     if "tagging_share" in sched:
@@ -369,6 +487,7 @@ def realise(
         "base": run.paths.meta.get("base_model"),
         "provenance": "real-data" if real is not None else "synthetic",
         "tagging_share": tagging,
+        "miners": "real sequence" if miner is not None else "drawn from shares",
         "constants": dict(run.constants),
     }
     r = ScenarioRealisation(key, name, true, tag_price, valid, inp.tag_pool, marks, info)
@@ -521,6 +640,49 @@ QUICK_VALUES = {
 }
 
 
+def landscape_metrics(land: PoolLandscape | None, cand) -> dict[str, float]:
+    """What the real pool landscape does to one window set (D-RD-ORA-1), from the real miner sequence:
+
+    * ``top_pool_share`` / ``top_pool_quote_share`` — the largest tagging key's share of blocks and
+      of quotes;
+    * ``top_pool_control_{fast,mid,slow}``, ``top_pool_control_min`` — P(that key's quotes are the
+      lower median) per window, worse direction (V16 exact binomial at its real share); ≥ 0.5 on
+      every window means it sets every median alone, whatever the windows (``attack_env_blocked``);
+    * ``no_price_seq_h_per_year`` — NO_PRICE from the real sequence with the policy's tagging set,
+      no feed outages; ``no_price_all_tag_h_per_year`` the same if every named key tagged;
+      ``no_price_top_withholds_h_per_year`` if the largest tagging key mines but stops tagging.
+    Empty without a pool-share log."""
+    if land is None:
+        return {}
+    (wf, wm, ws), (ff, fm, fs) = O.windows_and_fills(cand)
+    out: dict[str, float] = {}
+    ti = land.top_tagging
+    T = land.tagging_share
+    if ti is not None:
+        top = float(land.shares[ti])
+        out["top_pool_share"] = top
+        out["top_pool_quote_share"] = top / T if T > 0 else math.nan
+        ctl = []
+        for w, W, F in (("fast", wf, ff), ("mid", wm, fm), ("slow", ws, fs)):
+            c = min(
+                O.attack_success_prob(top, W, F, honest_share=max(T - top, 0.0), direction="up"),
+                O.attack_success_prob(top, W, F, honest_share=max(T - top, 0.0), direction="down"),
+            )
+            out[f"top_pool_control_{w}"] = float(c)
+            ctl.append(c)
+        out["top_pool_control_min"] = float(min(ctl))
+        out["attack_env_blocked"] = float(min(ctl) >= 0.5)
+    win, fil = (wf, wm, ws), (ff, fm, fs)
+    out["no_price_seq_h_per_year"] = no_price_from_mask(land.tag_mask(), win, fil)[0]
+    out["no_price_all_tag_h_per_year"] = no_price_from_mask(
+        land.tag_mask(tuple(True for _ in land.keys)), win, fil
+    )[0]
+    if ti is not None:
+        wh = tuple(t and i != ti for i, t in enumerate(land.tagging))
+        out["no_price_top_withholds_h_per_year"] = no_price_from_mask(land.tag_mask(wh), win, fil)[0]
+    return out
+
+
 @dataclass
 class G1Study:
     """PLAN §5.1. ``space`` is a grid over the three windows (min-fills derived); ``evaluate``
@@ -552,7 +714,10 @@ class G1Study:
         pol = env.policy
         v: dict[str, float] = {}
         series_meta: dict[str, Any] = {}
-        tag = float(pol.expected_enforcing_share)
+        # the tagging share the oracle actually simulates (real landscape or the policy's), so the
+        # analytic and simulated attack metrics read the same quote population (D-RD-ORA-1)
+        tag = float(oracle_config(env).tagging_share)
+        land = pool_landscape(env)
 
         # manipulation resistance — analytic (V16) per window, both directions
         shares = []
@@ -562,6 +727,8 @@ class G1Study:
             v[f"attack_share_{w[1:-6].lower()}"] = s
             shares.append(s)
         v["attack_share_min"] = float(np.nanmin(shares)) if not all(math.isnan(x) for x in shares) else 0.0
+        v["tagging_share"] = tag
+        v.update(landscape_metrics(land, cand))
 
         # manipulation resistance — simulated at the policy's attack_share_min, ±bias
         a_name = ROLES["attack"][0]
@@ -702,7 +869,8 @@ class G1Study:
 
     # -- decide -----------------------------------------------------------------------------------
     def decide(self, results: ResultTable, policy: Policy) -> list[Recommendation]:
-        jt = objective_table(results, policy)
+        jt0 = objective_table(results, policy)
+        jt, env_notes = environment_adjust(jt0, policy)
         dec = decide_with_materiality(jt, policy, params=WINDOWS, metric="objective")
         cur = jt.current(WINDOWS)
         assert cur is not None
@@ -710,6 +878,11 @@ class G1Study:
         prov = cur.metrics.provenance
         verdict = final_verdict(dec.verdict, prov)
         binding = binding_constraint(jt, chosen, dec)
+        if env_notes:
+            # the policy is unmeetable in the real environment: the verdict stays BLOCKED, the value
+            # is the least-harm set under the relaxed rule (D-RD-ORA-2)
+            verdict = "BLOCKED"
+            binding = "environment-blocked: " + "; ".join(env_notes) + f" — least-harm rule: {dec.reason}"
         meta = cur.metrics.meta
         conf = _confidence(prov, str(meta.get("budget", "quick")))
         out = evidence_dir(meta.get("out_dir"), GROUP)
@@ -731,6 +904,12 @@ class G1Study:
             "lag_mint90_crash70_h",
             "halt3_wick_h",
             "wick_mint_drop_bps",
+            "tagging_share",
+            "top_pool_quote_share",
+            "top_pool_control_min",
+            "no_price_seq_h_per_year",
+            "no_price_all_tag_h_per_year",
+            "no_price_top_withholds_h_per_year",
         )
         mcur = {k: cur.metrics.values.get(k) for k in keys}
         mrec = {k: chosen.metrics.values.get(k) for k in keys}
@@ -778,6 +957,7 @@ class G1Study:
                         f"rules: {', '.join(spec.rules)}",
                         f"materiality: {dec.reason}",
                         f"underlying verdict before the provenance rule: {dec.verdict}",
+                        *[f"environment-blocked (D-RD-ORA-2): {x}" for x in env_notes],
                     ],
                 )
             )
@@ -836,6 +1016,59 @@ def _objective(lag: float, over: float, lag0: float, over0: float, lam: float) -
         return x / x0 if x0 > 1e-9 else (0.0 if x <= 1e-9 else x / 1e-9)
 
     return norm(lag, lag0) + lam * norm(over, over0)
+
+
+def environment_adjust(jt: ResultTable, policy: Policy) -> tuple[ResultTable, list[str]]:
+    """Relax the G1 constraints the real environment makes unmeetable for *every* window set, so the
+    rule still picks the least-harm windows instead of stopping at BLOCKED (D-RD-ORA-2):
+
+    * ``attack_share_min`` — when one real pool sets every median alone at the current windows
+      (``attack_env_blocked``: its quotes are the lower median with P ≥ ½ in every window), no window
+      choice changes who controls the price; the constraint is dropped from the window decision and
+      the exposure is reported (attestation and HALT-3 bound it, not the windows);
+    * ``max_no_price_hours`` — when no candidate meets it, it becomes "within materiality of the
+      lowest NO_PRICE any candidate reaches" (NO_PRICE is minimised first, then J as usual).
+
+    Returns the (possibly) adjusted table and one note per relaxation; no notes = unchanged."""
+    cur = jt.current(WINDOWS)
+    notes: list[str] = []
+    if cur is None:
+        return jt, notes
+    v = cur.metrics.values
+    drop_attack = bool(v.get("attack_env_blocked", 0.0) >= 1.0) and not cur.metrics.constraints.get(
+        "attack_share_min", True
+    )
+    if drop_attack:
+        notes.append(
+            f"the largest pool holds {float(v.get('top_pool_quote_share', math.nan)):.0%} of the quotes "
+            f"({float(v.get('top_pool_share', math.nan)):.0%} of blocks) and sets every median alone "
+            f"(P ≥ {float(v.get('top_pool_control_min', math.nan)):.2f} per block): attack_share_min "
+            f"({policy.attack_share_min:.0%}) cannot be met by any window set"
+        )
+    nph = [float(r.metrics.values.get("no_price_h_per_year", math.nan)) for r in jt]
+    finite = [x for x in nph if math.isfinite(x)]
+    relax_np = bool(finite) and min(finite) > float(policy.max_no_price_hours)
+    bound = (1.0 + float(policy.materiality)) * min(finite) if relax_np else math.nan
+    if relax_np:
+        np_cur = float(v.get("no_price_h_per_year", math.nan))
+        notes.append(
+            f"no window set meets max_no_price_hours ({policy.max_no_price_hours:g} h/yr): the lowest "
+            f"background NO_PRICE is {min(finite):.0f} h/yr (current {np_cur:.0f}); "
+            f"the rule keeps sets within materiality of it (≤ {bound:.0f} h/yr)"
+        )
+    if not notes:
+        return jt, notes
+    out = ResultTable(jt.base)
+    for r in jt:
+        m = r.metrics
+        c = dict(m.constraints)
+        if drop_attack:
+            c["attack_share_min"] = True
+        if relax_np:
+            x = float(m.values.get("no_price_h_per_year", math.nan))
+            c["max_no_price_hours"] = bool(math.isfinite(x) and x <= bound)
+        out.add(r.params, Metrics(dict(m.values), m.primary, m.minimize, c, m.provenance, dict(m.meta)))
+    return out, notes
 
 
 def objective_table(results: ResultTable, policy: Policy) -> ResultTable:

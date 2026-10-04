@@ -98,6 +98,7 @@ class Policy:
     attack_moved_tol: float = 0.05
     pool_outage_rate_per_day: float = 0.033333333333333
     pool_outage_mean_hours: float = 4.0
+    tagging_pools: tuple[str, ...] = ()
     max_sigma_lag_blocks: int = 4032
     hour_kernel_tolerance_bps: float = 300.0
     sigma_ref_round_bps: int = 500
@@ -190,6 +191,8 @@ class Policy:
         walk(data, "")
         if "sigma_accept_band" in flat:
             flat["sigma_accept_band"] = tuple(flat["sigma_accept_band"])
+        if "tagging_pools" in flat:
+            flat["tagging_pools"] = tuple(str(x) for x in flat["tagging_pools"])
         return cls(**flat)
 
     @classmethod

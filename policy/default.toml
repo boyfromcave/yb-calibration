@@ -35,6 +35,7 @@ max_no_price_hours = 6.0           # max expected hours/year with NO_PRICE set (
 attack_moved_tol = 0.05            # max fraction of attack blocks in which a coalition at attack_share_min moves the harmful price (G1, D-WP7a-2)
 pool_outage_rate_per_day = 0.033333333333333  # per-pool feed outages per day assumed in G1/G2 availability (D-WP7a-3)
 pool_outage_mean_hours = 4.0       # mean duration of a per-pool feed outage, hours (D-WP7a-3)
+tagging_pools = []                 # payout-key prefixes of the pools that tag quotes when a pool-share log is loaded; [] = largest pools until expected_enforcing_share (G1, G2, D-RD-ORA-1)
 pump_overpricing_lambda = 0.5      # weight of pump overpricing vs crash-lag CVaR in the G1 objective (§5.1)
 crash_lag_cvar_alpha = 0.95        # CVaR level for crash tracking lag (§5.1)
 max_sigma_lag_blocks = 4032        # max blocks for σ multiplier to reach 90 % of a new regime (§5.2)
