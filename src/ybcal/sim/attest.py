@@ -811,6 +811,8 @@ def _simulate_path(ctx: _Ctx, path: int) -> dict:
                         schedule_revive(a, t)
                         flipped = True
                 if flipped:
+                    if o_rec is not None:  # statuses are recorded after SNAP: DORMANT from t itself
+                        o_rec[:, t - h0] = status
                     cut = t
                     break
         # carry seatedSince to the end of the segment (cut)

@@ -288,6 +288,13 @@ class BlockSeries:
         return self.start_height + np.arange(self.n_blocks, dtype=np.int64)
 
     @property
+    def height0(self) -> int:
+        """Height of column 0 (= ``start_height``). WP-5's ``attest.simulate`` and
+        :func:`_attest_frame` read ``series.height0``; without it they fell back to 0 and walked the
+        attestation layer one block behind the engine's columns (found by the devnet, D-RD-DEV-5)."""
+        return int(self.start_height)
+
+    @property
     def pinned(self) -> np.ndarray:
         """True where at least one PIN-1 key is pinned at H."""
         return self.pinned_pools != 0
@@ -1247,6 +1254,7 @@ def simulate_devnet(
     jitter_bps: int = 10,
     seed: int | None = None,
     first_height: int = 1,
+    attest: dict | None = None,
 ) -> list[dict]:
     """WP-9's simulator contract (``ybcal.devnet.diff.resolve_simulator``): one record per block from
     ``params["startHeight"]`` for the replay of ``schedule`` (``path`` — the schedule's reference
@@ -1256,6 +1264,8 @@ def simulate_devnet(
     inputs = devnet_inputs(
         params, schedule, n_pools=n_pools, jitter_bps=jitter_bps, seed=seed, first_height=first_height
     )
+    if attest is not None:  # an attestation replay (WP-5 schema), e.g. ybcal.devnet.attestreplay
+        inputs.attest = attest
 
     def _tags(stage, prm, inp, s):
         if stage == "judge":

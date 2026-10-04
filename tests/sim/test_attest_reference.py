@@ -134,8 +134,13 @@ def test_golden_eligible_count_and_status_record(golden_replay):
     res = att.simulate(regtest(), _golden_inputs(m, doc, calls), {"p_mint": _p_mint(m, n)})
     st = res.attestor_status[0]
     assert res.eligible_count[0, 235 - 1] == 3 and res.trigger_height[0] == 235
-    assert int(st[3, 304 - 1]) == att.ELIGIBLE and int(st[3, 305 - 1]) == att.DORMANT
-    assert (res.eligible_count[0] == (st == att.ELIGIBLE).sum(axis=0)).all()
+    # statuses are recorded after SNAP (what yed_listattestors shows at that tip): DORMANT from the
+    # dormancy height itself (D-RD-DEV-5; the devnet saw DORMANT at the transition height)
+    assert int(st[3, 303 - 1]) == att.ELIGIBLE and int(st[3, 304 - 1]) == att.DORMANT
+    # eligible_count is ARM-1's count after maturity, before dormancy: it differs only at a dormancy height
+    dormant_at = {int(t["height"]) for t in res.transitions if t["cause"] == att.CAUSE_DORMANT}
+    same = res.eligible_count[0] == (st == att.ELIGIBLE).sum(axis=0)
+    assert all(same[h - 1] or h in dormant_at for h in range(1, n + 1))
 
 
 # ---------------------------------------------------------------------------------------------------

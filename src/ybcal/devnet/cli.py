@@ -433,7 +433,7 @@ def cli_validate(args: argparse.Namespace) -> int:
                 return r
             if r.status != "ok" or r.scrape is None:
                 return Skipped(f"devnet run {r.status}: {r.message}", "run")
-            return r.scrape.history
+            return r.run_dir
 
     suite = validate_suite(
         names,
@@ -473,54 +473,33 @@ def configure_diff(p: argparse.ArgumentParser) -> None:
     p.add_argument("--json", action="store_true", help="machine-readable output")
 
 
-def diff_run(run_dir: Path, allowlist: list[str] | tuple[str, ...] = ()) -> tuple[Any, list, list]:
-    """(DiffReport, node records, simulator records) for a kept run: the simulator replays the exact
-    schedule, overlay and replay arguments the run recorded in ``run.json``."""
-    from ybcal.devnet.diff import compare
-    from ybcal.devnet.scenarios import Schedule, schedule_prices
-    from ybcal.devnet.scrape import load_history_csv
-    from ybcal.sim.engine import simulate_devnet
-
-    doc = json.loads((run_dir / "run.json").read_text())
-    sched = Schedule.from_dict(doc["schedule"])
-    params = ParamSet.from_dict(doc["params"]) if doc.get("params") else shipped_regtest()
-    ra = doc.get("replay_args") or {}
-    node = load_history_csv(run_dir / "scrape" / "history.csv")
-    sim = simulate_devnet(
-        params,
-        schedule_prices(sched),
-        sched,
-        n_pools=int(ra.get("n_pools", 3)),
-        jitter_bps=int(ra.get("jitter_bps", 10)),
-        seed=int(ra.get("seed", sched.seed)),
-    )
-    return compare(node, sim, allowlist=allowlist), node, sim
-
-
 def cli_diff(args: argparse.Namespace) -> int:
     """Compare a kept run's scrape with the simulator, field by field (exit 1 on a mismatch)."""
+    from ybcal.devnet.diff import compare_run_dir
+
     run_dir = Path(args.run_dir)
     try:
-        rep, node, sim = diff_run(run_dir, args.allow)
+        cmp_, node, sim = compare_run_dir(run_dir, args.allow)
     except (OSError, KeyError, ValueError) as e:
         print(f"ybcal devnet diff: {e}", file=sys.stderr)
         return EXIT_ERROR
     by_n = {r["height"]: r for r in node}
     by_s = {r["height"]: r for r in sim}
-    lines = [rep.summary()]
+    lines = [cmp_.summary()]
     detail: dict[str, list[dict[str, Any]]] = {}
-    for f in rep.fields.values():
+    for f in cmp_.history.fields.values():
         if f.passed:
             continue
-        rows = []
-        for h in sorted(set(by_n) & set(by_s)):
-            if by_n[h].get(f.field) != by_s[h].get(f.field):
-                rows.append({"height": h, "node": by_n[h].get(f.field), "sim": by_s[h].get(f.field)})
+        rows = [
+            {"height": h, "node": by_n[h].get(f.field), "sim": by_s[h].get(f.field)}
+            for h in sorted(set(by_n) & set(by_s))
+            if by_n[h].get(f.field) != by_s[h].get(f.field)
+        ]
         detail[f.field] = rows
         shown = ", ".join(f"{r['height']}: {r['node']} vs {r['sim']}" for r in rows[: args.show])
         lines.append(f"  {f.field} (node vs sim): {shown}")
     out = run_dir / "diff.json"
-    doc = rep.to_dict() | {"mismatch_rows": {k: v[:200] for k, v in detail.items()}}
+    doc = cmp_.to_dict() | {"mismatch_rows": {k: v[:200] for k, v in detail.items()}}
     out.write_text(json.dumps(doc, indent=2, default=str) + "\n")
     _emit(args, doc, "\n".join(lines) + f"\nwritten: {out}")
-    return EXIT_OK if rep.passed else EXIT_ERROR
+    return EXIT_OK if cmp_.passed else EXIT_ERROR

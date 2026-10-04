@@ -86,7 +86,10 @@ class RpcClient:
                 payload = resp.read()
         except urllib.error.HTTPError as e:
             # ycashd answers RPC errors with HTTP 500 and a JSON body
-            payload = e.read()
+            try:
+                payload = e.read()
+            except OSError:  # the server closed after the status line (e.g. a bare 401)
+                payload = b""
             if not payload:
                 raise RpcError(None, f"HTTP {e.code} {e.reason}", method) from e
         except (TimeoutError, urllib.error.URLError, ConnectionError, OSError) as e:

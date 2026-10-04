@@ -41,6 +41,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
+from ybcal.devnet.actions import WalletDriver
 from ybcal.devnet.build import (
     BinaryInfo,
     NodeCheck,
@@ -491,6 +492,7 @@ class ReplayLog:
 
     start_height: int
     events: list[BlockEvent] = field(default_factory=list)
+    driver: WalletDriver | None = None  #: the wallet-action driver, when the schedule had actions
 
     @property
     def end_height(self) -> int:
@@ -567,19 +569,36 @@ def replay(
     on_step: Callable[[int, ReplayStep, ReplayLog], None] | None = None,
     attestor_price: Callable[[int], None] | None = None,
     attestor_down: Callable[[int, bool], None] | None = None,
+    driver: WalletDriver | None = None,
 ) -> ReplayLog:
     """Execute ``steps`` on ``devnet``: per block, quote on the miner (jittered) and ``generate 1``.
 
     ``attestor_price`` / ``attestor_down`` are the launcher's hooks (mock price files, agent
-    stop/start); a step with ``attestors_down`` and no hook raises.
+    stop/start); a step with ``attestors_down`` and no hook raises. Steps with ``actions`` run them
+    through ``driver`` (created over ``devnet.nodes`` when omitted), which also keeps the mempools
+    in step before every block; the driver ends up in ``ReplayLog.driver``.
     """
     rng = random.Random(seed)
     pools = devnet.pools
     last: list[int | None] = [None] * len(pools)
     height = int(devnet.primary.call("getblockcount"))
     log = ReplayLog(start_height=height)
+    wants_seats = attestor_down is None and any(st.attestors_down for st in steps)
+    if driver is None and (wants_seats or any(st.actions for st in steps)):
+        nodes = getattr(devnet, "nodes", None)
+        clients = [n.client for n in nodes] if nodes else [*pools, *([devnet.dark] if devnet.dark else [])]
+        driver = WalletDriver(clients)
+    log.driver = driver
+    if attestor_down is None and driver is not None:
+        attestor_down = driver.set_down
     down: set[int] = set()
     for si, step in enumerate(steps):
+        if driver is not None:
+            driver.price = step.price
+        for action in step.actions:
+            if driver is None:
+                raise ValueError("step actions need a WalletDriver")
+            driver.run(action, height)
         want_down = set(step.attestors_down)
         if want_down != down:
             if attestor_down is None:
@@ -608,10 +627,14 @@ def replay(
                     )
                     client.call("yed_setquote", quote, 1)
                     last[m] = quote
+            if driver is not None:
+                driver.sync_mempool(client)
             client.call("generate", 1)
             height += 1
             devnet.wait_synced(height)
             log.events.append(BlockEvent(height, miner, quote, si))
+            if driver is not None:
+                driver.after_block(height)
         if on_step is not None:
             on_step(si, step, log)
     return log
@@ -666,6 +689,30 @@ class RunResult:
         }
 
 
+def closing_txinfo(client: Any, vaults: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """``yed_gettxinfo`` of every vault's closing transaction (its refHeight, path, burn), by vault."""
+    out: dict[str, Any] = {}
+    for v in vaults:
+        txid = v.get("closingTxid")
+        if txid:
+            try:
+                out[v["vault"]] = client.call("yed_gettxinfo", txid)
+            except RpcError as e:
+                out[v["vault"]] = {"error": str(e)}
+    return out
+
+
+def mint_txinfo(client: Any, vaults: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """``yed_gettxinfo`` of every vault's MINT (refHeight, xMint/aMint, bundleSeqs), by vault."""
+    out: dict[str, Any] = {}
+    for v in vaults:
+        try:
+            out[v["vault"]] = client.call("yed_gettxinfo", v["txid"])
+        except RpcError as e:
+            out[v["vault"]] = {"error": str(e)}
+    return out
+
+
 def default_run_dir(name: str) -> Path:
     """``.work/devnet/<name>-<timestamp>``."""
     return work_dir() / "devnet" / f"{name}-{time.strftime('%Y%m%d-%H%M%S')}"
@@ -701,12 +748,6 @@ def run_devnet(
     binfo = resolve_binary(ycashd, key=build_key(sp, commit))
     if isinstance(binfo, Skipped):
         return binfo
-    if "attestors" in schedule.needs and launcher_worktree is None:
-        return Skipped(
-            f"scenario {schedule.name} needs attestor seats: run with the launcher backend "
-            "(--launcher) and a built yellowback-attest agent",
-            "run",
-        )
     if launcher_worktree is not None and any(sp.runtime[k] != v for k, v in LAUNCHER_RUNTIME.items()):
         return Skipped(
             "the launcher hard-codes -yellowbackstartheight=1 -yellowbacksigmaref=0 and passes no other "
@@ -753,6 +794,13 @@ def run_devnet(
             result.status = "refused"
             result.message = f"node parameters differ from the overlay: {result.node_check.fatal}"
             return result
+        driver = None
+        if launcher_worktree is None and any(st.actions or st.attestors_down for st in steps):
+            driver = WalletDriver(
+                [n.client for n in net.nodes],
+                attest_interval=int(sp.params["attestInterval"]),
+                ref_lag=int(sp.params["DEFAULT_REF_LAG"]),
+            )
         result.replay = replay(
             net,
             steps,
@@ -760,10 +808,20 @@ def run_devnet(
             jitter_bps=jitter_bps,
             attestor_price=attestor_price,
             attestor_down=attestor_down,
+            driver=driver,
         )
         result.scrape = scrape(net.primary, run_dir / "scrape")
+        if result.replay.driver is not None:
+            doc = result.replay.driver.to_dict()
+            doc["closing"] = closing_txinfo(net.primary, result.scrape.vaults)
+            doc["mints"] = mint_txinfo(net.primary, result.scrape.vaults)
+            path = run_dir / "scrape" / "actions.json"
+            path.write_text(json.dumps(doc, indent=2, default=str) + "\n")
+            result.scrape.files["actions"] = path
     except Exception as e:
         result.status, result.message = "failed", f"{type(e).__name__}: {e}"
+        with contextlib.suppress(Exception):  # best effort: keep what the chain shows for the post-mortem
+            scrape(net.primary, run_dir / "scrape-partial")
         raise
     finally:
         try:

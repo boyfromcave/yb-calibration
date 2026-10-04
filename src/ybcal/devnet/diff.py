@@ -244,6 +244,138 @@ def compare(
 
 
 # ---------------------------------------------------------------------------------------------------
+# A kept run against the simulator (history + the vault differential)
+
+
+@dataclass
+class RunComparison:
+    """Everything one devnet run is compared on (:func:`compare_run_dir`)."""
+
+    history: DiffReport
+    vaults: DiffReport | None = None  #: predicted vs node vault rows (runs with wallet actions)
+    claimable: DiffReport | None = None  #: per-height, per-vault status + claimable
+    collateral: list[dict[str, Any]] = field(default_factory=list)  #: wallet collateral mismatches
+    refusals: list[dict[str, Any]] = field(default_factory=list)  #: refused mints the simulator admits
+    attest: dict[str, list[dict[str, Any]]] | None = None  #: attestation mismatches (layer/seats/bundles)
+
+    @property
+    def passed(self) -> bool:
+        """Every part passed (absent parts do not count against it)."""
+        parts = [self.history, self.vaults, self.claimable]
+        att_ok = self.attest is None or not any(self.attest[k] for k in ("layer", "seats", "bundles"))
+        ok = all(r.passed for r in parts if r is not None) and att_ok
+        return ok and not self.collateral and not self.refusals
+
+    def summary(self) -> str:
+        """One line per part."""
+        lines = [f"history: {self.history.summary()}"]
+        if self.vaults is not None:
+            lines.append(f"vaults: {self.vaults.summary()}")
+        if self.claimable is not None:
+            lines.append(f"claimable: {self.claimable.summary()}")
+        if self.collateral:
+            lines.append(f"wallet collateral: {len(self.collateral)} differ, first {self.collateral[0]}")
+        if self.refusals:
+            lines.append(f"refused mints the simulator admits: {self.refusals}")
+        if self.attest is not None:
+            a = self.attest
+            bad = {k: len(a[k]) for k in ("layer", "seats", "bundles") if a[k]}
+            lines.append(
+                f"attest: {'PASS' if not bad else 'FAIL ' + str(bad)} ({len(a['compared'])} bundles compared"
+                + (f"; first {[a[k][0] for k in bad]}" if bad else "")
+                + ")"
+            )
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict[str, Any]:
+        """JSON form."""
+        return {
+            "passed": self.passed,
+            "history": self.history.to_dict(),
+            "vaults": self.vaults.to_dict() if self.vaults else None,
+            "claimable": self.claimable.to_dict() if self.claimable else None,
+            "collateral_mismatches": self.collateral,
+            "refusal_mismatches": self.refusals,
+            "attest": self.attest,
+        }
+
+
+def compare_run_dir(
+    run_dir: Any, allowlist: Iterable[AllowEntry] = ()
+) -> tuple[RunComparison, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Compare a finished run (``run.json`` + ``scrape/``) with the simulator replaying the exact
+    schedule, overlay and replay arguments it recorded; with ``scrape/actions.json`` the node's vault
+    transactions are replayed too (:mod:`ybcal.devnet.vaultreplay`). Returns the comparison and the
+    node and simulator per-height records."""
+    import json
+    from pathlib import Path
+
+    from ybcal.devnet.attestreplay import attest_inputs, compare_attest
+    from ybcal.devnet.scrape import load_history_csv
+    from ybcal.devnet.vaultreplay import VAULT_FIELDS, NodeVaultRun, VaultReplay
+    from ybcal.sim.engine import simulate_devnet
+
+    run_dir = Path(run_dir)
+    doc = json.loads((run_dir / "run.json").read_text())
+    sched = Schedule.from_dict(doc["schedule"])
+    params = ParamSet.from_dict(doc["params"]) if doc.get("params") else shipped_regtest()
+    ra = doc.get("replay_args") or {}
+    node = load_history_csv(run_dir / "scrape" / "history.csv")
+    captured: dict[str, Any] = {}
+
+    def capture(stage: str, prm: Any, inp: Any, series: Any) -> None:
+        captured["series"] = series
+
+    hooks: list[Any] = [capture]
+    vault_hook = None
+    actions = run_dir / "scrape" / "actions.json"
+    node_vaults: list[dict[str, Any]] = []
+    adoc: dict[str, Any] = {}
+    attest = None
+    if actions.exists():
+        adoc = json.loads(actions.read_text())
+        node_vaults = json.loads((run_dir / "scrape" / "vaults.json").read_text())
+        nv = NodeVaultRun.from_docs(node_vaults, adoc)
+        vault_hook = VaultReplay(nv)
+        hooks.append(vault_hook)
+        att_file = run_dir / "scrape" / "attestors.json"
+        attestors = json.loads(att_file.read_text()) if att_file.exists() else []
+        attest = attest_inputs(adoc, attestors or [], node_vaults, node)
+    sim = simulate_devnet(
+        params,
+        schedule_prices(sched),
+        sched,
+        hooks=tuple(hooks),
+        attest=attest,
+        n_pools=int(ra.get("n_pools", 3)),
+        jitter_bps=int(ra.get("jitter_bps", 10)),
+        seed=int(ra.get("seed", sched.seed)),
+    )
+    allow = list(allowlist)
+    out = RunComparison(compare(node, sim, allowlist=allow))
+    if vault_hook is not None and vault_hook.result is not None:
+        vr = vault_hook.result
+        node_rows = [{k: v.get(k) for k in ("vault", *VAULT_FIELDS)} for v in node_vaults]
+        out.vaults = compare(node_rows, vr.vaults, VAULT_FIELDS, allow, key="vault")
+        nb = [b for b in adoc.get("vault_blocks", []) if b["height"] not in vr.armed_heights]
+        key = lambda r: f"{r['height']}|{r['vault']}"  # noqa: E731
+        if nb or vr.claimable:
+            out.claimable = compare(
+                [{"k": key(r), **r} for r in nb],
+                [{"k": key(r), **r} for r in vr.claimable],
+                ("status", "claimable"),
+                allow,
+                key="k",
+            )
+        out.collateral = [r for r in vr.collateral if r["node"] != r["sim"]]
+        out.refusals = [r for r in vr.refusals if r["sim_verdict"] == "ok"]
+    series = captured.get("series")
+    if attest is not None and series is not None and getattr(series, "attest", None) is not None:
+        out.attest = compare_attest(adoc, series.attest, adoc.get("mints") or {}, node_vaults)
+    return out, node, sim
+
+
+# ---------------------------------------------------------------------------------------------------
 # The suite
 
 ScenarioStatus = Literal["pass", "fail", "pending", "skipped", "error"]
@@ -258,6 +390,8 @@ class ScenarioResult:
     reason: str = ""
     report: DiffReport | None = None
     blocks: int = 0
+    comparison: RunComparison | None = None  #: the full comparison when the node side was a run dir
+    run_dir: str = ""
 
 
 @dataclass
@@ -278,10 +412,12 @@ class SuiteReport:
 
     def summary(self) -> str:
         """One line per scenario."""
-        lines = [
-            f"{r.name:<20} {r.status.upper():<8} {r.reason or (r.report.summary() if r.report else '')}"
-            for r in self.results
-        ]
+        lines = []
+        for r in self.results:
+            detail = r.reason or (r.report.summary() if r.report else "")
+            if r.comparison is not None:
+                detail = r.comparison.summary().replace("\n", "; ")
+            lines.append(f"{r.name:<20} {r.status.upper():<8} {detail}")
         badge = "VALIDATED" if self.validated else "NOT VALIDATED"
         return "\n".join([*lines, f"suite: {badge}"])
 
@@ -296,6 +432,8 @@ class SuiteReport:
                     "reason": r.reason,
                     "blocks": r.blocks,
                     "report": r.report.to_dict() if r.report else None,
+                    "comparison": r.comparison.to_dict() if r.comparison else None,
+                    "run_dir": r.run_dir,
                 }
                 for r in self.results
             ],
@@ -357,6 +495,13 @@ def validate_suite(
             node = node_runner(sched)
             if isinstance(node, Skipped):
                 out.append(ScenarioResult(name, "skipped", str(node), blocks=sched.total_blocks))
+                continue
+            if not isinstance(node, list):  # a run directory: the full comparison (vaults included)
+                cmp_, _, _ = compare_run_dir(node, allow)
+                st: ScenarioStatus = "pass" if cmp_.passed else "fail"
+                out.append(
+                    ScenarioResult(name, st, "", cmp_.history, sched.total_blocks, cmp_, str(node))
+                )
                 continue
             sim = simulator(ps, schedule_prices(sched), sched)
         except Exception as e:

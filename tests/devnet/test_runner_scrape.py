@@ -343,8 +343,7 @@ def test_run_devnet_skips(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     sk = r.run_devnet(make_schedule("calm", regtest()), sp)
     assert isinstance(sk, Skipped) and "no ycashd binary" in sk.reason
     exe = _fake_binary(tmp_path)
-    sk = r.run_devnet(make_schedule("attestor-outage-1", regtest()), sp, ycashd=exe)
-    assert isinstance(sk, Skipped) and "attestor seats" in sk.reason
+    # attestor-outage-1 no longer needs the launcher: the minimal backend emulates the seats (D-RD-DEV-4)
     sp2 = split(regtest().replace(sigmaRefBps=10_000))
     sk = r.run_devnet(make_schedule("calm", regtest()), sp2, ycashd=exe, launcher_worktree=tmp_path)
     assert isinstance(sk, Skipped) and "hard-codes" in sk.reason
