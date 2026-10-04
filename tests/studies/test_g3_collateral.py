@@ -150,11 +150,22 @@ def test_ratio_rule_keeps_within_materiality_and_changes_on_violation():
 
 
 def test_ratio_rule_blocked_returns_least_violating():
-    d = G3.decide_rule(
-        _ratio_table({50_000: 0.05, 60_000: 0.03, 70_000: 0.02, 80_000: 0.011}), G3.ratio_rule(0), Policy()
-    )
+    import dataclasses
+
+    t = _ratio_table({50_000: 0.05, 60_000: 0.03, 70_000: 0.02, 80_000: 0.011})
+    d = G3.decide_rule(t, dataclasses.replace(G3.ratio_rule(0), env_limits=()), Policy())
     assert d.verdict == "BLOCKED"
     assert d.row.params["baseRatioBps[0]"] == 80_000 and d.least is d.row
+
+
+def test_ratio_rule_environment_limit_is_least_harm_not_blocked():
+    """D-RD-COL-4: an unmeetable class tolerance is an environment limit — least harm (lowest P(bad
+    debt)), CHANGE with the exposure and design note G3-DN1, never a silent BLOCKED."""
+    pol = Policy()
+    t = _ratio_table({50_000: 0.05, 60_000: 0.03, 70_000: 0.02, 80_000: 0.011})
+    d = G3.decide_rule(t, G3.ratio_rule(0, pol), pol)
+    assert d.verdict == "CHANGE" and d.row.params["baseRatioBps[0]"] == 80_000
+    assert d.env and d.env["constraints"] == ["bad_debt_A"] and "G3-DN1" in str(d.env)
 
 
 def test_verify_rule_keeps_feasible_current():

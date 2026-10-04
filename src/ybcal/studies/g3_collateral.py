@@ -907,6 +907,8 @@ class Rule:
     report: tuple[str, ...] = ()
     sens_metric: str | None = None
     provenance_key: str = "provenance"
+    #: constraints the environment may make unmeetable (D-RD-INF-3): then least harm, not BLOCKED
+    env_limits: tuple[Any, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -916,6 +918,7 @@ class RuleDecision:
     reason: str
     least: ResultRow | None = None
     improvement: float = 0.0
+    env: dict[str, Any] | None = None  #: environment-limit record (D-RD-INF-3, D-RD-COL-4)
 
 
 def rule_table(table: ResultTable, rule: Rule) -> ResultTable:
@@ -946,6 +949,12 @@ def decide_rule(table: ResultTable, rule: Rule, policy: Any) -> RuleDecision:
     if cur is None:
         raise ValueError(f"rule {rule.name}: the current set was not evaluated")
     feas = sub.feasible()
+    if not len(feas) and rule.env_limits:
+        from ybcal.studies.envlimit import decide_with_environment
+
+        ed = decide_with_environment(sub, policy, list(rule.env_limits))
+        if ed.environment:
+            return RuleDecision(ed.row, ed.verdict, ed.reason, None, ed.improvement, ed.environment)
     if not len(feas):
         least = min(sub.rows, key=lambda r: (violation_score(r, rule.constraints), sub.distance(r)))
         row = cur if rule.blocked_keeps_current else least
@@ -1113,6 +1122,53 @@ def valid(ps: ParamSet) -> bool:
 # The study
 
 
+def _ratio_exposure(c: int, policy: Any | None) -> Any:
+    name = CLASS_NAMES[c]
+    tol = float(policy.max_bad_debt(name)) if policy is not None else math.nan
+
+    def exp(row: ResultRow) -> str:
+        v = row.metrics.values
+        p = float(v.get(f"pbad.{name}", math.nan))
+        es = float(v.get(f"es.{name}", math.nan))
+        reach = float(v.get(f"tmax_ok_days.{name}", math.nan))
+        eff = float(v.get(f"yed_per_usd.{name}", math.nan))
+        short = es / p if p > 0 else math.nan
+        return (
+            f"P(bad debt at claim opening, class {name}) {p:.1%} against {tol:.1%}; a bad vault is "
+            f"short {short:.0%} of its debt on average; terms within tolerance up to {reach:.0f} d; "
+            f"{eff:.3f} YED per USD of YEC locked"
+        )
+
+    return exp
+
+
+def ratio_limit(c: int, policy: Any | None = None) -> Any:
+    """Class ``c``'s bad-debt tolerance as an environment limit (D-RD-COL-4): at YEC's volatility, with
+    no liquidation before ``lockHeight + grace`` (script.cpp:79-93), no ratio inside the registry
+    bounds meets it for B and C; the least-harm value is the lowest P(bad debt) — the upper bound."""
+    from ybcal.studies.envlimit import EnvironmentLimit
+
+    name = CLASS_NAMES[c]
+    return EnvironmentLimit(
+        constraint=f"bad_debt_{name}",
+        harm_metric=f"pbad.{name}",
+        minimize=True,
+        note="G3-DN1",
+        why=(
+            "the vault script admits no liquidation before lockHeight + grace, so the base ratio must "
+            "cover the whole term's drawdown, and YEC's ≈ 160–180 %/yr volatility over 1 week – 1 quarter "
+            "(≈ 115 % over a year) puts the needed ratio far above the registry bound for terms of months "
+            "to years (docs/decisions.md D-RD-COL-4)"
+        ),
+        exposure=_ratio_exposure(c, policy),
+        title=f"class {name}: the bad-debt tolerance is unmeetable at YEC volatility",
+        fix=(
+            "owner levers: shorter class terms (classMax), a looser max_bad_debt_prob for the class, or a "
+            "rule change (a liquidation path before maturity / periodic re-margining)"
+        ),
+    )
+
+
 def ratio_rule(c: int, policy: Any | None = None) -> Rule:
     name = CLASS_NAMES[c]
     return Rule(
@@ -1124,7 +1180,8 @@ def ratio_rule(c: int, policy: Any | None = None) -> Rule:
         f"max_bad_debt_prob[{name}], with the σ multiplier at sigma_mult_at; KEEP unless the smallest "
         "feasible ratio frees more than materiality of the collateral; a violating current value moves to "
         "the smallest feasible one; BLOCKED (least-violating = lowest P(bad debt)) when no ratio within "
-        "the registry bounds meets the policy.",
+        "the registry bounds meets the policy — unless that is the environment (D-RD-COL-4: then the "
+        "least-harm value, the lowest P(bad debt), with the exposure).",
         primary=f"ratio.{name}",
         constraints=(f"bad_debt_{name}",),
         report=(
@@ -1136,6 +1193,7 @@ def ratio_rule(c: int, policy: Any | None = None) -> Rule:
             f"het.{name}",
         ),
         sens_metric=f"pbad.{name}",
+        env_limits=(ratio_limit(c, policy),),
     )
 
 
@@ -1457,6 +1515,10 @@ class G3Study:
                     notes=rec_notes,
                 )
             )
+            if d.env:
+                from ybcal.studies.envlimit import attach_environment
+
+                attach_environment(recs[-1], d.env)
         return recs
 
     def explain(self, rec: Recommendation, results: ResultTable) -> str:
