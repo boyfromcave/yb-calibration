@@ -109,6 +109,11 @@ nav.toc a { display: block; padding: 1px 0; }
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Current</th><th>Least-violating value</th><th>Reason</th><th>Metrics there</th></tr></thead><tbody>
 {% for b in blocked %}<tr><td><a href="#{{ b.anchor }}"><code>{{ b.param|e }}</code></a></td><td class="num">{{ b.current|e }}</td><td class="num moved">{{ b.least|e }}{% if b.applied %} <span class="muted">(in the patch)</span>{% endif %}</td><td>{{ b.reason|e }}</td><td>{{ b.least_metrics|e }}</td></tr>
 {% endfor %}</tbody></table></div></div>{% endif %}
+{% if envlim %}<div class="blocked-box"><h3>Policy unmeetable in this environment</h3>
+<p>Not a parameter failure: no value can meet these constraints given the real environment. The least-harm value is chosen and the exposure stated.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Current → chosen</th><th>Verdict</th><th>Constraint</th><th>Why</th><th>Least harm</th><th>Exposure</th><th>Note</th></tr></thead><tbody>
+{% for b in envlim %}<tr><td><a href="#{{ b.anchor }}"><code>{{ b.param|e }}</code></a></td><td class="num">{{ b.current|e }} → <b>{{ b.chosen|e }}</b></td><td>{{ b.verdict }}</td><td>{{ b.constraints|e }}</td><td>{{ b.why|e }}</td><td>{{ b.harm|e }}</td><td>{{ b.exposure|e }}</td><td>{{ b.note|e }}</td></tr>
+{% endfor %}</tbody></table></div></div>{% endif %}
 {% if pinned_against %}<div class="blocked-box"><h3>Owner decisions the evidence argues against</h3>
 <p>The value is <b>kept</b> (verdict KEEP, never in the patch); the evidence points elsewhere and the owner may wish to re-confirm.</p>
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kept (decision)</th><th>Evidence points to</th><th>Because</th><th>Risk of keeping</th></tr></thead><tbody>
@@ -142,6 +147,7 @@ nav.toc a { display: block; padding: 1px 0; }
 <section class="param" id="{{ s.anchor }}">
 <div class="head"><h4>{{ s.number }} <code>{{ s.param|e }}</code></h4><span class="badge v-{{ s.verdict|replace(' ', '-') }}">{{ s.verdict_label|e }}</span></div>
 <div class="values">{{ s.current|e }} → <span class="{{ 'moved' if s.changed }}">{{ s.recommended|e }}</span> <span class="muted">· {{ s.klass }} / {{ s.change_path }} · confidence {{ s.confidence }} · {{ s.provenance|e }}{% if s.insensitive %} · insensitive{% endif %}</span></div>
+{% if s.env_blocked %}<p class="blocked-box"><b>Policy unmeetable in this environment ({{ s.env_blocked.constraints|join(", ")|e }}; design note {{ s.env_blocked.note|e }}).</b> {{ s.env_blocked.why|e }}. Least-harm choice on {{ s.env_blocked.harm_metric|e }}. Exposure: {{ (s.env_blocked.exposure or "not quantified")|e }}.</p>{% endif %}
 {% if s.pin %}<p class="blocked-box"><b>Owner decision {{ s.pin.ref|e }}: the value is kept.</b>{% if s.pin.evidence_points_elsewhere %} The evidence points to <b>{{ s.pin.evidence_value|e }}</b> ({{ s.pin.evidence_verdict|e }}) because {{ s.pin.because|e }}. Risk of keeping: {{ s.pin.risk|e }}.{% elif s.pin.evidence_blocked %} No evaluated value meets the policy ({{ s.pin.because|e }}). Risk of keeping: {{ s.pin.risk|e }}.{% else %} The study's evidence agrees.{% endif %}</p>{% endif %}
 <dl>
 <dt>What it controls</dt><dd>{{ s.controls|e }}</dd>

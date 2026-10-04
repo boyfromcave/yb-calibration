@@ -135,6 +135,7 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-DEV-7](#d-rd-dev-7-2026-10-03-devnet--what-remains-unmodelled-and-which-studies-it-weakens) | devnet (M6) | what remains unmodelled, and which studies it weakens |
 | [D-RD-INF-1](#d-rd-inf-1-2026-10-03-infra--price-inputs-by-role-observed-to-observed-returns-everywhere) | infra (wave 2) | price inputs by role; observed-to-observed returns everywhere |
 | [D-RD-INF-2](#d-rd-inf-2-2026-10-04-infra--owner-pinned-parameters-are-studied-and-kept) | infra (wave 2) | owner-pinned parameters are studied and kept |
+| [D-RD-INF-3](#d-rd-inf-3-2026-10-04-infra--policy-unmeetable-in-this-environment-is-not-blocked) | infra (wave 2) | "policy unmeetable in this environment" is not BLOCKED |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -1681,4 +1682,29 @@ above 40 %) is an operational gate, not a parameter; G5 reads it as context.
 evidence hides a risk. Re-deciding on the pinned slice of the same table costs no evaluation.
 **Consequence.** Machinery tests that move pinned fields use `Policy(owner_pinned={})`. Group agents
 read `rec.metrics["owner_pin"]` instead of overriding verdicts themselves.
+
+## D-RD-INF-3 (2026-10-04, infra) — "policy unmeetable in this environment" is not BLOCKED
+
+**Decision.** `ybcal.studies.envlimit.decide_with_environment(table, policy, limits, …)` is a drop-in
+for `decide_with_materiality`. A study declares the constraints the real environment may defeat as
+`EnvironmentLimit(constraint, harm_metric, minimize, note, why, exposure, title, fix)`. When the
+ordinary decision is BLOCKED **and every constraint no evaluated row meets is a declared limit**,
+it decides on the rows meeting all other constraints by the limit's least-harm objective, with the
+policy materiality and minimal change (the nearest value within materiality of the best); the
+verdict is KEEP/CHANGE (then `final_verdict` as usual) and `EnvDecision.environment` records the
+constraints, why, the design note id, the least-harm metric at choice/current/best and the exposure
+(a string or `row -> str`, evaluated at the chosen row). `attach_environment(rec, dec)` writes
+`metrics["environment_blocked"]`, a design note per limit (id = the note, so §5 de-duplicates
+across parameters) and a leading note. The report prints `KEEP|CHANGE — policy unmeetable in this
+environment (design note N)`, an executive-summary table with the exposure, a callout in the
+section and a top risk; lock-readiness counts it apart from BLOCKED, as a required item that passes
+when every such parameter has its note and a quantified exposure. A constraint that is unmeetable
+but not declared, or a mix with an undeclared one, stays BLOCKED.
+**Reason.** On real data `attack_share_min` 0.34 cannot be met by any window while one pool mines
+52 % of blocks, and `activation_reach` cannot be met when the enforcing share is below every
+threshold; BLOCKED there hid the usable answer (the least-harm value) and blurred it with real
+parameter failures. Whether a constraint is environment-limited is study knowledge, so the study
+declares it; the mechanism is generic.
+**Consequence.** The group agents (G1 attack share, G5 activation reach, G9 reorg share) opt in in
+their `decide`; nothing changes for a study that does not.
 

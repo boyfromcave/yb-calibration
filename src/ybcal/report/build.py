@@ -305,6 +305,7 @@ def lock_readiness(
             "No parameter is BLOCKED by the policy", not blocked, "none" if not blocked else lst(blocked)
         ),
         _pin_check(joint, policy, pinned, lst),
+        _env_check(recs, lst),
         CheckItem(
             "The recommended set passes every invariant (PLAN §1.4)",
             not viol,
@@ -357,6 +358,29 @@ def _pin_check(joint: JointResult, policy: Policy, pinned: Sequence[str], lst: C
     return CheckItem("Owner-pinned parameters hold their decided values", not moved, detail)
 
 
+def _env_check(recs: Mapping[str, Any], lst: Callable) -> CheckItem:
+    """Environment-limited parameters (D-RD-INF-3) are not BLOCKED, but each must carry its design
+    note and a quantified exposure for the owner to accept."""
+    from ybcal.studies.envlimit import env_info
+
+    lim = {k: env_info(r) for k, r in recs.items() if env_info(r) is not None}
+    if not lim:
+        return CheckItem(
+            "Environment-limited policy constraints are stated with their exposure",
+            None,
+            "none",
+            required=False,
+        )
+    bad = [k for k, e in lim.items() if not (e.get("note") and e.get("exposure"))]
+    notes = sorted({str(e.get("note")) for e in lim.values()})
+    detail = (
+        f"{len(lim)} parameter(s) where no value can meet the policy in this environment: {lst(list(lim))}; "
+        f"design note(s) {', '.join(notes)}; the owner accepts the stated exposure (§1, §5)"
+        + (f"; missing note/exposure: {lst(bad)}" if bad else "")
+    )
+    return CheckItem("Environment-limited policy constraints are stated with their exposure", not bad, detail)
+
+
 def g3_bad_debt_over(recs: Mapping[str, Any], policy: Policy) -> list[str]:
     """Classes whose G3 aggregate P(bad debt at claim opening) at the recommended ratio exceeds the
     policy, as ``"C 20.43% vs 2.0%"`` (D-RD-AUD-2: the summary quotes the study that sets the ratio,
@@ -394,7 +418,19 @@ def top_risks(
             )
         )
     from ybcal.optimize.pins import pin_info
+    from ybcal.studies.envlimit import env_info
 
+    lim = [k for k, r in recs.items() if env_info(r) is not None]
+    if lim:
+        e0 = env_info(recs[lim[0]]) or {}
+        risks.append(
+            (
+                0,
+                f"{len(lim)} parameter(s) cannot meet the policy in this environment "
+                f"({', '.join(lim[:5])}{' …' if len(lim) > 5 else ''}): least-harm values chosen; "
+                f"e.g. {lim[0]}: {e0.get('why', '')} — exposure {e0.get('exposure') or 'not quantified'}.",
+            )
+        )
     against = [
         k
         for k, r in recs.items()
@@ -518,6 +554,31 @@ def pinned_rows(joint: JointResult, sections: Mapping[str, X.ParamSection]) -> l
             }
         )
     out.sort(key=lambda d: (not d["elsewhere"], not d["blocked"]))
+    return out
+
+
+def env_rows(joint: JointResult, sections: Mapping[str, X.ParamSection]) -> list[dict[str, Any]]:
+    """Environment-limited parameters (D-RD-INF-3): policy unmeetable here, least-harm value chosen."""
+    out = []
+    for p, r in joint.recommendations.items():
+        e = sections[p].env_blocked if p in sections else None
+        if not e:
+            continue
+        out.append(
+            {
+                "param": p,
+                "anchor": sections[p].anchor,
+                "verdict": r.verdict,
+                "current": X.fmt_value(p, r.current),
+                "chosen": X.fmt_value(p, r.recommended),
+                "constraints": ", ".join(e.get("constraints") or []),
+                "why": str(e.get("why") or ""),
+                "exposure": str(e.get("exposure") or "not quantified"),
+                "note": str(e.get("note") or ""),
+                "harm": f"{e.get('harm_metric')} {X.fmt_number(e.get('harm_at_choice'))} (current "
+                f"{X.fmt_number(e.get('harm_at_current'))}, best {X.fmt_number(e.get('harm_best'))})",
+            }
+        )
     return out
 
 
@@ -891,6 +952,7 @@ def write_report(ctx: ReportContext, out: Path) -> dict[str, Path]:
     risks = top_risks(joint, ctx.sensitivity, ctx.policy, ctx.devnet, ctx.provenance)
     blocked = blocked_rows(joint, sections)
     pinned = pinned_rows(joint, sections)
+    envlim = env_rows(joint, sections)
 
     groups = []
     for g in GROUP_ORDER:
@@ -991,6 +1053,7 @@ def write_report(ctx: ReportContext, out: Path) -> dict[str, Path]:
         "risks": risks,
         "blocked": blocked,
         "pinned": pinned,
+        "envlim": envlim,
         "pinned_against": [x for x in pinned if x["elsewhere"] or x["blocked"]],
         "groups": groups,
         "sections": sections,

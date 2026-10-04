@@ -19,6 +19,16 @@ Run `{{ run_id }}` · {{ now }} · ybcal {{ version }} · ycash6 `{{ pin }}` · 
 {% endfor %}
 
 {% endif %}
+{% if envlim %}
+**Policy unmeetable in this environment — not a parameter failure: the least-harm value is chosen and the exposure stated**
+
+| Parameter | Current → chosen | Verdict | Unmeetable constraint | Why (environment) | Least harm | Exposure | Design note |
+|---|---|---|---|---|---|---|---|
+{% for b in envlim %}
+| [`{{ b.param }}`](#{{ b.anchor }}) | {{ b.current|mdcell }} → **{{ b.chosen|mdcell }}** | {{ b.verdict }} | {{ b.constraints|mdcell }} | {{ b.why|mdcell }} | {{ b.harm|mdcell }} | {{ b.exposure|mdcell }} | {{ b.note|mdcell }} |
+{% endfor %}
+
+{% endif %}
 {% if pinned_against %}
 **Owner decisions the evidence argues against — the value is KEPT (never CHANGE, never in the patch); the owner may wish to re-confirm**
 
@@ -81,6 +91,10 @@ Study status: **{{ g.status }}**{% if g.reason %} ({{ g.reason }}){% endif %}{% 
 
 **{{ s.current }} → {{ s.recommended }}** · {{ s.klass }} / {{ s.change_path }} · confidence {{ s.confidence }} · provenance {{ s.provenance }}{% if s.insensitive %} · *insensitive*{% endif %}
 
+{% if s.env_blocked %}
+> **Policy unmeetable in this environment ({{ s.env_blocked.constraints|join(", ") }}; design note {{ s.env_blocked.note }}).** {{ s.env_blocked.why }}. Least-harm choice on {{ s.env_blocked.harm_metric }}. Exposure: {{ s.env_blocked.exposure or "not quantified" }}.
+
+{% endif %}
 {% if s.pin %}
 > **Owner decision {{ s.pin.ref }}: the value is kept.**{% if s.pin.evidence_points_elsewhere %} The evidence points to **{{ s.pin.evidence_value }}** ({{ s.pin.evidence_verdict }}) because {{ s.pin.because }}. Risk of keeping: {{ s.pin.risk }}.{% elif s.pin.evidence_blocked %} No evaluated value meets the policy ({{ s.pin.because }}). Risk of keeping: {{ s.pin.risk }}.{% else %} The study's evidence agrees.{% endif %}
 

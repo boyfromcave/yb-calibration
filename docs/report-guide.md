@@ -79,6 +79,15 @@ decisions the evidence argues against" and the parameter section opens with "the
 X because …; risk of keeping: …". A pinned value is never CHANGE and never in the patch; removing
 its line from the policy lets the study move it.
 
+**Policy unmeetable in this environment** (D-RD-INF-3) prints as `KEEP — policy unmeetable in this
+environment (design note G1-ENV-1)` (or `CHANGE — …`). It is not BLOCKED: no value of the parameter
+could meet the constraint *given the real environment* (a 52 % pool against `attack_share_min`
+0.34; an enforcing share below every activation threshold), so the study chose the least-harm value
+by that constraint's own objective (materiality and minimal change as usual), and §1 lists the
+constraint, why the environment defeats it, the least-harm metric and the **quantified exposure**
+the owner accepts by locking. BLOCKED stays for a policy that some value could meet but none in the
+searched bounds does — a parameter failure.
+
 Confidence (*high / medium / low*) is the study's own judgement of its evidence. It depends on the
 budget, the provenance and how close the decision was.
 
@@ -122,10 +131,12 @@ The set is lock-ready when every **required** item passes:
 2. every locked recommendation is non-provisional and backed by real data (required while
    `require_real_data_for_lock = true`);
 3. no parameter is BLOCKED;
-4. every owner-pinned parameter holds its decided value (the detail names the pins the evidence
+4. every environment-limited parameter carries its design note and quantified exposure (not
+   BLOCKED; the owner accepts the exposure);
+5. every owner-pinned parameter holds its decided value (the detail names the pins the evidence
    argues against, for the owner to re-confirm; a pinned value needs no real-data backing in item 2);
-5. the recommended set passes every PLAN §1.4 invariant;
-6. the release study ran and nothing in it is BLOCKED.
+6. the recommended set passes every PLAN §1.4 invariant;
+7. the release study ran and nothing in it is BLOCKED.
 
 Advisory items, which never block: the joint pass converged, `params.cpp.patch` applies at the pin,
 and the devnet differential suite passed (milestone M6).
