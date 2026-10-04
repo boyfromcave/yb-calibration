@@ -122,15 +122,22 @@ def _iso(ts: Any) -> str:
         return "?"
 
 
-def load_data(files: Sequence[Path]) -> tuple[dict[str, Any], str, list[DataInfo]]:
+def load_data(
+    files: Sequence[Path], window: Any = None
+) -> tuple[dict[str, Any], str, list[DataInfo]]:
     """Load each file by sniffing its format: spreads log → ``spreads``, pool-share CSV →
-    ``pool_shares``, depth CSV → ``depth``, else a price series → ``price`` (an hourly real
-    :class:`PricePath`). Returns ``(env.data, provenance, infos)``."""
+    ``pool_shares``, depth CSV → ``depth``, else a price series. Price series are assigned a role by
+    their native granularity (:mod:`ybcal.data.inputs`): the finest → ``price``, a daily one next to
+    it → ``price_daily``; each is put on the hourly grid with its forward-fill mask. ``window`` (a
+    :class:`ybcal.data.inputs.Window`) restricts every price series first. Returns ``(env.data,
+    provenance, infos)``."""
+    from ybcal.data import inputs as IN
     from ybcal.data import loaders as L
     from ybcal.data import pricepath as PP
 
     data: dict[str, Any] = {}
     infos: list[DataInfo] = []
+    prices: list[tuple[Path, str, Any]] = []
     for f in files:
         sha = sha256_file(f)
         obj, kind = None, ""
@@ -161,6 +168,8 @@ def load_data(files: Sequence[Path]) -> tuple[dict[str, Any], str, list[DataInfo
         if obj is not None:
             continue
         if f.suffix.lower() == ".npz":
+            if "price" in data:
+                raise ValueError(f"{f}: a second price path (.npz) for role 'price'")
             pp = PP.load(f)
             data["price"] = pp
             infos.append(DataInfo(str(f), "price", sha, int(pp.prices.shape[-1]), "", "", "price"))
@@ -169,18 +178,37 @@ def load_data(files: Sequence[Path]) -> tuple[dict[str, Any], str, list[DataInfo
             ser = L.load_price_csv(f)
         except (L.DataFormatError, ValueError, KeyError, IndexError) as e:
             raise ValueError(f"{f}: not a recognised price / spreads / pool-share / depth file ({e})") from e
+        prices.append((f, sha, ser))
+    if prices and "price" in data:
+        raise ValueError("a price path (.npz) and a price CSV were both given; pass one")
+    roles = IN.assign_roles([s for _, _, s in prices])
+    by_ser = {id(s): (f, sha) for f, sha, s in prices}
+    latest = IN.latest_ts(roles) if roles else 0
+    for role in IN.PRICE_ROLES:
+        ser = roles.get(role)
+        if ser is None:
+            continue
+        f, sha = by_ser[id(ser)]
+        native = IN.native_step(ser)
+        win_txt = ""
+        if window is not None:
+            ser = IN.window_series(ser, *window.bounds(latest))
+            win_txt = f"; window {window.describe(latest)}"
         rs = L.resample_to_grid(ser, "hour")
-        data["price"] = rs.path
+        rs.path.meta.update({"role": role, "native_step_seconds": native})
+        if window is not None:
+            rs.path.meta["window"] = window.describe(latest)
+        data[role] = rs.path
         infos.append(
             DataInfo(
                 str(f),
-                "price",
+                f"price [{role}, native {IN.step_label(native)}]",
                 sha,
                 len(ser),
                 f"{_iso(ser.ts[0])} → {_iso(ser.ts[-1])}",
                 ser.gaps().summary().splitlines()[0] + f"; hourly grid forward-filled "
-                f"{rs.filled_fraction:.1%}",
-                "price",
+                f"{rs.filled_fraction:.1%}{win_txt}",
+                role,
             )
         )
     prov = "real-data" if any(i.kind for i in infos) else "synthetic"
@@ -239,10 +267,15 @@ def lock_readiness(
     recs = joint.recommendations
     locked = [k for k, s in REGISTRY.items() if s.tunable and s.change_path == "locked"]
     missing = [k for k in locked if k not in recs]
+    from ybcal.optimize.pins import pin_info
+
+    pinned = [k for k, r in recs.items() if pin_info(r) is not None]
     prov = [
         k
         for k in locked
-        if k in recs and (recs[k].verdict == "PROVISIONAL" or recs[k].provenance != "real-data")
+        if k in recs
+        and k not in pinned  # an owner decision does not rest on data (D-RD-INF-2)
+        and (recs[k].verdict == "PROVISIONAL" or recs[k].provenance != "real-data")
     ]
     blocked = [k for k, r in recs.items() if r.verdict == "BLOCKED"]
     viol = joint.recommended.check(Context.from_policy(policy))
@@ -271,6 +304,8 @@ def lock_readiness(
         CheckItem(
             "No parameter is BLOCKED by the policy", not blocked, "none" if not blocked else lst(blocked)
         ),
+        _pin_check(joint, policy, pinned, lst),
+        _env_check(recs, lst),
         CheckItem(
             "The recommended set passes every invariant (PLAN §1.4)",
             not viol,
@@ -300,6 +335,50 @@ def lock_readiness(
         ),
     ]
     return items
+
+
+def _pin_check(joint: JointResult, policy: Policy, pinned: Sequence[str], lst: Callable) -> CheckItem:
+    """Owner-pinned parameters hold their decided (shipped) values (D-RD-INF-2)."""
+    from ybcal.optimize.pins import parse_pin, pin_info
+
+    pins = {p: parse_pin(p, v) for p, v in (getattr(policy, "owner_pinned", {}) or {}).items()}
+    moved = [p for p, pin in pins.items() if not pin.holds(joint.recommended, joint.base)]
+    against = []
+    for p in pinned:
+        info = pin_info(joint.recommendations[p]) or {}
+        if info.get("evidence_points_elsewhere") or info.get("evidence_blocked"):
+            ev = info.get("evidence_value")
+            against.append(f"{p} → {X.fmt_value(p, ev)}" if info.get("evidence_points_elsewhere") else p)
+    if not pins:
+        return CheckItem("Owner-pinned parameters hold their decided values", None, "no pins in the policy",
+                         required=False)
+    detail = f"{len(pins)} pinned, {len(pinned)} studied" + (
+        f"; moved: {lst(moved)}" if moved else "; all kept"
+    ) + (f"; evidence points elsewhere for {lst(against)} (owner to re-confirm, §1)" if against else "")
+    return CheckItem("Owner-pinned parameters hold their decided values", not moved, detail)
+
+
+def _env_check(recs: Mapping[str, Any], lst: Callable) -> CheckItem:
+    """Environment-limited parameters (D-RD-INF-3) are not BLOCKED, but each must carry its design
+    note and a quantified exposure for the owner to accept."""
+    from ybcal.studies.envlimit import env_info
+
+    lim = {k: env_info(r) for k, r in recs.items() if env_info(r) is not None}
+    if not lim:
+        return CheckItem(
+            "Environment-limited policy constraints are stated with their exposure",
+            None,
+            "none",
+            required=False,
+        )
+    bad = [k for k, e in lim.items() if not (e.get("note") and e.get("exposure"))]
+    notes = sorted({str(e.get("note")) for e in lim.values()})
+    detail = (
+        f"{len(lim)} parameter(s) where no value can meet the policy in this environment: {lst(list(lim))}; "
+        f"design note(s) {', '.join(notes)}; the owner accepts the stated exposure (§1, §5)"
+        + (f"; missing note/exposure: {lst(bad)}" if bad else "")
+    )
+    return CheckItem("Environment-limited policy constraints are stated with their exposure", not bad, detail)
 
 
 def g3_bad_debt_over(recs: Mapping[str, Any], policy: Policy) -> list[str]:
@@ -336,6 +415,38 @@ def top_risks(
                 0,
                 f"{len(blocked)} parameter(s) BLOCKED — no evaluated value meets the policy: "
                 f"{', '.join(blocked[:6])}{' …' if len(blocked) > 6 else ''}.",
+            )
+        )
+    from ybcal.optimize.pins import pin_info
+    from ybcal.studies.envlimit import env_info
+
+    lim = [k for k, r in recs.items() if env_info(r) is not None]
+    if lim:
+        e0 = env_info(recs[lim[0]]) or {}
+        risks.append(
+            (
+                0,
+                f"{len(lim)} parameter(s) cannot meet the policy in this environment "
+                f"({', '.join(lim[:5])}{' …' if len(lim) > 5 else ''}): least-harm values chosen; "
+                f"e.g. {lim[0]}: {e0.get('why', '')} — exposure {e0.get('exposure') or 'not quantified'}.",
+            )
+        )
+    against = [
+        k
+        for k, r in recs.items()
+        if (pin_info(r) or {}).get("evidence_points_elsewhere") or (pin_info(r) or {}).get("evidence_blocked")
+    ]
+    if against:
+        risks.append(
+            (
+                1,
+                f"{len(against)} owner-pinned value(s) kept against the evidence: "
+                + ", ".join(
+                    f"{k} (evidence {X.fmt_value(k, (pin_info(recs[k]) or {}).get('evidence_value'))})"
+                    for k in against[:5]
+                )
+                + (" …" if len(against) > 5 else "")
+                + " — see 'Owner decisions the evidence argues against' in §1.",
             )
         )
     over, source = g3_bad_debt_over(recs, policy), "the G3 study (worst ensemble member)"
@@ -404,7 +515,20 @@ def blocked_rows(joint: JointResult, sections: Mapping[str, X.ParamSection]) -> 
                 if isinstance(vals, Mapping)
                 else str(vals)
             )
-        reason = "; ".join(x for x in (r.binding, str(m.get("decision") or "")) if x and x != "—")
+        parts: list[str] = []
+        for x in (r.binding, str(m.get("decision") or "")):
+            for y in str(x or "").split("; "):
+                y = y.strip()
+                head, sep, tail = y.partition(": ")
+                if sep and tail.startswith(head):  # "A: A (detail)" → "A (detail)"
+                    y = tail
+                # de-duplicate, also a part contained in an earlier one (the rd2 "no candidate
+                # satisfies the policy: no candidate satisfies …" repetition, D-RD-INF-6)
+                if y and y != "—" and not any(y in q or q in y for q in parts):
+                    parts.append(y)
+                elif y and any(q in y and q != y for q in parts):
+                    parts = [q for q in parts if q not in y] + [y]
+        reason = "; ".join(parts)
         out.append(
             {
                 "param": p,
@@ -415,6 +539,57 @@ def blocked_rows(joint: JointResult, sections: Mapping[str, X.ParamSection]) -> 
                 "applied": r.recommended != r.current,
                 "reason": reason or "no candidate meets the policy",
                 "least_metrics": lv_txt,
+            }
+        )
+    return out
+
+
+def pinned_rows(joint: JointResult, sections: Mapping[str, X.ParamSection]) -> list[dict[str, Any]]:
+    """Owner-pinned parameters (D-RD-INF-2), those the evidence would move first."""
+    out = []
+    for p, r in joint.recommendations.items():
+        pin = sections[p].pin if p in sections else None
+        if not pin:
+            continue
+        ev = pin.get("evidence_value")
+        out.append(
+            {
+                "param": p,
+                "anchor": sections[p].anchor,
+                "ref": pin.get("ref", "?"),
+                "kept": X.fmt_value(p, r.recommended),
+                "evidence": X.fmt_value(p, ev),
+                "evidence_verdict": pin.get("evidence_verdict", ""),
+                "elsewhere": bool(pin.get("evidence_points_elsewhere")),
+                "blocked": bool(pin.get("evidence_blocked")),
+                "because": str(pin.get("because") or ""),
+                "risk": str(pin.get("risk") or ""),
+            }
+        )
+    out.sort(key=lambda d: (not d["elsewhere"], not d["blocked"]))
+    return out
+
+
+def env_rows(joint: JointResult, sections: Mapping[str, X.ParamSection]) -> list[dict[str, Any]]:
+    """Environment-limited parameters (D-RD-INF-3): policy unmeetable here, least-harm value chosen."""
+    out = []
+    for p, r in joint.recommendations.items():
+        e = sections[p].env_blocked if p in sections else None
+        if not e:
+            continue
+        out.append(
+            {
+                "param": p,
+                "anchor": sections[p].anchor,
+                "verdict": r.verdict,
+                "current": X.fmt_value(p, r.current),
+                "chosen": X.fmt_value(p, r.recommended),
+                "constraints": ", ".join(e.get("constraints") or []),
+                "why": str(e.get("why") or ""),
+                "exposure": str(e.get("exposure") or "not quantified"),
+                "note": str(e.get("note") or ""),
+                "harm": f"{e.get('harm_metric')} {X.fmt_number(e.get('harm_at_choice'))} (current "
+                f"{X.fmt_number(e.get('harm_at_current'))}, best {X.fmt_number(e.get('harm_best'))})",
             }
         )
     return out
@@ -516,6 +691,7 @@ def _summary_rows(ctx: ReportContext, sections: Mapping[str, X.ParamSection]) ->
                 "recommended": s.recommended,
                 "changed": s.changed,
                 "verdict": s.verdict,
+                "verdict_label": s.verdict_label,
                 "change_path": s.change_path,
                 "klass": s.klass,
                 "confidence": s.confidence,
@@ -788,6 +964,8 @@ def write_report(ctx: ReportContext, out: Path) -> dict[str, Path]:
     ready = all(c.ok for c in checklist if c.required)
     risks = top_risks(joint, ctx.sensitivity, ctx.policy, ctx.devnet, ctx.provenance)
     blocked = blocked_rows(joint, sections)
+    pinned = pinned_rows(joint, sections)
+    envlim = env_rows(joint, sections)
 
     groups = []
     for g in GROUP_ORDER:
@@ -887,6 +1065,9 @@ def write_report(ctx: ReportContext, out: Path) -> dict[str, Path]:
         "verdict_order": VERDICT_ORDER,
         "risks": risks,
         "blocked": blocked,
+        "pinned": pinned,
+        "envlim": envlim,
+        "pinned_against": [x for x in pinned if x["elsewhere"] or x["blocked"]],
         "groups": groups,
         "sections": sections,
         "joint": joint,
@@ -954,6 +1135,8 @@ class RecommendConfig:
     cache_dir: str | None = None
     title: str = "Ycash Yellowback (YED) parameter recommendation"
     mini: bool = False  #: restrict the report to ``groups`` (``ybcal study``)
+    window: str | None = None  #: price-data window (:func:`ybcal.data.inputs.parse_window`)
+    policy_set: list[str] = field(default_factory=list)  #: ``--policy-set KEY=VALUE`` overrides (applied)
 
 
 @dataclass
@@ -981,6 +1164,8 @@ def default_out_dir(cfg: RecommendConfig, seed: int, data_hashes: Mapping[str, s
                 "p": cfg.policy.digest(),
                 "d": dict(data_hashes),
                 "g": cfg.groups,
+                "w": cfg.window,
+                "set": cfg.policy_set,
             },
             sort_keys=True,
         ).encode()
@@ -1023,7 +1208,9 @@ def run_recommend(
     a study: a failing study is reported as not run."""
     t0 = time.perf_counter()
     say = on_event or (lambda msg: print(msg, file=sys.stderr, flush=True))
-    data, prov, infos = load_data(cfg.data_files)
+    from ybcal.data.inputs import parse_window
+
+    data, prov, infos = load_data(cfg.data_files, parse_window(cfg.window))
     seed = int(cfg.seed if cfg.seed is not None else cfg.policy.seed)
     hashes = {i.path: i.sha256 for i in infos}
     out = Path(cfg.out) if cfg.out else default_out_dir(cfg, seed, hashes)
@@ -1077,6 +1264,10 @@ def run_recommend(
         timings["sensitivity"] = time.perf_counter() - t
     dev = devnet_status(joint.recommended)
     ptext, ppath = policy_text(cfg.policy_path)
+    if cfg.policy_set:
+        ptext += "\n# overrides (--policy-set), applied on top of the file above:\n" + "\n".join(
+            f"# {s}" for s in cfg.policy_set
+        ) + "\n"
     man = RunManifest.create(
         budget=cfg.budget.name,
         seed=seed,
@@ -1087,6 +1278,8 @@ def run_recommend(
     )
     man.extra["workers"] = cfg.workers
     man.extra["groups"] = cfg.groups
+    man.extra["window"] = cfg.window
+    man.extra["policy_set"] = list(cfg.policy_set)
     man.extra["python"] = sys.version.split()[0]
     man.extra["pid_cpu_count"] = os.cpu_count()
     ctx = ReportContext(
@@ -1122,6 +1315,7 @@ def reproduce_config(manifest_path: str | Path) -> dict[str, Any]:
     m = RunManifest.load(manifest_path)
     probs = [p for p, ok in m.verify_data().items() if not ok]
     pol = Policy.load(m.policy_path) if m.policy_path and Path(m.policy_path).exists() else Policy()
+    pol, _ = pol.with_overrides(list(m.extra.get("policy_set") or []))
     if pol.digest() != m.policy_hash:
         probs.append(f"policy {m.policy_path or '(built-in)'} changed since the run")
     return {
@@ -1131,6 +1325,8 @@ def reproduce_config(manifest_path: str | Path) -> dict[str, Any]:
         "policy": pol,
         "data_files": list(m.data_hashes),
         "groups": m.extra.get("groups"),
+        "window": m.extra.get("window"),
+        "policy_set": m.extra.get("policy_set") or [],
         "workers": m.extra.get("workers"),
         "problems": probs,
     }

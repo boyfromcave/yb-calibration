@@ -319,9 +319,12 @@ def redemption_affordability(
     1,000 zat), valued at ``crash_price``: the redeem fee in USD and as a share of the collateral, and
     whether the owner still redeems (collateral − fee ≥ debt)."""
     mr = K.min_ratio_bps(int(params[f"baseRatioBps[{term_class}]"]), int(sigma_mult_bps))
+    if int(cents) <= 0 or mr <= 0 or int(p_mint) <= 0:
+        # math.h RequiredCollateral: nullopt for a non-positive input ("undefined"), distinct from K14
+        raise ValueError(f"mint undefined: non-positive input (cents {cents}, minRatio {mr}, pMint {p_mint})")
     req = K.required_zat_rounded(int(cents), mr, int(p_mint))
     if req is None:
-        raise ValueError("mint unsatisfiable (K14)")
+        raise ValueError("mint unsatisfiable (K14): the collateral requirement exceeds MAX_MONEY")
     floor = min_collateral_floor(params)
     coll = max(req, floor)
     if coll % 1000:

@@ -235,6 +235,14 @@ def resample(pp: PricePath, to: Resolution, *, method: Literal["hold", "loglinea
         for key, v in pp.meta.items():
             if isinstance(v, np.ndarray) and v.ndim >= 1 and v.shape[-1] == pp.n_steps:
                 meta[key] = np.repeat(v, k, axis=-1)
+        f = meta.get("filled")
+        if isinstance(f, np.ndarray) and f.dtype == bool and f.shape[-1] == prices.shape[-1]:
+            # only the first block of an hour carries that hour's observation; the other 47 are
+            # held copies. Marking them filled keeps fits observed-to-observed (D-RD-INF-1): else
+            # 47 exact-zero returns per hour read as a stale feed and drop_stale_runs empties it.
+            f = f.copy()
+            f[..., np.arange(f.shape[-1]) % k != 0] = True
+            meta["filled"] = f
     else:
         prices = pp.prices[:, ::k].copy()
         for key, v in pp.meta.items():

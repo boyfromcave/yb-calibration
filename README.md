@@ -137,6 +137,40 @@ cp spreads.csv /path/to/yb-calibration/data/local/spreads.csv
 Optional: a pool-share series (`height,payout_key`, one row per block, ≥ 1 month) as
 `data/local/pool-shares.csv`, and order-book depth as `data/local/depth.csv`.
 
+**Several price files.** Give the hourly and the daily series together; each is assigned a role by
+its own native granularity, not by argument order: the finest series is `price` (every study), a
+daily one beside it is `price_daily` (the long history for long-horizon evidence). Two files of the
+same granularity are refused. `--window full|last365|2021-22|2025-26|lastN|YYYY-MM-DD:YYYY-MM-DD`
+restricts every price series to a date range (spreads, depth and pool shares are not windowed):
+
+```bash
+D=data/local
+ybcal recommend --budget quick --data $D/yec-hourly.csv --data $D/yec-daily.csv \
+    --data $D/spreads-reconstructed.csv --data $D/pool-shares.csv --data $D/depth.csv --window last365
+```
+
+**Robustness across seeds, windows and price models** (`ybcal robust`, D-RD-INF-5). Each
+combination is an ordinary `recommend` run in `<out>/runs/<window>__<model>__s<seed>/`; finished runs
+are skipped on a re-run (resumable); CPU = `--jobs` × `--workers` at `nice` 10. Models: `bootstrap`
+(default), `regime` / `garch` (fitted on the daily series, centred: policy `real_price_model`),
+`martingale` (policy `price_drift`), or `a+b`. Any policy key can be overridden per run with
+`--policy-set KEY=VALUE` (also on `recommend` and `study`).
+
+```bash
+D=data/local
+nice ybcal robust --out .work/robust/g9 --budget standard --groups G9 --seeds 3 \
+    --windows full,last365,2021-22,2025-26 --models bootstrap,regime,martingale \
+    --policy policy/real-data-2026-10.toml --data $D/yec-hourly.csv --data $D/yec-daily.csv \
+    --data $D/spreads-reconstructed.csv --data $D/pool-shares.csv --data $D/depth.csv --workers 2 --jobs 2
+# → .work/robust/g9/robust.md (unstable parameters first), robust-summary.csv, robust.csv, robust.json
+ybcal robust ... --table-only    # re-tabulate what has finished
+ybcal robust --out .work/robust/x --runs reports/a reports/b   # tabulate any finished recommend dirs
+```
+
+Besides the agreement table, each parameter gets a **consolidated** value: the candidate whose own
+rule's constraints hold in the most runs (every evaluated candidate counts, not only each run's
+winner), ties → closest to current, reported as "feasible in k/N runs" with the per-run violations.
+
 **3. Import and inspect** (row counts, duplicates, gaps, fitted models):
 
 ```bash

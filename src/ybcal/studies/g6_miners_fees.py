@@ -195,38 +195,6 @@ def reference_price(env: Env) -> int:
     return int(DEFAULT_P0)
 
 
-PRICE_MODELS = ("bootstrap", "regime", "gbm")
-
-
-def real_price_model(env: Env):
-    """The price model G6/G8 fit to the real hourly series (policy ``attest_price_model``, D-RD-ATT-10):
-    ``bootstrap`` (default) — a demeaned block bootstrap of the hourly returns; ``regime`` — the
-    two-state regime switch fitted on the **daily** series (no intraday noise; drift neutralised);
-    ``gbm`` — a driftless GBM at the hourly series' volatility (the martingale stress). ``None`` without
-    a real price."""
-    from ybcal.data import pricepath as PP
-    from ybcal.data import synthetic as SY
-
-    real = G1.real_price(env)
-    if real is None:
-        return None
-    name = str(getattr(env.policy, "attest_price_model", "bootstrap"))
-    if name not in PRICE_MODELS:
-        raise ValueError(f"attest_price_model must be one of {PRICE_MODELS}, got {name!r}")
-
-    def build():
-        hourly = real if real.resolution == "hour" else PP.resample(real, "hour")
-        if name == "bootstrap":
-            m = SY.BlockBootstrap.fit(hourly)
-            m.demean = True
-            return m
-        if name == "regime":
-            return SY.fit("regime", PP.resample(hourly, "day"), drift="zero")
-        return SY.fit("gbm", hourly, drift="zero")
-
-    return _cached(_ekey(env, "real_model", name), build)
-
-
 def book_paths(budget: Budget) -> int:
     """Hour-mode book paths: ``budget.paths // 4`` (quick 16, standard 100, deep 500), at least 4."""
     return max(4, int(budget.paths) // 4)
@@ -262,7 +230,9 @@ def hour_prefix(env: Env, n_paths: int, days: float, tag: str) -> np.ndarray:
     real = G1.real_price(env)
     if real is not None:
         try:
-            model = real_price_model(env)
+            hourly = real if real.resolution == "hour" else PP.resample(real, "hour")
+            model = G1.real_model(env, hourly)
+            model.demean = True
             return np.asarray(model.simulate(n_paths, n, "hour", rng, p0=p0).prices, dtype=np.int64)
         except Exception:  # pragma: no cover - a real file too short to bootstrap → placeholder
             pass
@@ -432,7 +402,8 @@ def judge_stream(env: Env, name: str) -> JudgeStream:
         rng = env.rng_for("G6", "true", name, P, h)
         real = G1.real_price(env)
         if real is not None:
-            model = real_price_model(env)
+            model = G1.real_model(env, real)
+            model.demean = True
             base = model.simulate(
                 P, scen.n_steps("block", h), "block", env.rng_for("G6", "boot", name, P, h), p0=scen.p0
             )

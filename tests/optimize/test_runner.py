@@ -16,7 +16,8 @@ G, A = BASE.as_int("grace"), BASE.as_int("abandonBlocks")     # both 34,560
 
 
 def _env(budget="quick"):
-    return Env(Policy(), Budget.named(budget), seed=5, provenance="real-data")
+    # the toy study moves grace/abandonBlocks: no owner pins (D-RD-INF-2) in the machinery tests
+    return Env(Policy(owner_pinned={}), Budget.named(budget), seed=5, provenance="real-data")
 
 
 def test_toy_is_a_study():
