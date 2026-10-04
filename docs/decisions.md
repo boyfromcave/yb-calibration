@@ -148,7 +148,7 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-ATT-7](#d-rd-att-7-2026-10-04-attestation--npenalty-at-the-calm-steady-state) | attestation (wave 2) | `nPenalty` at the calm steady state |
 | [D-RD-ATT-8](#d-rd-att-8-2026-10-04-attestation--fees-under-the-owner-pinned-afee-1-the-attestor-floor-is-an-environment-limit) | attestation (wave 2) | fees under the owner-pinned AFEE-1: the attestor floor is an environment limit |
 | [D-RD-ATT-9](#d-rd-att-9-2026-10-04-attestation--attestor-capture-priced-in-money) | attestation (wave 2) | attestor capture priced in money |
-| [D-RD-ATT-10](#d-rd-att-10-2026-10-04-attestation--robustness-runs) | attestation (wave 2) | robustness runs |
+| [D-RD-ATT-10](#d-rd-att-10-2026-10-04-attestation--robustness-runs-and-the-final-g6g8-values) | attestation (wave 2) | robustness runs and the final G6/G8 values |
 | [D-RD-ATT-11](#d-rd-att-11-2026-10-04-attestation--qlowbps-stays-3333-griefing-resistance-is-not-bought-with-cheaper-theft) | attestation (wave 2) | `qLowBps` stays 3,333: griefing resistance is not bought with cheaper theft |
 | [D-RD-ATT-12](#d-rd-att-12-2026-10-04-attestation--devnet-attestor-dormancy-scenario) | attestation (wave 2) | devnet `attestor-dormancy` scenario |
 
@@ -2031,7 +2031,7 @@ agent ships. What separates pFast from aMint on real data is pFast's lag (a two-
 1,400–1,650 bps calm, 1,500–1,730 crash-70-1d, 1,600–1,870 pump-dump-3x. 5,000 bps would make MINT-10
 inert; 1,500 refuses 0.9–1.3 % of honest calm mints. Theft is not at stake either way: pMint =
 min(xMint, aMint), so a wide band only over-collateralises.
-**Consequence.** `divergeBpsAttest` KEEP 1,500 (target 1,500–1,700 across seeds, within materiality).
+**Consequence.** `divergeBpsAttest` KEEP 1,500 (see D-RD-ATT-10 for windows and models).
 An attestor set mis-configured on one venue raises calm refusals to 2.5–6 %.
 
 ## D-RD-ATT-4 (2026-10-04, attestation) — `bondMin` priced at the reference price; seat-splitting capture; security over one set lifetime
@@ -2120,12 +2120,40 @@ price, best split over ≤ 6 seats ≥ bondMin, nine honest minimum seats); G8 r
 **Finding** (20,000 YEC, $0.36): $25k → griefing in 95 % of bundles, no theft; **$50k → aMint up 10 %
 in 80 % of bundles** (6–7 seats); ≥ $100k → every bundle. Theft additionally needs xMint pushed up.
 
-## D-RD-ATT-10 (2026-10-04, attestation) — robustness runs
+## D-RD-ATT-10 (2026-10-04, attestation) — robustness runs and the final G6/G8 values
 
-`ybcal robust --groups G6,G8` (`.work/runs/robust.sh`): A standard × 3 seeds (full history,
-bootstrap, `spreads-reconstructed-maxage1h.csv`); B quick × windows (full, last365, 2021-22, 2025-26)
-× models (bootstrap, regime, martingale); C quick × 2 seeds on the un-guarded reconstruction; D quick
-on the live `spreads.py` log captured so far. Results in the final report of the attestation wave.
+**Runs** (`.work/runs/robust.sh`, `ybcal robust --groups G6,G8 --max-rounds 1`, agents at
+`min_sources = 2`): A standard × 3 seeds, full history, bootstrap, `spreads-reconstructed-maxage1h.csv`
+(`.work/robust-std`); B quick × windows {full, last365, 2021-22, 2025-26} × models {bootstrap, regime,
+martingale} (`.work/robust-wm`, 12 runs); C quick × 2 seeds on the un-guarded reconstruction
+(`.work/robust-nomaxage`); D quick × 2 seeds on the live `spreads.py` log as of 2026-10-04 09:34 UTC
+(54 rows, `.work/robust-live`). `martingale` (policy `price_drift`) does not change G6/G8's demeaned
+bootstrap: those runs equal bootstrap.
+**Final values** (verdict, where they agree):
+
+| Param | Current → final | Evidence |
+|---|---|---|
+| `peerMin` | 5 → **12** | 17/17 runs (largest value with P(not evaluated) ≤ 5 % at the expected share and at the participation floor) |
+| `deviationBps` | 1,000 → **1,700** | consolidated value feasible in 12/12 (B) and 3/3 (A); modal 1,400–1,600, window-sensitive (2021-22 needs 1,700): the binding case is a pool quoting an hour late (≤ 1 % of its tags); 20 % liars caught ≥ 99.9 %, 10 % liars no longer |
+| `accuracyBandBps` | 300 → **100** | rule target in 17/17 (honest calm p75 54–57 bps with the agent feeds); wallet weighting only |
+| `payeeWindow` | 100 → **200** | standard: FEE-0 0.16–0.28 % at 100 vs 0.1 % budget (synchronised agent fail-closed and pool outages); 200 feasible 3/3; quick runs keep 100 |
+| `feeMin` | 0.5 → **0.2 YEC** | 17/17; the minMint edge-redeem test at `worst_price_usd` — conditional on G3's `baseRatioBps[0]` (rd2's joint set kept 0.5) |
+| `feeBps` | 25 → **15** | environment limit G6-ENV-1 (D-RD-ATT-8), 17/17 |
+| `attestFeeBps` | 2,500 KEEP | owner-pinned D-3 |
+| `nPenalty` | 288 KEEP | consolidated 3/3; 192 differs by 0.05 % of the time (excluded wallet default) |
+| `nReg`, `peerLag`, `accuracyWindow`, `payeeTiltBps` | KEEP | 17/17 |
+| `divergeBpsAttest` | 1,500 KEEP | standard target 1,600–1,700 (within materiality); windows: last365 / 2021-22 bootstrap 2,100 (honest calm refusals at 1,500: 2.1–2.2 %), regime 900–1,100 (0.1–0.2 %); hourly bootstrap overstates sub-hour noise; a refusal delays a mint, never mis-prices it |
+| `dormancyMinBundles` | 20 → **15** | consolidated 3/3 (rule's 12 also feasible; 15 is the smaller change) |
+| `attestInterval` | 10 KEEP | age adds no refusals (−0.4 to 0 pp) in 17/17 |
+| `qLowBps` | 3,333 KEEP | 17/17 (D-RD-ATT-11) |
+| `bondMin` | 20,000 YEC KEEP | 17/17 (D-RD-ATT-4) |
+| all other G8 fields | KEEP | 17/17; `emergencyPersist` PROVISIONAL (synthetic scenarios) |
+
+**Live vs reconstructed spreads (D-RD-D3 bias).** 54 live rows (4.4 h): pair p50 cg–st 188, cg–nk 86,
+st–nk 282 bps vs the reconstruction's last 7 days 231 / 67 / 380; live worst-pair p95 383 bps vs 1,142
+(7 d) / 1,906 (365 d) reconstructed. The candle-close reconstruction plausibly inflates the tail 3–5×,
+but 4.4 quiet hours cannot measure a p95. None of the final values depends on venue-pair tails any
+more: the agents' median sits on the aggregate (|agent − CoinGecko| = 0 on every live row).
 
 ## D-RD-ATT-11 (2026-10-04, attestation) — `qLowBps` stays 3,333: griefing resistance is not bought with cheaper theft
 
