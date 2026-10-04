@@ -113,6 +113,8 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-AUD-2](#d-rd-aud-2-2026-10-03-audit--the-summary-quotes-g3s-pbad-debt-not-the-fast-model) | audit | the summary quotes G3's P(bad debt), not the fast model |
 | [D-RD-AUD-3](#d-rd-aud-3-2026-10-03-audit--pbad-debt-at-claim-opening-stays-the-constraint-severity-and-reach-are-evidence) | audit | P(bad debt) at claim opening stays the constraint; severity and reach are evidence |
 | [D-RD-AUD-4](#d-rd-aud-4-2026-10-03-audit--a-red-4b-closure-counts-only-when-the-exit-pays) | audit | a RED-4(b) closure counts only when the exit pays |
+| [D-RD-AUD-5](#d-rd-aud-5-2026-10-03-audit--supplycapbps-moves-only-for-admitted-demand-and-an-evidenced-depth-bound) | audit | `supplyCapBps` moves only for admitted demand and an evidenced depth bound |
+| [D-RD-AUD-6](#d-rd-aud-6-2026-10-03-audit--halt-3-calm-hours-share-the-availability-budget) | audit | HALT-3 calm hours share the availability budget |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -1280,4 +1282,38 @@ YED discount (`emergency_stress_premium_bps` = −2,000, a JUDGEMENT constant) i
 **Consequence.** At the default policy (b) changes the uncovered debt by < 1 pp at any e, so
 `emergencyRatioBps` is KEEP 10,500 (PROVISIONAL); the owner sees the depeg case beside it. G3-DN4
 already records the rule-level fix (pay (b) at pEmerg or with a bounty).
+
+## D-RD-AUD-5 (2026-10-03, audit) — `supplyCapBps` moves only for admitted demand and an evidenced depth bound
+
+**Finding.** The synthetic report moved `supplyCapBps` 15 % → 50 % (the top of the grid) with
+"improves primary metric by 233 %": the primary was the cap value itself, so any feasible larger cap
+was an "improvement", and the depth constraint was vacuous. In the joint set every class ratio was
+≥ `recapRatioBps` (500 %), so the W20 soft cap bound no class (`liq.demand_bound_usd` = 0 at every
+cap). Standalone at the shipped ratios, the 50 % cap admitted $40 k of B/C debt of which only 13 %
+opens its claim path inside the 365 + 60-day book: every class-C claim and the long B ones are
+censored, so the measured cap-bound demand ($1.6 k against a $2.5 k budget) proved nothing. The move
+also contradicted the owner's W20 decision (`SUPPLY_CAP_BPS` stays 1,500).
+**Decision.** (1) Primary = `cap.bc_refused` (share of class-B/C mint attempts refused by MINT-6 in
+the first year, minimise; ties toward current): a larger cap is a benefit only when it admits
+demand, and materiality applies to that benefit. (2) `depth_bound` holds only when the cap-bound
+debt is zero or at least `cap_min_uncensored_share` (0.5, JUDGEMENT) of it opens its claim path in
+the book; otherwise it is *unverified* and counts as violated. (3) When no swept cap has any
+cap-bound debt, the family keeps the current value ("uninformative").
+**Consequence.** Quick/synthetic standalone: KEEP 1,500 (B/C stay refused 91 % at 15 % and at 20 %;
+the early-cap design note, fact 1.5-2, carries the real issue). A real depth file and a longer book
+are what can justify a different cap.
+
+## D-RD-AUD-6 (2026-10-03, audit) — HALT-3 calm hours share the availability budget
+
+**Finding.** `divergenceBps` maximised a per-path F1 with a recall floor that includes the slow
+`crash-90-30d` (its downward jumps are what HALT-3 catches); false positives came from a
+`calm-90d` base of GBM 60 % — a third of YEC's realised daily volatility (200 % for the year to
+2026-10). A tighter band (2,000 → 1,500, or 1,000 in the joint run) therefore cost nothing in the
+synthetic calm, while on YEC's real price it would halt minting often.
+**Decision.** New constraint `calm_availability`: HALT-3 hours per year in `calm-90d` ≤
+`max_no_price_hours` — HALT-3 stops minting like NO_PRICE, so it draws on the same availability
+budget. The recall definition is kept (catching the downward jumps of a slow crash is legitimate).
+**Consequence.** No change on synthetic data (0 h/yr at every value); with real data the calm base
+becomes a bootstrap of real returns (G1 `realise`) and the constraint can bind. The synthetic
+recommendation (1,500) stays PROVISIONAL and rests on the 60 %-vol calm placeholder.
 
