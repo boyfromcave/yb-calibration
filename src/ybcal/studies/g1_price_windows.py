@@ -919,7 +919,12 @@ class G1Study:
             over = (p.x_claim[:, a:e] > r.true[:, a:e]) & (p.x_claim[:, a:e] > 0)
             v[f"exposure_{key}_h"] = float(over.sum(axis=1).mean()) / _H
             fired = p.halt3[:, a : a + RECALL_WITHIN_BLOCKS]
-            v[f"halt3_recall_{key}"] = float(fired.any(axis=1).mean())
+            # conditional on paths where HALT-3 can be tested (medians defined for most of the day):
+            # under the real landscape HALT-1 (NO_PRICE) often already stops minting (D-RD-ORA-6)
+            testable = p.no_price[:, a : a + RECALL_WITHIN_BLOCKS].mean(axis=1) < 0.5
+            hit = fired.any(axis=1)
+            v[f"halt3_recall_{key}"] = float(hit[testable].mean()) if testable.any() else 1.0
+            v[f"halt3_untestable_{key}"] = float((~testable).mean())
             first = np.where(fired.any(axis=1), fired.argmax(axis=1), np.nan)
             v[f"halt3_delay_{key}_h"] = (
                 float(np.nanmean(first)) / _H if np.isfinite(first).any() else math.nan
