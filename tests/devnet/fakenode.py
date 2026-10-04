@@ -128,7 +128,8 @@ class FakeChain:
             return {
                 "rpcversion": 3,
                 "network": "regtest",
-                "height": self.height,
+                # the index holds nothing below startHeight: a fresh chain reports -1 (as ycashd does)
+                "height": self.height if self.height >= 1 else -1,
                 "startHeight": 1,
                 "healthy": True,
                 "params": getinfo_params(self.params),
@@ -247,12 +248,16 @@ class FakeServer:
                 pass
 
             def do_POST(self) -> None:
+                # read the whole request before answering: a 401 sent while the client is still
+                # writing made the server close a half-read socket (connection reset, ~1 run in 6)
+                raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
                 if self.headers.get("Authorization") != expected:
                     self.send_response(401)
+                    self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
                 node = int(self.path.strip("/").removeprefix("node") or 0)
-                req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                req = json.loads(raw)
                 try:
                     result, error, status = (
                         chain.handle(node, req["method"], req.get("params", [])),

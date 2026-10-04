@@ -126,6 +126,13 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-AUD-10](#d-rd-aud-10-2026-10-03-audit--heterogeneity-is-not-a-constraint-neighbours-name-the-rules-own-constraints) | audit | heterogeneity is not a constraint; neighbours name the rule's own constraints |
 | [D-RD-AUD-11](#d-rd-aud-11-2026-10-03-audit--volstep--pfastwindow--2) | audit | `volStep ≥ pFastWindow / 2` |
 | [D-RD-AUD-12](#d-rd-aud-12-2026-10-03-audit--quick-budget-verdicts-are-not-lock-grade-seed-and-policy-robustness) | audit | quick-budget verdicts are not lock-grade: seed and policy robustness |
+| [D-RD-DEV-1](#d-rd-dev-1-2026-10-03-devnet--the-devnet-on-a-shared-machine-port-band-reuse-of-a-built-tree-teardown) | devnet (M6) | the devnet on a shared machine: port band, reuse of a built tree, teardown |
+| [D-RD-DEV-2](#d-rd-dev-2-2026-10-03-devnet--miners-follow-one-plan-across-the-schedule-scenario-realism) | devnet (M6) | miners follow one plan across the schedule (scenario realism) |
+| [D-RD-DEV-3](#d-rd-dev-3-2026-10-03-devnet--vault-differential-replay-the-nodes-transactions-through-the-rule-layer) | devnet (M6) | vault differential: replay the node's transactions through the rule layer |
+| [D-RD-DEV-4](#d-rd-dev-4-2026-10-03-devnet--emulated-attestor-seats-instead-of-the-rust-agent) | devnet (M6) | emulated attestor seats instead of the Rust agent |
+| [D-RD-DEV-5](#d-rd-dev-5-2026-10-03-devnet--two-simulator-fixes-the-devnet-found-attestation-frame-dormancy-record) | devnet (M6) | two simulator fixes the devnet found (attestation frame, dormancy record) |
+| [D-RD-DEV-6](#d-rd-dev-6-2026-10-03-devnet--binaries-and-skew-for-the-2026-10-validation) | devnet (M6) | binaries and skew for the 2026-10 validation |
+| [D-RD-DEV-7](#d-rd-dev-7-2026-10-03-devnet--what-remains-unmodelled-and-which-studies-it-weakens) | devnet (M6) | what remains unmodelled, and which studies it weakens |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -1502,3 +1509,118 @@ standard (or deep) run whose verdict is the same on at least two seeds; class A'
 by the worst member (the regime-switch preset) and by three owner policy choices, which the owner
 must confirm before it is locked. Recorded for the integrator's real-data runs.
 
+
+## D-RD-DEV-1 (2026-10-03, devnet) — the devnet on a shared machine: port band, reuse of a built tree, teardown
+
+**Decision.** `--port-base B` / `$YBCAL_DEVNET_PORT_BASE` keeps a devnet in `B … B+999` (seed `s` =
+24 ports: p2p `B+24s+n`, RPC `B+24s+12+n`); busy ports are refused before a node starts; nodes bind
+127.0.0.1 only. `ybcal devnet build` borrows a built clone's `depends/<triple>` (symlink) and cargo
+`target/` (copy-on-write clone) and runs `autogen` + `configure` instead of `zcutil/build.sh`; the
+build environment pins `CARGO_TARGET_DIR` to the worktree and puts GNU libtool/coreutils first.
+Run dirs carry a random suffix; SIGTERM stops a run's nodes. `wait_synced` accepts the index's
+`height: -1` below `startHeight`.
+**Reason.** As shipped the harness could not run here: the framework port scheme cannot reach the
+41000–41999 band other agents' nodes leave free; start-up waited for index height 0 at genesis
+(which the node reports as −1) and failed after 120 s; a build would have run the 35–60 min cold
+`build.sh` with BSD tools and the profile's shared cargo target; two suites started in the same
+second shared run directories.
+**Consequence.** A first worktree build takes ~4 min (ycash6) / ~7 min (ycash-dd), a later overlay
+build ~10 s – 2 min. The clones themselves are only touched by `git worktree add --detach` /
+`remove` (verified: `ycash6` and `ycash-dd` stay on their branches, nothing committed).
+
+## D-RD-DEV-2 (2026-10-03, devnet) — miners follow one plan across the schedule (scenario realism)
+
+**Decision.** `MinerPlan` (smooth weighted round robin with exact fractions) assigns every block's
+miner across the whole schedule; the replay and `engine.devnet_inputs` both use it. New
+`ReplayStep.frozen_pools` repeats a pool's previous quote (a stuck feed).
+**Reason.** `block_miners` interleaved within one step. Price walks are one step per block, so pool 0
+mined every such block: `oracle-attack-34` ran a 100 % attacker, `hashrate-drop` 100 %/0 %
+signalling, and the median of three pools was never exercised. The differential still passed (both
+sides used the same wrong schedule), so the bug was in the scenarios, not in the simulator.
+**Consequence.** All results in `docs/devnet.md` "Validation results 2026-10" are from runs after the
+fix. Seeds of earlier runs do not reproduce the same chains.
+
+## D-RD-DEV-3 (2026-10-03, devnet) — vault differential: replay the node's transactions through the rule layer
+
+**Decision.** For runs with wallet actions the node's transactions (MINT height, refHeight, amount,
+lock, collateral; spend path and refHeight) are inputs; the simulator re-derives verdicts, statuses,
+closes, burns, fees, per-height supply/collateral (hence `globalRatioBps` and HALT-2), per-height
+`claimable`, the wallet's collateral and the verdict for every refused mint, and these are compared
+exactly. ARMED transactions take their bundle from the simulator's own attestation replay.
+**Reason.** The vault book's agents are stochastic; a deterministic comparison needs the same
+transactions on both sides. What the rules decide from them is what calibration relies on.
+**Consequence.** The simulator's own *timing* model of when a wallet transacts is not tested by this
+(D-RD-DEV-7, L-1).
+
+## D-RD-DEV-4 (2026-10-03, devnet) — emulated attestor seats instead of the Rust agent
+
+**Decision.** The minimal backend registers `max(3, attestArmMin)` seats round-robin on the pool
+nodes and emulates `yellowback-attest attest`: every `attestInterval` cited heights
+(`cited = tip − REF_LAG`, phase = seq) a live seat signs the step's price with
+`yed_signattestation` and every node receives it with `yed_addattestation`. `attestors_down` stops
+a seat; the `freeze` action makes a seat re-sign one price (PIN-2). `attestor-outage-1` and `pin`
+run on the minimal backend.
+**Reason.** The launcher's port scheme cannot be confined to a port band and it hard-codes the
+runtime flags (D-WP9-4); the agent's cadence (`attest.rs`: every N blocks, `cited = height −
+ref_lag`) is simple to reproduce, and the replay then knows every signature exactly (WP-5's
+`sign_heights` / `sign_prices`).
+**Consequence.** Not covered: real price sourcing and aggregation (L5 failed polls), transport,
+REV-1 (the emulated agent never revives: a DORMANT seat stays DORMANT), equivocation, bond
+withdrawal. These remain functional-test territory (ycash6 `qa/rpc-tests/yellowback_attest*.py`).
+
+## D-RD-DEV-5 (2026-10-03, devnet) — two simulator fixes the devnet found (attestation frame, dormancy record)
+
+**Decision.** (1) `BlockSeries.height0` (= `start_height`): `attest.simulate` and
+`engine._attest_frame` read `series.height0` and fell back to 0, so an engine run whose attest dict
+had no `height0` walked the attestation layer — and the PIN-2 trigger mask — one block behind the
+engine's columns (a bundle in the last block found "no snapshot"; the devnet's 21st bundle of
+`attestor-outage-1` diverged). (2) `attest.simulate(record_status=True)` now records DORMANT from
+the dormancy height itself (post-SNAP), as `yed_listattestors` reports it; the transitions were
+already right.
+**Reason.** Both were found by comparing with the nodes; the reference-model tests compared
+transitions only.
+**Consequence.** No current study is affected: G8 calls `attest.simulate` directly with `height0` set
+and reads transitions, and no study runs the engine with attestation inputs. A future joint ARMED
+run would have been shifted by one block. `tests/sim/test_attest_reference.py` follows (2).
+
+## D-RD-DEV-6 (2026-10-03, devnet) — binaries and skew for the 2026-10 validation
+
+**Decision.** ycash6 runs use a binary built by `ybcal devnet build` at the pin `7702d22`
+(`v6.21.0-rc1-7702d2260`), not the workspace's `ycash6/src/ycashd`, whose banner is `94bafa4fd-dirty`
+and whose mtime (2026-10-02 21:13) predates W19/W20/W21 (23:36–00:14). ycash-dd baseline runs use
+`ycash-dd/src/ycashd` (`v4.5.0-cdfc4945f-dirty`, built before W20 landed on ycash-dd) under
+`--allow-version-skew`; its overlay runs use a binary built from ycash-dd `HEAD` (`f78a5f8`, W18–W21
+included) by the same tooling.
+**Reason.** The stock regtest column runs with `supplyCapBps = 0`, so W20 is inert there and the
+pre-W20 ycash-dd binary is a fair baseline; a scaled mainnet overlay carries a 1,500 bps cap, which
+needs W20.
+**Consequence.** Both lines validated on both the shipped regtest column and the scaled shipped
+mainnet set (`docs/devnet.md`).
+
+## D-RD-DEV-7 (2026-10-03, devnet) — what remains unmodelled, and which studies it weakens
+
+**Decision.** Recorded as limitations, not fixed:
+- **L-1 transaction timing.** On the node a MINT confirms 4 blocks after its R (carrier at tip+1,
+  MINT at tip+2, R = tip − 2), an owner redemption 1 block after R (R = tip), a claim 2 blocks after
+  R (R = tip). The vault book's block mode uses R = step − 3 for mints and owner spends. The
+  difference is 1–2 blocks (≤ 2.5 min on mainnet) against a 96-block fast window: it moves no G3/G4
+  verdict measurably; claim-race studies at the minute scale would need it.
+- **L-2 claimable under ARMED.** `yed_listvaults.claimable` under ARMED builds a bundle per vault;
+  the differential compares claim *verdicts* under ARMED but the per-height claimable flag only on
+  unarmed heights.
+- **L-3 abandonment and notices.** `abandoned`, sweeps and NOT-1 emergency notices are not driven by
+  a scenario (the scaled-mainnet `hashrate-drop` does reach abandonment — `abandonBlocks` = 24 at
+  `--term-factor 1440` — but holds no vault). G4/W21 abandonment heights rest on the reference-model
+  tests only.
+- **L-4 σ at regtest scale.** With the shipped `sigmaRefBps` the regtest σ estimate saturates the
+  multiplier (two values in a run); σ was exercised with `sigmaRefBps = 100000` and in `pin` under
+  the scaled mainnet set (27 distinct multipliers). The scaled set's σ is not a calibration input.
+- **F-DEV-1 (node wallet, both lines; reported, not a rule divergence).** A MINT spends its
+  carrier's change output; the wallet does not mark that output spent, so the next carrier or
+  `yed_send` within a few blocks can select it and is rejected by the mempool ("transaction commit
+  failed"). Seen in 1–10 of ~20–30 mints per run on ycash6 and ycash-dd. It affects wallet UX
+  (back-to-back mints), not consensus or calibration.
+**Consequence.** Studies weakened: claim-timing races (L-1), ARMED claimability on the minute scale
+(L-2), abandonment/sweep timing (L-3). G1/G2 (oracle), G3/G4 (vault solvency, claims), G5
+(activation), G7 (supply) and G8 (attestation liveness, dormancy, PIN) rest on rules the devnet now
+matches exactly on both lines.

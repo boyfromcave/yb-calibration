@@ -533,17 +533,100 @@ class BuildStep:
 
 #: 6.20.0 needs the cxx bridge headers before any target-only make (doc/yellowback-devnet.md §0).
 CXXBRIDGE_CMD = (
+    "if grep -q '^CXXBRIDGE_H = ' src/Makefile.am; then "  # v4.5.0 (ycash-dd) has no cxx bridge
     "awk '/^CXXBRIDGE_H = /{f=1;next} f&&/^ *rust\\/gen/{gsub(/[ \\\\]/,\"\");print;next} f{exit}' "
-    "src/Makefile.am | xargs make -C src -j{jobs}"
+    "src/Makefile.am | xargs make -C src -j{jobs}; fi"
 )
 
 
-def plan_build(wt: Path, jobs: int, *, configured: bool | None = None) -> list[BuildStep]:
-    """The commands a build runs in ``wt`` (``configured`` = ``src/Makefile`` exists)."""
+def built_triples(tree: Path) -> list[str]:
+    """Host triples whose ``depends/<triple>/share/config.site`` exists in ``tree`` (a built depends)."""
+    d = tree / "depends"
+    return sorted(p.parent.parent.name for p in d.glob("*-*/share/config.site")) if d.is_dir() else []
+
+
+@dataclass(frozen=True)
+class Reuse:
+    """A built ycash6 tree whose ``depends/<triple>`` and cargo ``target/`` a worktree borrows.
+
+    The depends prefix is symlinked (configure and make only read it); the cargo target is
+    *cloned* into the worktree (``cp -c``, copy-on-write on APFS; ``--reflink=auto`` elsewhere), so
+    the worktree's cargo never writes into the source tree's ``target/``. Nothing in the source
+    tree is modified. A fresh worktree then configures and builds in a few minutes instead of
+    35-60 (the recipe of the workspace's ``wt/`` node worktrees).
+    """
+
+    tree: Path
+    triple: str
+
+    @property
+    def target(self) -> Path:
+        """The source tree's cargo target directory."""
+        return self.tree / "target"
+
+
+def find_reuse(tree: Path | None) -> Reuse | None:
+    """A :class:`Reuse` of ``tree`` when it holds a built depends (and a cargo target), else ``None``."""
+    if tree is None:
+        return None
+    triples = built_triples(tree)
+    if not triples or not (tree / "target").is_dir():
+        return None
+    return Reuse(Path(tree).resolve(), triples[0])
+
+
+def _clone_argv(src: Path, dst: Path) -> tuple[str, ...]:
+    if platform.system() == "Darwin":
+        # BSD cp (GNU coreutils comes first in the build PATH): clonefile(2), copy-on-write on APFS
+        return ("/bin/cp", "-cpR", str(src), str(dst))
+    return ("cp", "-a", "--reflink=auto", str(src), str(dst))
+
+
+def build_env(wt: Path, base: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Environment of every build step: GNU libtool/coreutils first in ``PATH`` where Homebrew has
+    them (macOS: BSD tools break depends and ``zcutil``), ``LIBTOOLIZE=glibtoolize`` when only that
+    exists, and ``CARGO_TARGET_DIR`` pinned to the worktree's own ``target/`` (a global shared
+    target from a shell profile would make ``src/Makefile`` miss ``librustzcash.a``)."""
+    env = dict(os.environ if base is None else base)
+    gnubin = [
+        d
+        for d in (
+            "/opt/homebrew/opt/libtool/libexec/gnubin",
+            "/opt/homebrew/opt/coreutils/libexec/gnubin",
+            "/opt/homebrew/bin",
+            "/usr/local/opt/libtool/libexec/gnubin",
+            "/usr/local/opt/coreutils/libexec/gnubin",
+        )
+        if Path(d).is_dir()
+    ]
+    if gnubin:
+        env["PATH"] = os.pathsep.join([*gnubin, env.get("PATH", "")])
+    path = env.get("PATH")
+    if not shutil.which("libtoolize", path=path) and shutil.which("glibtoolize", path=path):
+        env["LIBTOOLIZE"] = "glibtoolize"
+    env["CARGO_TARGET_DIR"] = str(wt / "target")
+    return env
+
+
+def plan_build(
+    wt: Path, jobs: int, *, configured: bool | None = None, reuse: Reuse | None = None
+) -> list[BuildStep]:
+    """The commands a build runs in ``wt`` (``configured`` = ``src/Makefile`` exists).
+
+    With ``reuse`` an unconfigured worktree clones the cargo target, runs ``autogen.sh`` and
+    ``configure`` against the borrowed depends prefix instead of ``zcutil/build.sh``.
+    """
     if configured is None:
         configured = (wt / "src" / "Makefile").exists()
     steps = []
-    if not configured:
+    if not configured and reuse is not None:
+        if not (wt / "target").exists():
+            steps.append(BuildStep(_clone_argv(reuse.target, wt / "target"), wt, "clone the cargo target"))
+        site = f"$PWD/depends/{reuse.triple}/share/config.site"
+        steps.append(BuildStep(("./autogen.sh",), wt, "autogen"))
+        configure = f'CONFIG_SITE="{site}" ./configure --quiet'
+        steps.append(BuildStep(("sh", "-c", configure), wt, "configure (borrowed depends)"))
+    elif not configured:
         steps.append(
             BuildStep(
                 ("./zcutil/build.sh", f"-j{jobs}"), wt, "depends + configure + full build (35-60 min cold)"
@@ -579,8 +662,13 @@ def build(
     run: Runner = subprocess.run,
     preflight_fn: Callable[..., Ready | Skipped] = preflight,
     force: bool = False,
+    reuse_from: Path | Literal["auto"] | None = "auto",
 ) -> BuildResult | Skipped:
     """Build (or reuse) the ycashd for overlay ``sp`` at ``commit``.
+
+    ``reuse_from`` names a built ycash6 tree whose depends prefix and cargo target the worktree
+    borrows (:class:`Reuse`); ``"auto"`` (default) uses ``repo`` itself when it is built, ``None``
+    always runs the cold ``zcutil/build.sh``.
 
     Returns :class:`Skipped` when :func:`preflight` says the environment cannot build. Raises on a
     failed command (the log is under ``.work/logs/``).
@@ -595,10 +683,16 @@ def build(
                 hit, Path(hit.manifest.get("worktree", "")), hit.manifest.get("patch", ""), True
             )
     existing = worktree_path(full, root)
-    pre = preflight_fn(existing if existing.exists() else None)  # decide before creating anything
+    reuse = find_reuse(Path(repo) if reuse_from == "auto" else reuse_from)
+    # decide before creating anything; a borrowed depends prefix needs no download host
+    pre = preflight_fn(existing if existing.exists() else (reuse.tree if reuse else None))
     if isinstance(pre, Skipped):
         return pre
     wt: Worktree = create_worktree(repo, full, base=root)
+    if reuse is not None and not (wt.path / "src" / "Makefile").exists():
+        link = wt.path / "depends" / reuse.triple
+        if not link.exists() and not link.is_symlink():
+            link.symlink_to(reuse.tree / "depends" / reuse.triple)
     # Each overlay starts from the pristine file (a path restore inside the worktree; no branch moves).
     subprocess.run(["git", "-C", str(wt.path), "checkout", "--", PARAMS_CPP], check=True, capture_output=True)
     from ybcal.devnet.overlay import read_params_cpp
@@ -609,11 +703,12 @@ def build(
     logs.mkdir(parents=True, exist_ok=True)
     log = logs / f"build-{key}-{time.strftime('%Y%m%d-%H%M%S')}.log"
     jobs = jobs or os.cpu_count() or 2
+    env = build_env(wt.path)
     with log.open("w") as fh:
-        for step in plan_build(wt.path, jobs):
+        for step in plan_build(wt.path, jobs, reuse=reuse):
             fh.write(f"$ {' '.join(step.argv)}   # {step.what}\n")
             fh.flush()
-            proc = run(list(step.argv), cwd=step.cwd, stdout=fh, stderr=subprocess.STDOUT)
+            proc = run(list(step.argv), cwd=step.cwd, stdout=fh, stderr=subprocess.STDOUT, env=env)
             if proc.returncode != 0:
                 raise RuntimeError(f"build step failed ({step.what}); see {log}")
     out = bin_dir(key, root)
@@ -631,6 +726,7 @@ def build(
         "runtime": sp.runtime,
         "patch": patch,
         "worktree": str(wt.path),
+        "reuse": None if reuse is None else {"tree": str(reuse.tree), "triple": reuse.triple},
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str) + "\n")

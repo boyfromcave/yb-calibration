@@ -288,6 +288,13 @@ class BlockSeries:
         return self.start_height + np.arange(self.n_blocks, dtype=np.int64)
 
     @property
+    def height0(self) -> int:
+        """Height of column 0 (= ``start_height``). WP-5's ``attest.simulate`` and
+        :func:`_attest_frame` read ``series.height0``; without it they fell back to 0 and walked the
+        attestation layer one block behind the engine's columns (found by the devnet, D-RD-DEV-5)."""
+        return int(self.start_height)
+
+    @property
     def pinned(self) -> np.ndarray:
         """True where at least one PIN-1 key is pinned at H."""
         return self.pinned_pools != 0
@@ -1143,27 +1150,29 @@ def devnet_inputs(
     seed: int | None = None,
     first_height: int = 1,
 ) -> BlockInputs:
-    """The tag stream WP-9's :func:`ybcal.devnet.runner.replay` produces for ``schedule``, block for
-    block: the same miner order (``block_miners``), the same jittered quotes (``jittered_quote`` with
-    ``random.Random(seed)``, default ``schedule.seed``), signal-only tags from the pools while a step's
-    price is 0 (``yed_setquote 0 0``; every pool runs ``-yellowbacksignal=1``), no tag from the dark
-    miner. Block ``i`` of the schedule is height ``first_height + i`` (a fresh regtest chain);
-    blocks below ``startHeight`` are dropped (the node ignores them)."""
+    """The tag stream WP-9's :func:`ybcal.devnet.runner.replay` produces for ``schedule``, block
+    for block: the same miner order (``MinerPlan``, carried across steps), the same quotes
+    (``step_quote`` with ``random.Random(seed)``, default ``schedule.seed``), signal-only tags from
+    the pools while a step's price is 0 (``yed_setquote 0 0``; every pool runs
+    ``-yellowbacksignal=1``), no tag from the dark miner. Block ``i`` of the schedule is height
+    ``first_height + i`` (a fresh regtest chain); blocks below ``startHeight`` are dropped (the
+    node ignores them)."""
     import random
 
-    from ybcal.devnet.runner import block_miners, jittered_quote
+    from ybcal.devnet.runner import MinerPlan, step_quote
 
     rng = random.Random(schedule.seed if seed is None else seed)
     has_dark = "dark_miner" in getattr(schedule, "needs", frozenset())
     last: list[int | None] = [None] * n_pools
     pools, prices, refs = [], [], []
+    plan = MinerPlan(n_pools, has_dark)
     for step in schedule.steps:
         if step.price == 0:
             last = [None] * n_pools
-        for m in block_miners(step, n_pools, has_dark):
+        for m in plan.miners(step):
             q = 0
             if m >= 0 and step.price:
-                q = jittered_quote(step.price, int(step.pool_bias_bps.get(m, 0)), jitter_bps, rng, last[m])
+                q = step_quote(step, m, jitter_bps, rng, last[m])
                 last[m] = q
             pools.append(m)
             prices.append(q)
@@ -1247,6 +1256,7 @@ def simulate_devnet(
     jitter_bps: int = 10,
     seed: int | None = None,
     first_height: int = 1,
+    attest: dict | None = None,
 ) -> list[dict]:
     """WP-9's simulator contract (``ybcal.devnet.diff.resolve_simulator``): one record per block from
     ``params["startHeight"]`` for the replay of ``schedule`` (``path`` — the schedule's reference
@@ -1256,6 +1266,8 @@ def simulate_devnet(
     inputs = devnet_inputs(
         params, schedule, n_pools=n_pools, jitter_bps=jitter_bps, seed=seed, first_height=first_height
     )
+    if attest is not None:  # an attestation replay (WP-5 schema), e.g. ybcal.devnet.attestreplay
+        inputs.attest = attest
 
     def _tags(stage, prm, inp, s):
         if stage == "judge":

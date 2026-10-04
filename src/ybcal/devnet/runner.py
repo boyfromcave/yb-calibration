@@ -41,6 +41,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
+from ybcal.devnet.actions import WalletDriver
 from ybcal.devnet.build import (
     BinaryInfo,
     NodeCheck,
@@ -87,14 +88,72 @@ LAUNCHER_RUNTIME: dict[str, Any] = {
 }
 
 
-def p2p_port(n: int, seed: int) -> int:
-    """P2P port of node ``n`` under port seed ``seed`` (devnet seed ``s`` → 11000 + 12·s + n)."""
+#: Width of one port slot under an explicit port base: 12 p2p ports, then 12 RPC ports.
+PORT_SLOT = 2 * MAX_NODES
+#: Ports one explicit base may use (``base … base + PORT_BAND - 1``).
+PORT_BAND = 1000
+#: Environment variable that sets the port base (e.g. ``41000`` keeps every port in 41000–41999).
+PORT_BASE_ENV = "YBCAL_DEVNET_PORT_BASE"
+
+
+def default_port_base() -> int | None:
+    """``$YBCAL_DEVNET_PORT_BASE`` as an integer, else ``None`` (the framework scheme)."""
+    v = os.environ.get(PORT_BASE_ENV, "").strip()
+    return int(v) if v else None
+
+
+def _slot(seed: int, base: int) -> int:
+    off = PORT_SLOT * seed
+    if seed < 0 or off + PORT_SLOT > PORT_BAND:
+        raise ValueError(
+            f"port seed {seed} does not fit the band {base}–{base + PORT_BAND - 1} "
+            f"(seeds 0..{PORT_BAND // PORT_SLOT - 1} under a port base)"
+        )
+    return base + off
+
+
+def p2p_port(n: int, seed: int, base: int | None = None) -> int:
+    """P2P port of node ``n`` under port seed ``seed``.
+
+    Without ``base``: the framework scheme (devnet seed ``s`` → 11000 + 12·s + n). With ``base``
+    (``--port-base`` / ``$YBCAL_DEVNET_PORT_BASE``): ``base + 24·seed + n``, so a whole devnet stays
+    inside ``base … base + 999`` (seeds 0–40) — the band a shared machine reserves for it.
+    """
+    if base is not None:
+        return _slot(seed, base) + n
     return PORT_MIN + n + (MAX_NODES * seed) % (PORT_RANGE - 1 - MAX_NODES)
 
 
-def rpc_port(n: int, seed: int) -> int:
-    """RPC port of node ``n`` (5000 above its p2p port)."""
+def rpc_port(n: int, seed: int, base: int | None = None) -> int:
+    """RPC port of node ``n`` (5000 above its p2p port; 12 above it under a port base)."""
+    if base is not None:
+        return _slot(seed, base) + MAX_NODES + n
     return PORT_MIN + PORT_RANGE + n + (MAX_NODES * seed) % (PORT_RANGE - 1 - MAX_NODES)
+
+
+def port_free(port: int, host: str = "127.0.0.1") -> bool:
+    """True when nothing listens on ``host:port`` (a bind test; the socket is closed at once)."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        # ycashd binds with SO_REUSEADDR too: a TIME_WAIT left by a finished devnet is not a clash
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind((host, port))
+        except OSError:
+            return False
+    return True
+
+
+def index_reached(info: dict[str, Any], height: int) -> bool:
+    """Whether node 0's Yellowback index (``yed_getinfo``) has processed ``height``.
+
+    Below ``startHeight`` the index holds nothing and reports ``height: -1`` (a fresh chain at
+    genesis, the funding blocks), so any height under ``startHeight`` counts as reached.
+    """
+    if int(info.get("height", -1)) >= height:
+        return True
+    return height < int(info.get("startHeight", 1))
 
 
 class Devnet(Protocol):
@@ -119,6 +178,7 @@ class DevnetConfig:
     run_dir: Path
     runtime_args: list[str]
     portseed: int = DEFAULT_PORTSEED
+    port_base: int | None = None  #: explicit port band (see :func:`p2p_port`); None = framework scheme
     n_pools: int = 3
     dark_miner: bool = False
     extra_args: list[str] = field(default_factory=list)
@@ -153,8 +213,11 @@ def node_conf(cfg: DevnetConfig, index: int) -> str:
         *(f"nuparams={n}" for n in NUPARAMS),
         *(a.lstrip("-") for a in cfg.runtime_args),
         # top level: the Zcash 4.x/6.x config parser has no [network] sections
-        f"port={p2p_port(index, cfg.portseed)}",
-        f"rpcport={rpc_port(index, cfg.portseed)}",
+        f"port={p2p_port(index, cfg.portseed, cfg.port_base)}",
+        f"rpcport={rpc_port(index, cfg.portseed, cfg.port_base)}",
+        "bind=127.0.0.1",
+        "discover=0",
+        "listenonion=0",
     ]
     if index < cfg.n_pools:
         lines += [f"yellowbackpayoutaddress={pool_addresses()[index]}", "yellowbacksignal=1"]
@@ -163,7 +226,7 @@ def node_conf(cfg: DevnetConfig, index: int) -> str:
     lines += [a.lstrip("-") for a in cfg.extra_args]
     for other in range(cfg.n_nodes):
         if other != index:
-            lines.append(f"addnode=127.0.0.1:{p2p_port(other, cfg.portseed)}")
+            lines.append(f"addnode=127.0.0.1:{p2p_port(other, cfg.portseed, cfg.port_base)}")
     return "\n".join(lines) + "\n"
 
 
@@ -190,10 +253,15 @@ class MinimalDevnet:
         self._client = client_factory or (lambda url, u, p: RpcClient(url, u, p, timeout=120))
         self.nodes: list[_Node] = []
         for i in range(cfg.n_nodes):
-            url = f"http://127.0.0.1:{rpc_port(i, cfg.portseed)}/"
+            url = f"http://127.0.0.1:{rpc_port(i, cfg.portseed, cfg.port_base)}/"
             self.nodes.append(
                 _Node(i, cfg.run_dir / f"node{i}", self._client(url, cfg.rpc_user, cfg.rpc_password))
             )
+
+    def ports(self) -> list[int]:
+        """Every p2p and RPC port this devnet binds."""
+        c = self.cfg
+        return [f(i, c.portseed, c.port_base) for i in range(c.n_nodes) for f in (p2p_port, rpc_port)]
 
     @property
     def pools(self) -> list[Any]:
@@ -220,6 +288,13 @@ class MinimalDevnet:
         """Start every node, wait through RPC warm-up (~12 s on 6.20.0), import the pool keys."""
         if any(n.datadir.exists() and any(n.datadir.iterdir()) for n in self.nodes):
             raise RuntimeError(f"{self.cfg.run_dir} already holds node data; use a fresh run dir")
+        if self._popen is subprocess.Popen:
+            busy = [p for p in self.ports() if not port_free(p)]
+            if busy:
+                raise RuntimeError(
+                    f"ports {busy} are in use (another devnet or node?): "
+                    "pick another --portseed / --port-base"
+                )
         self.write_confs()
         for n in self.nodes:
             log = (n.datadir / "ycashd.out").open("ab")
@@ -243,8 +318,9 @@ class MinimalDevnet:
         deadline = time.monotonic() + timeout
         while True:
             heights = [int(n.client.call("getblockcount")) for n in self.nodes]
-            idx = int(self.primary.call("yed_getinfo").get("height", -1))
-            if min(heights) >= height and idx >= height:
+            info = self.primary.call("yed_getinfo")
+            idx = info.get("height", -1)
+            if min(heights) >= height and index_reached(info, height):
                 return
             if time.monotonic() > deadline:
                 raise RuntimeError(
@@ -366,7 +442,7 @@ class LauncherDevnet:
         deadline = time.monotonic() + timeout
         while True:
             hs = [int(c.call("getblockcount")) for c in self._all]
-            if min(hs) >= height and int(self.primary.call("yed_getinfo").get("height", -1)) >= height:
+            if min(hs) >= height and index_reached(self.primary.call("yed_getinfo"), height):
                 return
             if time.monotonic() > deadline:
                 raise RuntimeError(f"launcher devnet not synced to {height}: {hs}")
@@ -416,6 +492,7 @@ class ReplayLog:
 
     start_height: int
     events: list[BlockEvent] = field(default_factory=list)
+    driver: WalletDriver | None = None  #: the wallet-action driver, when the schedule had actions
 
     @property
     def end_height(self) -> int:
@@ -454,19 +531,52 @@ def apportion(n: int, weights: Sequence[int]) -> list[int]:
     return base
 
 
+class MinerPlan:
+    """Who mines each block, carried across the whole schedule (smooth weighted round robin).
+
+    Every block credits each pool ``share · w_i / Σw`` and the dark miner ``1 − share``; the
+    largest credit mines (ties: pools before the dark miner, lower index first) and pays 1. Exact
+    fractions, so the node replay and the simulator draw the identical sequence. Earlier versions
+    interleaved within each step only: the many one-block steps of a price walk were then all
+    mined by pool 0, so ``pool_weights`` and ``signal_share_bps`` had no effect (D-RD-DEV-2).
+    """
+
+    def __init__(self, n_pools: int, has_dark: bool) -> None:
+        from fractions import Fraction
+
+        self._F = Fraction
+        self.n_pools, self.has_dark = n_pools, has_dark
+        self.credit = [Fraction(0)] * n_pools
+        self.dark_credit = Fraction(0)
+
+    def miners(self, step: ReplayStep) -> list[int]:
+        """The miner of each block of ``step``: a pool index, or ``-1`` for the dark miner."""
+        F = self._F
+        share = 10_000 if step.signal_share_bps is None else step.signal_share_bps
+        if share < 10_000 and not self.has_dark:
+            raise ValueError(f"step {step.label!r} needs a dark miner (signal_share_bps={share})")
+        weights = list(step.pool_weights) if step.pool_weights else [1] * self.n_pools
+        if len(weights) != self.n_pools:
+            raise ValueError(f"pool_weights has {len(weights)} entries for {self.n_pools} pools")
+        tot = sum(weights)
+        out = []
+        for _ in range(step.blocks):
+            for i, w in enumerate(weights):
+                self.credit[i] += F(share * w, 10_000 * tot)
+            self.dark_credit += F(10_000 - share, 10_000)
+            best = max(range(self.n_pools), key=lambda i: (self.credit[i], -i))
+            if self.has_dark and self.dark_credit > self.credit[best]:
+                self.dark_credit -= 1
+                out.append(-1)
+            else:
+                self.credit[best] -= 1
+                out.append(best)
+        return out
+
+
 def block_miners(step: ReplayStep, n_pools: int, has_dark: bool) -> list[int]:
-    """Miner of each block of ``step``: a pool index, or ``-1`` for the dark miner."""
-    share = 10_000 if step.signal_share_bps is None else step.signal_share_bps
-    if share < 10_000 and not has_dark:
-        raise ValueError(f"step {step.label!r} needs a dark miner (signal_share_bps={share})")
-    sig, dark = apportion(step.blocks, [share, 10_000 - share]) if step.blocks else (0, 0)
-    weights = list(step.pool_weights) if step.pool_weights else [1] * n_pools
-    if len(weights) != n_pools:
-        raise ValueError(f"pool_weights has {len(weights)} entries for {n_pools} pools")
-    pool_seq = interleave(apportion(sig, weights)) if sig else []
-    order = interleave([sig, dark])
-    it = iter(pool_seq)
-    return [next(it) if o == 0 else -1 for o in order]
+    """Miner of each block of ``step`` alone (a fresh :class:`MinerPlan`)."""
+    return MinerPlan(n_pools, has_dark).miners(step)
 
 
 def jittered_quote(
@@ -483,6 +593,14 @@ def jittered_quote(
     return q
 
 
+def step_quote(step: ReplayStep, pool: int, jitter_bps: int, rng: random.Random, previous: int | None) -> int:
+    """The quote ``pool`` sets for one block of ``step``: its previous quote again while the pool is
+    in ``frozen_pools`` (no RNG draw), else :func:`jittered_quote`."""
+    if pool in step.frozen_pools and previous is not None:
+        return previous
+    return jittered_quote(step.price, int(step.pool_bias_bps.get(pool, 0)), jitter_bps, rng, previous)
+
+
 def replay(
     devnet: Devnet,
     steps: Sequence[ReplayStep],
@@ -492,19 +610,37 @@ def replay(
     on_step: Callable[[int, ReplayStep, ReplayLog], None] | None = None,
     attestor_price: Callable[[int], None] | None = None,
     attestor_down: Callable[[int, bool], None] | None = None,
+    driver: WalletDriver | None = None,
 ) -> ReplayLog:
     """Execute ``steps`` on ``devnet``: per block, quote on the miner (jittered) and ``generate 1``.
 
     ``attestor_price`` / ``attestor_down`` are the launcher's hooks (mock price files, agent
-    stop/start); a step with ``attestors_down`` and no hook raises.
+    stop/start); a step with ``attestors_down`` and no hook raises. Steps with ``actions`` run them
+    through ``driver`` (created over ``devnet.nodes`` when omitted), which also keeps the mempools
+    in step before every block; the driver ends up in ``ReplayLog.driver``.
     """
     rng = random.Random(seed)
     pools = devnet.pools
     last: list[int | None] = [None] * len(pools)
     height = int(devnet.primary.call("getblockcount"))
     log = ReplayLog(start_height=height)
+    wants_seats = attestor_down is None and any(st.attestors_down for st in steps)
+    if driver is None and (wants_seats or any(st.actions for st in steps)):
+        nodes = getattr(devnet, "nodes", None)
+        clients = [n.client for n in nodes] if nodes else [*pools, *([devnet.dark] if devnet.dark else [])]
+        driver = WalletDriver(clients)
+    log.driver = driver
+    if attestor_down is None and driver is not None:
+        attestor_down = driver.set_down
     down: set[int] = set()
+    plan = MinerPlan(len(pools), devnet.dark is not None)
     for si, step in enumerate(steps):
+        if driver is not None:
+            driver.price = step.price
+        for action in step.actions:
+            if driver is None:
+                raise ValueError("step actions need a WalletDriver")
+            driver.run(action, height)
         want_down = set(step.attestors_down)
         if want_down != down:
             if attestor_down is None:
@@ -521,22 +657,24 @@ def replay(
                 if last[j] is not None:
                     c.call("yed_setquote", 0, 0)
                     last[j] = None
-        for m in block_miners(step, len(pools), devnet.dark is not None):
+        for m in plan.miners(step):
             quote: int | None = None
             if m < 0:
                 miner, client = "dark", devnet.dark
             else:
                 miner, client = f"pool{m}", pools[m]
                 if step.price:
-                    quote = jittered_quote(
-                        step.price, int(step.pool_bias_bps.get(m, 0)), jitter_bps, rng, last[m]
-                    )
+                    quote = step_quote(step, m, jitter_bps, rng, last[m])
                     client.call("yed_setquote", quote, 1)
                     last[m] = quote
+            if driver is not None:
+                driver.sync_mempool(client)
             client.call("generate", 1)
             height += 1
             devnet.wait_synced(height)
             log.events.append(BlockEvent(height, miner, quote, si))
+            if driver is not None:
+                driver.after_block(height)
         if on_step is not None:
             on_step(si, step, log)
     return log
@@ -559,6 +697,8 @@ class RunResult:
     replay: ReplayLog | None = None
     scrape: ScrapeResult | None = None
     message: str = ""
+    params: dict[str, Any] | None = None  #: the overlay's full regtest value set (for ``devnet diff``)
+    replay_args: dict[str, Any] = field(default_factory=dict)  #: seed, jitter_bps, n_pools
 
     def to_dict(self) -> dict[str, Any]:
         """The run manifest (``run.json``)."""
@@ -584,12 +724,55 @@ class RunResult:
             if self.replay
             else None,
             "scrape": {k: str(v) for k, v in self.scrape.files.items()} if self.scrape else None,
+            "params": self.params,
+            "replay_args": self.replay_args,
         }
 
 
+def _sigterm_raises() -> Callable[[], None]:
+    """In the main thread, make SIGTERM raise (``KeyboardInterrupt``) so ``run_devnet``'s ``finally``
+    still stops the nodes when the run is killed (``timeout``, a supervisor); returns the restorer.
+    A background shell job ignores SIGINT, so SIGTERM is the signal that reaches it."""
+    import threading
+
+    if threading.current_thread() is not threading.main_thread():
+        return lambda: None
+
+    def handler(signum: int, frame: Any) -> None:
+        raise KeyboardInterrupt(f"signal {signum}")
+
+    old = signal.signal(signal.SIGTERM, handler)
+    return lambda: signal.signal(signal.SIGTERM, old)
+
+
+def closing_txinfo(client: Any, vaults: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """``yed_gettxinfo`` of every vault's closing transaction (its refHeight, path, burn), by vault."""
+    out: dict[str, Any] = {}
+    for v in vaults:
+        txid = v.get("closingTxid")
+        if txid:
+            try:
+                out[v["vault"]] = client.call("yed_gettxinfo", txid)
+            except RpcError as e:
+                out[v["vault"]] = {"error": str(e)}
+    return out
+
+
+def mint_txinfo(client: Any, vaults: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """``yed_gettxinfo`` of every vault's MINT (refHeight, xMint/aMint, bundleSeqs), by vault."""
+    out: dict[str, Any] = {}
+    for v in vaults:
+        try:
+            out[v["vault"]] = client.call("yed_gettxinfo", v["txid"])
+        except RpcError as e:
+            out[v["vault"]] = {"error": str(e)}
+    return out
+
+
 def default_run_dir(name: str) -> Path:
-    """``.work/devnet/<name>-<timestamp>``."""
-    return work_dir() / "devnet" / f"{name}-{time.strftime('%Y%m%d-%H%M%S')}"
+    """``.work/devnet/<name>-<timestamp>-<6 hex>``: two suites started in the same second (one per
+    node line) once collided on the timestamp alone and wrote into each other's datadirs."""
+    return work_dir() / "devnet" / f"{name}-{time.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
 
 
 def run_devnet(
@@ -601,11 +784,13 @@ def run_devnet(
     commit: str | None = None,
     run_dir: Path | None = None,
     portseed: int = DEFAULT_PORTSEED,
+    port_base: int | None = None,
     n_pools: int = 3,
     seed: int = 0,
     jitter_bps: int = 10,
     allow_version_skew: bool = False,
     keep: bool = False,
+    node_args: Sequence[str] = (),
     launcher_worktree: Path | None = None,
     devnet_factory: Callable[[DevnetConfig], Any] | None = None,
 ) -> RunResult | Skipped:
@@ -621,12 +806,6 @@ def run_devnet(
     binfo = resolve_binary(ycashd, key=build_key(sp, commit))
     if isinstance(binfo, Skipped):
         return binfo
-    if "attestors" in schedule.needs and launcher_worktree is None:
-        return Skipped(
-            f"scenario {schedule.name} needs attestor seats: run with the launcher backend "
-            "(--launcher) and a built yellowback-attest agent",
-            "run",
-        )
     if launcher_worktree is not None and any(sp.runtime[k] != v for k, v in LAUNCHER_RUNTIME.items()):
         return Skipped(
             "the launcher hard-codes -yellowbackstartheight=1 -yellowbacksigmaref=0 and passes no other "
@@ -637,6 +816,8 @@ def run_devnet(
     version = binary_version(binfo.ycashd)
     skew = check_skew(repo, binfo.commit or version.commit, commit, allow=allow_version_skew)
     result = RunResult("ok", run_dir, schedule, binfo, skew)
+    result.params = sp.params.to_dict()
+    result.replay_args = {"seed": seed, "jitter_bps": jitter_bps, "n_pools": n_pools}
     if not skew.ok:
         result.status, result.message = (
             "refused",
@@ -659,10 +840,13 @@ def run_devnet(
             run_dir,
             sp.node_args(),
             portseed=portseed,
+            port_base=port_base if port_base is not None else default_port_base(),
             n_pools=n_pools,
             dark_miner="dark_miner" in schedule.needs,
+            extra_args=list(node_args),
         )
         net = (devnet_factory or MinimalDevnet)(cfg)
+    restore = _sigterm_raises()
     try:
         net.start()
         result.node_check = check_node_params(net.primary, sp.params, allow=allow_version_skew)
@@ -670,6 +854,13 @@ def run_devnet(
             result.status = "refused"
             result.message = f"node parameters differ from the overlay: {result.node_check.fatal}"
             return result
+        driver = None
+        if launcher_worktree is None and any(st.actions or st.attestors_down for st in steps):
+            driver = WalletDriver(
+                [n.client for n in net.nodes],
+                attest_interval=int(sp.params["attestInterval"]),
+                ref_lag=int(sp.params["DEFAULT_REF_LAG"]),
+            )
         result.replay = replay(
             net,
             steps,
@@ -677,14 +868,25 @@ def run_devnet(
             jitter_bps=jitter_bps,
             attestor_price=attestor_price,
             attestor_down=attestor_down,
+            driver=driver,
         )
         result.scrape = scrape(net.primary, run_dir / "scrape")
+        if result.replay.driver is not None:
+            doc = result.replay.driver.to_dict()
+            doc["closing"] = closing_txinfo(net.primary, result.scrape.vaults)
+            doc["mints"] = mint_txinfo(net.primary, result.scrape.vaults)
+            path = run_dir / "scrape" / "actions.json"
+            path.write_text(json.dumps(doc, indent=2, default=str) + "\n")
+            result.scrape.files["actions"] = path
     except Exception as e:
         result.status, result.message = "failed", f"{type(e).__name__}: {e}"
+        with contextlib.suppress(Exception):  # best effort: keep what the chain shows for the post-mortem
+            scrape(net.primary, run_dir / "scrape-partial")
         raise
     finally:
         try:
             net.stop(wipe=not keep)
+            restore()
         finally:
             (run_dir / "run.json").write_text(json.dumps(result.to_dict(), indent=2, default=str) + "\n")
     return result

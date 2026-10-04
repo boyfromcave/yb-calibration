@@ -86,6 +86,25 @@ def test_plan_build_steps(tmp_path: Path):
     assert [s.argv[0] for s in warm] == ["sh", "make"]
 
 
+def test_plan_build_borrows_a_built_tree(tmp_path: Path):
+    src = tmp_path / "ycash6"
+    (src / "depends" / "aarch64-apple-darwin25.0.0" / "share").mkdir(parents=True)
+    (src / "depends" / "aarch64-apple-darwin25.0.0" / "share" / "config.site").write_text("")
+    assert b.find_reuse(src) is None  # no cargo target yet
+    (src / "target").mkdir()
+    reuse = b.find_reuse(src)
+    assert reuse is not None and reuse.triple == "aarch64-apple-darwin25.0.0"
+    wt = tmp_path / "wt"
+    steps = b.plan_build(wt, 4, configured=False, reuse=reuse)
+    assert steps[0].argv[0] in ("/bin/cp", "cp")
+    assert steps[0].argv[-2:] == (str(src / "target"), str(wt / "target"))
+    assert "-cpR" in steps[0].argv or "-a" in steps[0].argv  # mtimes kept (cargo fingerprints)
+    assert [s.argv[0] for s in steps[1:]] == ["./autogen.sh", "sh", "sh", "make"]
+    assert "CONFIG_SITE=" in steps[2].argv[2] and "aarch64-apple-darwin25.0.0" in steps[2].argv[2]
+    env = b.build_env(wt, {"PATH": "/usr/bin", "CARGO_TARGET_DIR": "/shared"})
+    assert env["CARGO_TARGET_DIR"] == str(wt / "target") and env["PATH"].endswith("/usr/bin")
+
+
 # --- binaries --------------------------------------------------------------------------------------------
 
 
@@ -202,7 +221,7 @@ def test_build_pipeline_with_fake_make(work: Path):
         return subprocess.CompletedProcess(argv, 0)
 
     ready = lambda wt: b.Ready({}, {}, False)  # noqa: E731
-    res = b.build(REPO, sp, run=run, preflight_fn=ready, jobs=2)
+    res = b.build(REPO, sp, run=run, preflight_fn=ready, jobs=2, reuse_from=None)
     try:
         assert isinstance(res, b.BuildResult) and not res.cached
         assert res.binary.key == build_key(sp, wtmod.resolve_commit(REPO, PINNED_COMMIT))
@@ -210,10 +229,10 @@ def test_build_pipeline_with_fake_make(work: Path):
         assert "r.deviationBps = 1500;" in (res.worktree / PARAMS_CPP).read_text()
         man = json.loads((res.binary.ycashd.parent / "manifest.json").read_text())
         assert man["compiled"] == {"deviationBps": 1500} and man["patch"].startswith("--- a/")
-        again = b.build(REPO, sp, run=run, preflight_fn=ready)
+        again = b.build(REPO, sp, run=run, preflight_fn=ready, reuse_from=None)
         assert again.cached and len(calls) == 3
         # a stock overlay restores the pristine file in the same worktree
-        b.build(REPO, split(regtest()), run=run, preflight_fn=ready)
+        b.build(REPO, split(regtest()), run=run, preflight_fn=ready, reuse_from=None)
         assert "deviationBps = 1500" not in (res.worktree / PARAMS_CPP).read_text()
     finally:
         wtmod.remove_worktree(res.worktree, REPO)
