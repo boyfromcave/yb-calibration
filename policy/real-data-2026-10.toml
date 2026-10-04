@@ -162,3 +162,24 @@ max_honest_payee_spread = 1.5                  # max ratio between honest pools'
 min_accuracy_premium = 0.25                 # min payee-weight premium of an accurate over a sloppy pool (G6)
 p10_daily_volume_usd = 700.0                # REAL DATA: same as yec_daily_volume_p10_usd (CoinGecko p10, 365 d)
 system_ratio_alarm_bps = 15000                # HALT-2 must fire before the true system ratio reaches this, bps (G7)
+
+[owner_pinned]  # owner decisions (D-RD-INF-2): the study runs, the value is KEPT; evidence against it is shown, never a CHANGE
+# Plan citations (workspace docs/plans/): v3 = yellowback-v3-development-plan.md, v2 = yellowback-v2-development-plan.md,
+# proposal = docs/reference/yellowback-price-attestation.md. Remove a line to let the study move that value.
+abandonBlocks = "W21 (D-R-12)"                                   # v3 §2 W21, §6.2 D-R-12: ABANDON_BLOCKS = GRACE = 34,560 (30 d floor)
+grace = "D-R-6 (reaffirmed W21)"                                 # v3 §6.2 D-R-6 (2026-09-21), revision 4 / W21: GRACE stays 30 d
+"classMin[0]" = "D-R-6 (lock classes stay, reaffirmed W21)"      # v3 revision 4: "GRACE and the lock classes stay as they are"
+"classMin[1]" = "D-R-6 (lock classes stay, reaffirmed W21)"
+"classMin[2]" = "D-R-6 (lock classes stay, reaffirmed W21)"
+"classMax[0]" = "D-R-6 (lock classes stay, reaffirmed W21)"
+"classMax[1]" = "D-R-6 (lock classes stay, reaffirmed W21)"
+"classMax[2]" = "D-R-6 (lock classes stay, reaffirmed W21)"
+supplyCapBps = "W20 (D-R-11)"                                    # v3 §2 W20, §6.2 D-R-11: SUPPLY_CAP_BPS stays 1,500, soft above RECAP_RATIO_BPS
+attestFeeBps = "D-3"                                             # proposal §16 D-3: additive, 25 % of feeZat (v3 §3.1 ATTEST_FEE_BPS 2,500)
+attestArmMin = "D-4"                                             # proposal §16 D-4: automatic arming, 5 ELIGIBLE attestors ...
+attestArmDelay = "D-4"                                           # ... then one day (ATTEST_ARM_DELAY 1,152)
+activationThreshold = "L3 (mint halt keeps 75 %)"                # v2 revision 4 L3: the mint halt keeps 60 % / 75 % (1,210 / 1,512 of 2,016)
+participationFloor = "L3 (mint halt keeps 60 %)"
+enforcementFloor = "L3"                                          # v2 revision 4 L3: ENFORCEMENT_FLOOR = 1,008 (50 %)
+enforcementResume = "L3"                                         # v2 revision 4 L3: ENFORCEMENT_RESUME = 1,210 (60 %)
+valveBlocks = "L7"                                               # v2 revision 5 L7: VALVE_BLOCKS = 6

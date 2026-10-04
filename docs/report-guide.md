@@ -72,6 +72,13 @@ patch with its `git apply --check` result, and the command and timings.
 | **BLOCKED** | No evaluated value satisfies the policy. The owner must relax the policy, or the rule needs to change (see the design notes). |
 | **NOT RUN** | The group's study is missing from this build or raised an error. There is no recommendation, and the current value stands until the study runs. |
 
+**Owner-pinned parameters** (policy `owner_pinned`, D-RD-INF-2) print as `KEEP (owner decision
+W21)`. The study still runs; the value is kept because the owner decided it, and the group's other
+parameters are chosen with it held. When the evidence points elsewhere, §1 has a table "Owner
+decisions the evidence argues against" and the parameter section opens with "the evidence points to
+X because …; risk of keeping: …". A pinned value is never CHANGE and never in the patch; removing
+its line from the policy lets the study move it.
+
 Confidence (*high / medium / low*) is the study's own judgement of its evidence. It depends on the
 budget, the provenance and how close the decision was.
 
@@ -115,8 +122,10 @@ The set is lock-ready when every **required** item passes:
 2. every locked recommendation is non-provisional and backed by real data (required while
    `require_real_data_for_lock = true`);
 3. no parameter is BLOCKED;
-4. the recommended set passes every PLAN §1.4 invariant;
-5. the release study ran and nothing in it is BLOCKED.
+4. every owner-pinned parameter holds its decided value (the detail names the pins the evidence
+   argues against, for the owner to re-confirm; a pinned value needs no real-data backing in item 2);
+5. the recommended set passes every PLAN §1.4 invariant;
+6. the release study ran and nothing in it is BLOCKED.
 
 Advisory items, which never block: the joint pass converged, `params.cpp.patch` applies at the pin,
 and the devnet differential suite passed (milestone M6).

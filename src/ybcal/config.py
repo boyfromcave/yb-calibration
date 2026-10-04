@@ -38,6 +38,33 @@ def _adoption_default() -> dict[str, dict[str, float]]:
     }
 
 
+def _owner_pinned_default() -> dict[str, str]:
+    """Parameters whose value the owner fixed by decision (D-RD-INF-2), with the decision reference.
+    Plan citations (workspace ``docs/plans/``): v3 §2 W20/W21, §6.2 D-R-6/D-R-11/D-R-12; proposal
+    §16 D-3/D-4 (``docs/reference/yellowback-price-attestation.md``); v2 §0 revision 4 L3 and
+    revision 5 L7."""
+    lock = "D-R-6 (lock classes stay, reaffirmed W21)"
+    return {
+        "abandonBlocks": "W21 (D-R-12)",
+        "grace": "D-R-6 (reaffirmed W21)",
+        "classMin[0]": lock,
+        "classMin[1]": lock,
+        "classMin[2]": lock,
+        "classMax[0]": lock,
+        "classMax[1]": lock,
+        "classMax[2]": lock,
+        "supplyCapBps": "W20 (D-R-11)",
+        "attestFeeBps": "D-3",
+        "attestArmMin": "D-4",
+        "attestArmDelay": "D-4",
+        "activationThreshold": "L3 (mint halt keeps 75 %)",
+        "participationFloor": "L3 (mint halt keeps 60 %)",
+        "enforcementFloor": "L3",
+        "enforcementResume": "L3",
+        "valveBlocks": "L7",
+    }
+
+
 @dataclass(frozen=True)
 class Policy:
     """Owner tolerances. Field meanings and units are documented in ``policy/default.toml``."""
@@ -161,6 +188,15 @@ class Policy:
     # optimizer
     max_rounds_joint: int = 3
     insensitive_total_order: float = 0.01
+    # owner decisions (D-RD-INF-2): param → decision reference; studied, never changed
+    owner_pinned: dict[str, str] = field(default_factory=_owner_pinned_default)
+
+    def __post_init__(self) -> None:
+        from ybcal.params.registry import REGISTRY
+
+        bad = [k for k in self.owner_pinned if k not in REGISTRY or not REGISTRY[k].tunable]
+        if bad:
+            raise KeyError(f"owner_pinned: not tunable registry parameters: {', '.join(bad)}")
 
     # -- loading -------------------------------------------------------------------------------------
     @classmethod

@@ -38,6 +38,7 @@ from ybcal.optimize.evaluate import (
     evaluator_id,
     with_budget,
 )
+from ybcal.optimize.pins import apply_owner_pins
 from ybcal.optimize.search import (
     CandidateSet,
     Coupling,
@@ -281,6 +282,8 @@ def run_group(
 
     t = time.perf_counter()
     recs = list(study.decide(table, policy))
+    recs, pin_warns = apply_owner_pins(study, table, recs, policy, base)  # D-RD-INF-2
+    warns.extend(pin_warns)
     missing = missing_recommendations(study, recs)
     if missing:
         warns.append(f"decide() returned no Recommendation for {', '.join(missing)}")

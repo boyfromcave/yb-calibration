@@ -26,7 +26,7 @@ from ybcal.studies.base import Env, Recommendation, ResultTable
 
 
 def env(seed: int = 3) -> Env:
-    return Env(Policy(), TINY, seed=seed)
+    return Env(Policy(owner_pinned={}), TINY, seed=seed)  # pins are tested in test_pins.py
 
 
 def coupled_spec() -> dict:

@@ -199,7 +199,7 @@ def test_low_share_policy_moves_or_blocks():
     silently; the valve (excluded) lengthens."""
     from ybcal.optimize.runner import run_group
 
-    env = env_for(policy=Policy(expected_enforcing_share=0.64))
+    env = env_for(policy=Policy(expected_enforcing_share=0.64, owner_pinned={}))
     recs = {r.param: r for r in run_group(load_study("G5"), mainnet(), env, workers=1).recommendations}
     assert recs["valveBlocks"].recommended > 6
     assert recs["participationFloor"].verdict in ("BLOCKED", "CHANGE")

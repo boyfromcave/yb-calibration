@@ -134,6 +134,7 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-DEV-6](#d-rd-dev-6-2026-10-03-devnet--binaries-and-skew-for-the-2026-10-validation) | devnet (M6) | binaries and skew for the 2026-10 validation |
 | [D-RD-DEV-7](#d-rd-dev-7-2026-10-03-devnet--what-remains-unmodelled-and-which-studies-it-weakens) | devnet (M6) | what remains unmodelled, and which studies it weakens |
 | [D-RD-INF-1](#d-rd-inf-1-2026-10-03-infra--price-inputs-by-role-observed-to-observed-returns-everywhere) | infra (wave 2) | price inputs by role; observed-to-observed returns everywhere |
+| [D-RD-INF-2](#d-rd-inf-2-2026-10-04-infra--owner-pinned-parameters-are-studied-and-kept) | infra (wave 2) | owner-pinned parameters are studied and kept |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -1649,4 +1650,35 @@ history (σ ≈ 236 %/yr daily) next to the hourly microstructure (σ ≈ 444 %/
 returns; per window (`--window`, D-RD-INF-5) last365 8,760 / 364, 2021-22 17,502 / 729, 2025-26
 14,516 / 605 — none empty. Studies that want the daily series opt in via `long_price`; until they
 do, results with and without `yec-daily.csv` differ only in cache keys.
+
+## D-RD-INF-2 (2026-10-04, infra) — owner-pinned parameters are studied and kept
+
+**Decision.** New policy key `owner_pinned` (param → decision reference), applied in
+`optimize/runner.run_group` by `optimize/pins.apply_owner_pins`, so `recommend`, `study` and the joint
+pass all honour it: (1) the study decides on its full table — the *evidence*; (2) if that moves a
+pinned value, the study decides again on the rows where every pinned value holds, so the group's
+other parameters are chosen given the pin (the joint pass therefore treats it as fixed); (3) the
+pinned Recommendation is `KEEP`, `recommended = current`, with `metrics["owner_pin"]` = {ref, kept,
+evidence value and verdict, *because* (the evidence's binding constraint and decision), *risk of
+keeping* (constraints failing at the kept value, primary metric kept vs evidence)}. The report
+prints `KEEP (owner decision <ref>)`, an executive-summary table "Owner decisions the evidence
+argues against", a callout at the top of the parameter section, a top-risk line, and a required
+lock-readiness item "Owner-pinned parameters hold their decided values" (the real-data item no
+longer requires data for a pinned value). In the joint pass a pinned parameter's evidence is the
+final round's (read at the final joint set), not the round-1 one. Pins must name tunable registry
+fields (`Policy.__post_init__`).
+**The pins** (both `policy/default.toml` and `policy/real-data-2026-10.toml`; citations in
+`docs/policy.md`): `abandonBlocks` W21/D-R-12; `grace` D-R-6 (reaffirmed W21); `classMin[0..2]`,
+`classMax[0..2]` D-R-6/W21 ("GRACE and the lock classes stay as they are", v3 revision 4);
+`supplyCapBps` W20/D-R-11; `attestFeeBps` D-3; `attestArmMin`, `attestArmDelay` D-4 (proposal §16);
+`activationThreshold`, `participationFloor` L3 ("the mint halt keeps 60 % / 75 %", v2 revision 4);
+`enforcementFloor`, `enforcementResume` L3 (1,008 / 1,210); `valveBlocks` L7 (v2 revision 5). Not
+pinned because not tunable, honoured by derivation: `recapRatioBps` = 2 × `globalRatioHaltBps`
+(W16/D-R-3), the window minimum fills (L9), the sunset span (L8). L4's launch bar (N ≥ 3 pools, none
+above 40 %) is an operational gate, not a parameter; G5 reads it as context.
+**Reason.** The owner's decisions are not open; a study that silently recommends changing one (rd2:
+`abandonBlocks` → 90 d, `attestFeeBps` → 50 %, `valveBlocks` → 7) misleads, and one that drops the
+evidence hides a risk. Re-deciding on the pinned slice of the same table costs no evaluation.
+**Consequence.** Machinery tests that move pinned fields use `Policy(owner_pinned={})`. Group agents
+read `rec.metrics["owner_pin"]` instead of overriding verdicts themselves.
 

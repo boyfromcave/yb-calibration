@@ -57,6 +57,7 @@ from typing import Any, Literal
 import numpy as np
 
 from ybcal.optimize.evaluate import EvalCache, evaluate_many
+from ybcal.optimize.pins import pin_info
 from ybcal.optimize.runner import GroupRun, recommended_set, run_group
 from ybcal.optimize.sensitivity import Factor, morris, sobol
 from ybcal.params.invariants import Context
@@ -490,6 +491,7 @@ def joint_pass(
                 and fr.recommended == current[r.param]
                 and fr.current == base[r.param]
                 and fr.verdict != "BLOCKED"
+                and pin_info(r) is None  # a pin's evidence is read at the final joint set (D-RD-INF-2)
             ):
                 # decided in round 1, confirmed later: report the round-1 decision (made against the
                 # shipped value, so its metrics and explanation compare current with recommended)

@@ -34,7 +34,7 @@ VERDICTS: dict[str, str] = {
     "NOT RUN": "the group's study is not available in this build or raised an error; no recommendation",
 }
 
-_KEYS_SKIP = {"design_notes"}
+_KEYS_SKIP = {"design_notes", "owner_pin", "environment_blocked"}
 
 
 def _thousands(v: int) -> str:
@@ -242,6 +242,13 @@ class ParamSection:
     figures: list[str] = field(default_factory=list)  #: evidence-relative PNG paths
     tables: list[str] = field(default_factory=list)  #: evidence-relative CSV paths
     insensitive: bool = False
+    verdict_label: str = ""  #: the verdict as printed (owner pin / environment-limited suffix)
+    pin: dict[str, Any] | None = None  #: ``metrics["owner_pin"]`` (D-RD-INF-2)
+    env_blocked: dict[str, Any] | None = None  #: ``metrics["environment_blocked"]`` (D-RD-INF-3)
+
+    def __post_init__(self) -> None:
+        if not self.verdict_label:
+            self.verdict_label = self.verdict
 
 
 def section_for(
@@ -283,6 +290,11 @@ def section_for(
             "stands until it is.",
         )
     rows, extra = metric_rows(rec)
+    from ybcal.optimize.pins import pin_info, verdict_label
+
+    pin = pin_info(rec)
+    m = rec.metrics if isinstance(rec.metrics, Mapping) else {}
+    envb = m.get("environment_blocked") if isinstance(m.get("environment_blocked"), Mapping) else None
     return ParamSection(
         param,
         number,
@@ -308,6 +320,9 @@ def section_for(
         rec.explanation or "",
         list(rec.notes),
         insensitive=bool(rec.sensitivity.get("insensitive")),
+        verdict_label=verdict_label(rec, rec.verdict),
+        pin=dict(pin) if pin is not None else None,
+        env_blocked=dict(envb) if envb is not None else None,
     )
 
 

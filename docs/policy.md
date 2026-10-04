@@ -182,6 +182,31 @@ The fastest way to see how much a key matters is to rerun one group with a chang
 | `max_rounds_joint` | 3 | rounds | Coordinate-descent rounds in the joint pass; `--max-rounds` overrides. | joint pass, optimizer runner, CLI | 1 halves the quick run (couplings then reported as not iterated). 3 matches the plan. |
 | `insensitive_total_order` | 0.01 | Sobol index | Total-order index below which a parameter is labelled *insensitive*. The label never changes a verdict (D-WP8-3). | joint sensitivity | Presentation threshold; 0.01 = under 1 % of output variance. |
 
+## `[owner_pinned]` — owner decisions (D-RD-INF-2)
+
+| Key | Default | Unit | Meaning | Read by | How to choose |
+|---|---|---|---|---|---|
+| `owner_pinned` | 17 parameters (below) | param → decision reference | Parameters whose value the owner fixed by decision. The study still runs and its evidence is kept, but the value is **kept**: verdict `KEEP (owner decision <ref>)`, never CHANGE, never in `params.cpp.patch`; the group's other parameters are decided with the pin held (the joint pass treats it as fixed). Where the evidence points elsewhere, the executive summary and the parameter section say "evidence points to X because …; risk of keeping: …". | optimizer runner (`optimize/pins.py`), report, lock-readiness | Remove a line to let the study move that value; add one (a tunable registry name) when the owner decides another. |
+
+The shipped pins, with their plan citations (workspace `docs/plans/`; "proposal" =
+`docs/reference/yellowback-price-attestation.md`):
+
+| Parameter | Value | Decision | Where |
+|---|---|---|---|
+| abandonBlocks | 34,560 (30 d) | W21 / D-R-12 (2026-10-02) | v3 §2 W21, §3.1, §6.2 |
+| grace | 34,560 (30 d) | D-R-6 (2026-09-21), reaffirmed in revision 4 / W21 | v3 §0 rev. 4, §6.2 |
+| classMin[0..2], classMax[0..2] | 30–90 d, 90–365 d, 1–5 y | D-R-6 / W21: "GRACE and the lock classes stay as they are" | v3 §0 rev. 4, §6.2 D-R-12 |
+| supplyCapBps | 1,500 | W20 / D-R-11: stays 1,500, soft above `RECAP_RATIO_BPS` | v3 §2 W20, §3.1, §6.2 |
+| attestFeeBps | 2,500 | D-3: additive, 25 % of `feeZat` | proposal §16, v3 §3.1 |
+| attestArmMin, attestArmDelay | 5, 1,152 | D-4: automatic arming, 5 ELIGIBLE attestors then one day | proposal §16, v3 §1 item 5, §3.1 |
+| activationThreshold, participationFloor | 1,512, 1,210 of 2,016 | L3: "the mint halt keeps 60 % / 75 %" | v2 §0 revision 4 |
+| enforcementFloor, enforcementResume | 1,008, 1,210 | L3: suspend below 50 %, resume at 60 % | v2 §0 revision 4 |
+| valveBlocks | 6 | L7: work valve at 6 blocks | v2 §0 revision 5 |
+
+Owner decisions on values that are not tunable registry fields are honoured by derivation, not
+pinned: `recapRatioBps` = 2 × `globalRatioHaltBps` (W16 / D-R-3, the owner chose 2×), the window
+minimum fills ⌈W/2⌉ and ⌈2W/3⌉ (L9), the sunset span ≈ 420,480 blocks (L8, release study).
+
 ## `[studies_g5_g8]` — G5/G8 assumptions (D-WP7c-2)
 
 | Key | Default | Unit | Meaning | Read by | How to choose |

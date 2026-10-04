@@ -267,10 +267,15 @@ def lock_readiness(
     recs = joint.recommendations
     locked = [k for k, s in REGISTRY.items() if s.tunable and s.change_path == "locked"]
     missing = [k for k in locked if k not in recs]
+    from ybcal.optimize.pins import pin_info
+
+    pinned = [k for k, r in recs.items() if pin_info(r) is not None]
     prov = [
         k
         for k in locked
-        if k in recs and (recs[k].verdict == "PROVISIONAL" or recs[k].provenance != "real-data")
+        if k in recs
+        and k not in pinned  # an owner decision does not rest on data (D-RD-INF-2)
+        and (recs[k].verdict == "PROVISIONAL" or recs[k].provenance != "real-data")
     ]
     blocked = [k for k, r in recs.items() if r.verdict == "BLOCKED"]
     viol = joint.recommended.check(Context.from_policy(policy))
@@ -299,6 +304,7 @@ def lock_readiness(
         CheckItem(
             "No parameter is BLOCKED by the policy", not blocked, "none" if not blocked else lst(blocked)
         ),
+        _pin_check(joint, policy, pinned, lst),
         CheckItem(
             "The recommended set passes every invariant (PLAN §1.4)",
             not viol,
@@ -328,6 +334,27 @@ def lock_readiness(
         ),
     ]
     return items
+
+
+def _pin_check(joint: JointResult, policy: Policy, pinned: Sequence[str], lst: Callable) -> CheckItem:
+    """Owner-pinned parameters hold their decided (shipped) values (D-RD-INF-2)."""
+    from ybcal.optimize.pins import pin_info
+
+    pins = dict(getattr(policy, "owner_pinned", {}) or {})
+    moved = [p for p in pins if joint.recommended[p] != joint.base[p]]
+    against = []
+    for p in pinned:
+        info = pin_info(joint.recommendations[p]) or {}
+        if info.get("evidence_points_elsewhere") or info.get("evidence_blocked"):
+            ev = info.get("evidence_value")
+            against.append(f"{p} → {X.fmt_value(p, ev)}" if info.get("evidence_points_elsewhere") else p)
+    if not pins:
+        return CheckItem("Owner-pinned parameters hold their decided values", None, "no pins in the policy",
+                         required=False)
+    detail = f"{len(pins)} pinned, {len(pinned)} studied" + (
+        f"; moved: {lst(moved)}" if moved else "; all kept"
+    ) + (f"; evidence points elsewhere for {lst(against)} (owner to re-confirm, §1)" if against else "")
+    return CheckItem("Owner-pinned parameters hold their decided values", not moved, detail)
 
 
 def g3_bad_debt_over(recs: Mapping[str, Any], policy: Policy) -> list[str]:
@@ -364,6 +391,26 @@ def top_risks(
                 0,
                 f"{len(blocked)} parameter(s) BLOCKED — no evaluated value meets the policy: "
                 f"{', '.join(blocked[:6])}{' …' if len(blocked) > 6 else ''}.",
+            )
+        )
+    from ybcal.optimize.pins import pin_info
+
+    against = [
+        k
+        for k, r in recs.items()
+        if (pin_info(r) or {}).get("evidence_points_elsewhere") or (pin_info(r) or {}).get("evidence_blocked")
+    ]
+    if against:
+        risks.append(
+            (
+                1,
+                f"{len(against)} owner-pinned value(s) kept against the evidence: "
+                + ", ".join(
+                    f"{k} (evidence {X.fmt_value(k, (pin_info(recs[k]) or {}).get('evidence_value'))})"
+                    for k in against[:5]
+                )
+                + (" …" if len(against) > 5 else "")
+                + " — see 'Owner decisions the evidence argues against' in §1.",
             )
         )
     over, source = g3_bad_debt_over(recs, policy), "the G3 study (worst ensemble member)"
@@ -445,6 +492,32 @@ def blocked_rows(joint: JointResult, sections: Mapping[str, X.ParamSection]) -> 
                 "least_metrics": lv_txt,
             }
         )
+    return out
+
+
+def pinned_rows(joint: JointResult, sections: Mapping[str, X.ParamSection]) -> list[dict[str, Any]]:
+    """Owner-pinned parameters (D-RD-INF-2), those the evidence would move first."""
+    out = []
+    for p, r in joint.recommendations.items():
+        pin = sections[p].pin if p in sections else None
+        if not pin:
+            continue
+        ev = pin.get("evidence_value")
+        out.append(
+            {
+                "param": p,
+                "anchor": sections[p].anchor,
+                "ref": pin.get("ref", "?"),
+                "kept": X.fmt_value(p, r.recommended),
+                "evidence": X.fmt_value(p, ev),
+                "evidence_verdict": pin.get("evidence_verdict", ""),
+                "elsewhere": bool(pin.get("evidence_points_elsewhere")),
+                "blocked": bool(pin.get("evidence_blocked")),
+                "because": str(pin.get("because") or ""),
+                "risk": str(pin.get("risk") or ""),
+            }
+        )
+    out.sort(key=lambda d: (not d["elsewhere"], not d["blocked"]))
     return out
 
 
@@ -544,6 +617,7 @@ def _summary_rows(ctx: ReportContext, sections: Mapping[str, X.ParamSection]) ->
                 "recommended": s.recommended,
                 "changed": s.changed,
                 "verdict": s.verdict,
+                "verdict_label": s.verdict_label,
                 "change_path": s.change_path,
                 "klass": s.klass,
                 "confidence": s.confidence,
@@ -816,6 +890,7 @@ def write_report(ctx: ReportContext, out: Path) -> dict[str, Path]:
     ready = all(c.ok for c in checklist if c.required)
     risks = top_risks(joint, ctx.sensitivity, ctx.policy, ctx.devnet, ctx.provenance)
     blocked = blocked_rows(joint, sections)
+    pinned = pinned_rows(joint, sections)
 
     groups = []
     for g in GROUP_ORDER:
@@ -915,6 +990,8 @@ def write_report(ctx: ReportContext, out: Path) -> dict[str, Path]:
         "verdict_order": VERDICT_ORDER,
         "risks": risks,
         "blocked": blocked,
+        "pinned": pinned,
+        "pinned_against": [x for x in pinned if x["elsewhere"] or x["blocked"]],
         "groups": groups,
         "sections": sections,
         "joint": joint,

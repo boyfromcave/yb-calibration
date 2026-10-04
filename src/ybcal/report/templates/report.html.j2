@@ -109,12 +109,18 @@ nav.toc a { display: block; padding: 1px 0; }
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Current</th><th>Least-violating value</th><th>Reason</th><th>Metrics there</th></tr></thead><tbody>
 {% for b in blocked %}<tr><td><a href="#{{ b.anchor }}"><code>{{ b.param|e }}</code></a></td><td class="num">{{ b.current|e }}</td><td class="num moved">{{ b.least|e }}{% if b.applied %} <span class="muted">(in the patch)</span>{% endif %}</td><td>{{ b.reason|e }}</td><td>{{ b.least_metrics|e }}</td></tr>
 {% endfor %}</tbody></table></div></div>{% endif %}
+{% if pinned_against %}<div class="blocked-box"><h3>Owner decisions the evidence argues against</h3>
+<p>The value is <b>kept</b> (verdict KEEP, never in the patch); the evidence points elsewhere and the owner may wish to re-confirm.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kept (decision)</th><th>Evidence points to</th><th>Because</th><th>Risk of keeping</th></tr></thead><tbody>
+{% for b in pinned_against %}<tr><td><a href="#{{ b.anchor }}"><code>{{ b.param|e }}</code></a></td><td class="num">{{ b.kept|e }} <span class="muted">({{ b.ref|e }})</span></td><td class="num moved">{{ b.evidence|e }} <span class="muted">({{ b.evidence_verdict|e }}{{ ", no value meets the policy" if b.blocked }})</span></td><td>{{ b.because|e }}</td><td>{{ b.risk|e }}</td></tr>
+{% endfor %}</tbody></table></div></div>{% endif %}
+{% if pinned %}<p class="muted">Owner-pinned (studied, kept by decision; policy <code>owner_pinned</code>): {% for b in pinned %}<a href="#{{ b.anchor }}"><code>{{ b.param|e }}</code></a> {{ b.ref|e }}{{ ", " if not loop.last else "." }}{% endfor %}</p>{% endif %}
 <h3>Top remaining risks</h3>
 <ol>{% for r in risks %}<li>{{ r|e }}</li>{% else %}<li>None identified.</li>{% endfor %}</ol>
 <div class="table-wrap"><table>
 <thead><tr><th>#</th><th>Parameter</th><th>Current</th><th>Recommended</th><th>Verdict</th><th>Class / change path</th><th>Confidence</th><th>Provenance</th></tr></thead>
 <tbody>
-{% for r in rows %}<tr><td><a href="#{{ r.anchor }}">{{ r.number }}</a></td><td><code>{{ r.param|e }}</code></td><td class="num">{{ r.current|e }}</td><td class="num{{ ' moved' if r.changed }}">{{ r.recommended|e }}</td><td><span class="badge v-{{ r.verdict|replace(' ', '-') }}">{{ r.verdict }}</span></td><td>{{ r.klass }} / {{ r.change_path }}</td><td>{{ r.confidence }}</td><td>{{ r.provenance|e }}</td></tr>
+{% for r in rows %}<tr><td><a href="#{{ r.anchor }}">{{ r.number }}</a></td><td><code>{{ r.param|e }}</code></td><td class="num">{{ r.current|e }}</td><td class="num{{ ' moved' if r.changed }}">{{ r.recommended|e }}</td><td><span class="badge v-{{ r.verdict|replace(' ', '-') }}">{{ r.verdict_label|e }}</span></td><td>{{ r.klass }} / {{ r.change_path }}</td><td>{{ r.confidence }}</td><td>{{ r.provenance|e }}</td></tr>
 {% endfor %}
 </tbody></table></div>
 <p class="muted">{% for v in verdict_order %}<b>{{ v }}</b> — {{ verdicts[v]|e }}{{ ". " }}{% endfor %}Non-tunable parameters are in Appendix A.</p>
@@ -134,8 +140,9 @@ nav.toc a { display: block; padding: 1px 0; }
 <p class="muted">Study status: <b>{{ g.status|e }}</b>{% if g.reason %} ({{ g.reason|e }}){% endif %}{% if g.summary %} · {{ g.summary|e }}{% endif %}</p>
 {% for s in g.params %}
 <section class="param" id="{{ s.anchor }}">
-<div class="head"><h4>{{ s.number }} <code>{{ s.param|e }}</code></h4><span class="badge v-{{ s.verdict|replace(' ', '-') }}">{{ s.verdict }}</span></div>
+<div class="head"><h4>{{ s.number }} <code>{{ s.param|e }}</code></h4><span class="badge v-{{ s.verdict|replace(' ', '-') }}">{{ s.verdict_label|e }}</span></div>
 <div class="values">{{ s.current|e }} → <span class="{{ 'moved' if s.changed }}">{{ s.recommended|e }}</span> <span class="muted">· {{ s.klass }} / {{ s.change_path }} · confidence {{ s.confidence }} · {{ s.provenance|e }}{% if s.insensitive %} · insensitive{% endif %}</span></div>
+{% if s.pin %}<p class="blocked-box"><b>Owner decision {{ s.pin.ref|e }}: the value is kept.</b>{% if s.pin.evidence_points_elsewhere %} The evidence points to <b>{{ s.pin.evidence_value|e }}</b> ({{ s.pin.evidence_verdict|e }}) because {{ s.pin.because|e }}. Risk of keeping: {{ s.pin.risk|e }}.{% elif s.pin.evidence_blocked %} No evaluated value meets the policy ({{ s.pin.because|e }}). Risk of keeping: {{ s.pin.risk|e }}.{% else %} The study's evidence agrees.{% endif %}</p>{% endif %}
 <dl>
 <dt>What it controls</dt><dd>{{ s.controls|e }}</dd>
 <dt>Decision rule</dt><dd>{{ s.rule|e }}</dd>
