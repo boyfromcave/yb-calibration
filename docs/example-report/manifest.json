@@ -7,19 +7,19 @@
     "quick",
     "--synthetic",
     "--workers",
-    "4",
+    "5",
     "--out",
-    "reports/quick-synthetic"
+    ".work/runs/quick-s2"
   ],
-  "created_utc": "2026-10-03T14:11:02Z",
+  "created_utc": "2026-10-04T06:27:52Z",
   "data_hashes": {},
   "extra": {
     "counts": {
-      "BLOCKED": 3,
+      "BLOCKED": 2,
       "CHANGE": 3,
       "KEEP": 27,
       "NOT RUN": 0,
-      "PROVISIONAL": 39
+      "PROVISIONAL": 40
     },
     "data": [
       {
@@ -172,7 +172,7 @@
         ],
         "attestFeeBps": [
           2500,
-          3500
+          4500
         ],
         "baseRatioBps[0]": [
           50000,
@@ -200,15 +200,11 @@
         ],
         "divergenceBps": [
           2000,
-          1000
+          1500
         ],
         "dormancyMinBundles": [
           20,
           12
-        ],
-        "emergencyRatioBps": [
-          10500,
-          10900
         ],
         "feeBps": [
           25,
@@ -217,14 +213,6 @@
         "nPenalty": [
           288,
           144
-        ],
-        "pFastMinFill": [
-          48,
-          24
-        ],
-        "pFastWindow": [
-          96,
-          48
         ],
         "pMidMinFill": [
           384,
@@ -236,7 +224,7 @@
         ],
         "peerMin": [
           5,
-          12
+          8
         ],
         "qHighBps": [
           6667,
@@ -246,25 +234,13 @@
           3333,
           3500
         ],
+        "sigmaMultMaxBps": [
+          30000,
+          42500
+        ],
         "sigmaRefBps": [
           10000,
           7000
-        ],
-        "supplyCapBps": [
-          1500,
-          5000
-        ],
-        "volPeriodsPerYear": [
-          8760,
-          17520
-        ],
-        "volStep": [
-          48,
-          24
-        ],
-        "volWindow": [
-          2016,
-          2880
         ],
         "walletConfirmations": [
           6,
@@ -276,8 +252,10 @@
         {
           "consequence": "Classes whose tolerance cannot be met at any ratio are BLOCKED; capital efficiency of long terms collapses before the risk does.",
           "evidence": {
-            "pbad_at_upper_bound": "{'A': 0.0030099, 'B': 0.0505545, 'C': 0.477739}",
-            "pbad_current": "{'A': 0.00436134, 'B': 0.0505545, 'C': 0.477739}",
+            "pbad_at_upper_bound": "{'A': 0.00316539, 'B': 0.0273813, 'C': 0.204401}",
+            "pbad_current": "{'A': 0.00453901, 'B': 0.0273813, 'C': 0.204401}",
+            "shortfall_at_upper_bound": "{'A': 0.000615012, 'B': 0.0113527, 'C': 0.116}",
+            "term_reach_days_at_upper_bound": "{'A': 71.25, 'B': 0, 'C': 0}",
             "tolerance": "{'A': 0.005, 'B': 0.01, 'C': 0.02}"
           },
           "fix": "Rule change (out of scope for tuning): a claim/top-up path during the term (e.g. RED-4 from lockHeight at a higher threshold), term-scaled ratios, or shorter maximum terms.",
@@ -291,13 +269,13 @@
             "baseRatioBps[2]",
             "classMax[2]"
           ],
-          "text": "The vault script admits only the owner path until claimHeight, so the base ratio must cover the whole term's drawdown. P(bad debt) at the shipped ratios: A 0.00436134, B 0.0505545, C 0.477739 (tolerances 0.50%, 1.00%, 2.00%); the lowest reachable within the registry bounds: A 0.30%, B 5.06%, C 47.77%.",
+          "text": "The vault script admits only the owner path until claimHeight, so the base ratio must cover the whole term's drawdown. P(bad debt) at the shipped ratios: A 0.45%, B 2.74%, C 20.44% (tolerances 0.50%, 1.00%, 2.00%); the lowest reachable within the registry bounds: A 0.32%, B 2.74%, C 20.44%. At the upper bound each class meets its tolerance only for terms up to A 71 d, B 0 d, C 0 d (class maxima 90, 365, 1825 d), and a vault that is bad at the claim opening is short by 19%, 41%, 57% of its debt on average. A bad vault is not yet a realised loss: nobody may claim it below the debt, it stays claimable if the price recovers, and YED holders bear the gap only through the peg (D-RD-AUD-3).",
           "title": "No liquidation before lockHeight + grace (fact 1.5-1)"
         },
         {
           "consequence": "residualMinZat only matters under RED-4(b); raising claimThresholdBps transfers more value from absent owners to claimants.",
           "evidence": {
-            "claim.forfeit_bps": "507.781"
+            "claim.forfeit_bps": "511.425"
           },
           "fix": "Rule change: cap the RED-4(a) claimant at debt \u00d7 (1 + a bounty) and return the rest.",
           "groups": [
@@ -308,15 +286,15 @@
             "claimThresholdBps",
             "residualMinZat"
           ],
-          "text": "The claimant cap uses the same threshold that made the vault underwater, so a RED-4(a) claimant takes the whole collateral; an absent owner forfeits everything above the debt (mean forfeit at the first trigger: 508 bps of the debt).",
+          "text": "The claimant cap uses the same threshold that made the vault underwater, so a RED-4(a) claimant takes the whole collateral; an absent owner forfeits everything above the debt (mean forfeit at the first trigger: 511 bps of the debt).",
           "title": "RED-5 residual is always 0 under RED-4(a)"
         },
         {
           "consequence": "Claimants do not show up in a steady decline; abandoned vaults drift into bad debt.",
           "evidence": {
-            "claim.bad": "0.201613",
-            "claim.mean_bps": "242.911",
-            "claim.show_up": "0.643307"
+            "claim.bad": "0.223289",
+            "claim.mean_bps": "236.128",
+            "claim.show_up": "0.627239"
           },
           "fix": "Parameter (claimThresholdBps, see its recommendation) or a rule change: a fresher claim price (e.g. pFast or the attested aClaim for RED-4(a)).",
           "groups": [
@@ -326,15 +304,15 @@
           "params": [
             "claimThresholdBps"
           ],
-          "text": "pClaim = max(pMid, pSlow) lags a falling price, so when a vault first shows underwater the claimant's expected margin is 243 bps of the debt at the current threshold (show-up rate 64%; already bad debt at the trigger: 20%).",
+          "text": "pClaim = max(pMid, pSlow) lags a falling price, so when a vault first shows underwater the claimant's expected margin is 236 bps of the debt at the current threshold (show-up rate 63%; already bad debt at the trigger: 22%).",
           "title": "pClaim lag eats the claim margin"
         },
         {
           "consequence": "The emergency path's benefit depends on a YED discount appearing in a crash.",
           "evidence": {
-            "emerg.b_par_loss_bps": "1583.67",
-            "emerg.b_share": "0.960938",
-            "emerg.benefit": "0.350011"
+            "emerg.b_par_loss_bps": "2196.79",
+            "emerg.b_share": "0.5625",
+            "emerg.benefit": "-0.0052081"
           },
           "fix": "Rule change: pay the RED-4(b) claimant at pEmerg (or with a bounty).",
           "groups": [
@@ -344,13 +322,13 @@
           "params": [
             "emergencyRatioBps"
           ],
-          "text": "Under RED-4(b) the claimant receives the debt's worth at pClaim, the higher of the two prices, so at par it is a loss (1584 bps of the debt on average in the crash runs); it only works as a par exit for YED holders when YED trades at a discount.",
+          "text": "Under RED-4(b) the claimant receives the debt's worth at pClaim, the higher of the two prices, so at par it is a loss (2197 bps of the debt on average in the crash runs); it only works as a par exit for YED holders when YED trades at a discount.",
           "title": "RED-4(b) never pays a claimant buying YED at par"
         },
         {
           "consequence": "Ratios are sized at multiplier 1\u00d7; G2 (sigmaRefBps) decides whether that changes.",
           "evidence": {
-            "sigma_median_bps": "13296.5"
+            "sigma_median_bps": "10000"
           },
           "fix": "Parameter coupling with G2, not a rule change.",
           "groups": [
@@ -362,13 +340,13 @@
             "baseRatioBps[1]",
             "baseRatioBps[2]"
           ],
-          "text": "The median hour-mode \u03c3 multiplier over the ensemble is 13296.5 bps (\u03c3\u0302 on the smoothed pFast stays below sigmaRefBps, D-WP3-6), so the base ratio alone carries the drawdown budget.",
+          "text": "The median hour-mode \u03c3 multiplier over the ensemble is 10000 bps (\u03c3\u0302 on the smoothed pFast stays below sigmaRefBps, D-WP3-6), so the base ratio alone carries the drawdown budget.",
           "title": "The \u03c3 multiplier adds no protection at its median"
         },
         {
           "consequence": "Boundary moves only shift the problem between classes.",
           "evidence": {
-            "heterogeneity": "{'A': 4, 'B': 1.88746, 'C': 1.48613}",
+            "heterogeneity": "{'A': 3.33712, 'B': 1.59161, 'C': 1.07925}",
             "max": "0.5"
           },
           "fix": "Rule change: more classes, or a ratio that grows with the lock length.",
@@ -384,7 +362,7 @@
             "classMax[1]",
             "classMax[2]"
           ],
-          "text": "P(bad debt) rises with the term inside each class (heterogeneity A 4.00, B 1.89, C 1.49 against 0.5); with three fixed classes (NUM_CLASSES) and one ratio per class, long terms are under-collateralised relative to short ones.",
+          "text": "P(bad debt) rises with the term inside each class (heterogeneity A 3.34, B 1.59, C 1.08 against 0.5); with three fixed classes (NUM_CLASSES) and one ratio per class, long terms are under-collateralised relative to short ones.",
           "title": "Term heterogeneity inside the classes"
         },
         {
@@ -407,9 +385,9 @@
         {
           "consequence": "Owner continuity is bought with collateral (G3 must size ratios for lock + grace).",
           "evidence": {
-            "dP.A": "0.00341596",
-            "dP.B": "0.00960465",
-            "dP.C": "0.0119719",
+            "dP.A": "0.0032994",
+            "dP.B": "0.00549526",
+            "dP.C": "0.00801543",
             "owner.p_miss": "0.00426666"
           },
           "fix": "Rule change: allow RED-4 claims from lockHeight at a lower threshold while the owner path stays open.",
@@ -420,7 +398,7 @@
           "params": [
             "grace"
           ],
-          "text": "The grace window adds 0.34% (A), 0.96% (B), 1.20% (C) to P(bad debt) at the shipped values because nobody can claim during it (fact 1.5-1); for class A a 30-day grace is 33\u2013100 % of the term.",
+          "text": "The grace window adds 0.33% (A), 0.55% (B), 0.80% (C) to P(bad debt) at the shipped values because nobody can claim during it (fact 1.5-1); for class A a 30-day grace is 33\u2013100 % of the term.",
           "title": "Grace is drawdown exposure for short terms"
         },
         {
@@ -437,7 +415,7 @@
             "recapRatioBps",
             "divergenceBps"
           ],
-          "text": "G7 design note (cap-exempt liquidation): the worst-day liquidation demand of class-A vaults alone ($3,258, p95 of the worst crash) exceeds max_depth_fraction of the p10 daily YEC volume ($2,500). Class A at \u03c3 = 1 sits exactly at recapRatioBps and bypasses MINT-6 (W20), so supplyCapBps cannot bound it; only a rule change (cap-exempt supply counted against its own limit) or a higher class-A ratio would. The depth figure is a placeholder unless a depth file is loaded.",
+          "text": "G7 design note (cap-exempt liquidation): the worst-day liquidation demand of class-A vaults alone ($4,278, p95 of the worst crash) exceeds max_depth_fraction of the p10 daily YEC volume ($2,500). Class A at \u03c3 = 1 sits exactly at recapRatioBps and bypasses MINT-6 (W20), so supplyCapBps cannot bound it; only a rule change (cap-exempt supply counted against its own limit) or a higher class-A ratio would. The depth figure is a placeholder unless a depth file is loaded.",
           "title": ""
         },
         {
@@ -462,7 +440,7 @@
             "payeeTiltBps",
             "attestFeeBps"
           ],
-          "text": "G6 design note (FEE-1 base): FEE-1 is a share of the vault's collateral, so a vault's round-trip fee as a share of its debt is 2\u00b7feeBps\u00b7baseRatio at every size \u2014 1.70% for class A (ARMED) at the current values, above max_fee_share_small for any feeBps > 12 bps. Levying FEE-1 on the debt value (mintedCents at pMint) would make the fee class-neutral; that is a rule change, out of scope for tuning.",
+          "text": "G6 design note (FEE-1 base): FEE-1 is a share of the vault's collateral, so a vault's round-trip fee as a share of its debt is 2\u00b7feeBps\u00b7baseRatio at every size \u2014 1.78% for class A (ARMED) at the current values, above max_fee_share_small for any feeBps > 11 bps. Levying FEE-1 on the debt value (mintedCents at pMint) would make the fee class-neutral; that is a rule change, out of scope for tuning.",
           "title": ""
         },
         {
@@ -505,9 +483,9 @@
           "group": "G1",
           "reason": "",
           "round": 2,
-          "seconds": 58.811,
+          "seconds": 38.276,
           "status": "ok",
-          "summary": "G1 [space]: space: 60 candidates; 63 evaluated (2 cached, 4 workers) in 58.8 s",
+          "summary": "G1 [space]: space: 60 candidates; 63 evaluated (3 cached, 5 workers) in 38.3 s",
           "warnings": []
         },
         "G2": {
@@ -516,9 +494,9 @@
           "group": "G2",
           "reason": "",
           "round": 2,
-          "seconds": 4.095,
+          "seconds": 4.479,
           "status": "ok",
-          "summary": "G2 [space]: space: 28 candidates; 36 evaluated (1 cached, 4 workers) in 4.1 s",
+          "summary": "G2 [space]: space: 29 candidates; 35 evaluated (2 cached, 5 workers) in 4.5 s",
           "warnings": []
         },
         "G3": {
@@ -528,14 +506,24 @@
               "consequence": "Classes whose tolerance cannot be met at any ratio are BLOCKED; capital efficiency of long terms collapses before the risk does.",
               "evidence": {
                 "pbad_at_upper_bound": {
-                  "A": 0.0030099,
-                  "B": 0.0505545,
-                  "C": 0.477739
+                  "A": 0.00316539,
+                  "B": 0.0273813,
+                  "C": 0.204401
                 },
                 "pbad_current": {
-                  "A": 0.00436134,
-                  "B": 0.0505545,
-                  "C": 0.477739
+                  "A": 0.00453901,
+                  "B": 0.0273813,
+                  "C": 0.204401
+                },
+                "shortfall_at_upper_bound": {
+                  "A": 0.000615012,
+                  "B": 0.0113527,
+                  "C": 0.116
+                },
+                "term_reach_days_at_upper_bound": {
+                  "A": 71.25,
+                  "B": 0,
+                  "C": 0
                 },
                 "tolerance": {
                   "A": 0.005,
@@ -543,7 +531,7 @@
                   "C": 0.02
                 }
               },
-              "finding": "The vault script admits only the owner path until claimHeight, so the base ratio must cover the whole term's drawdown. P(bad debt) at the shipped ratios: A 0.00436134, B 0.0505545, C 0.477739 (tolerances 0.50%, 1.00%, 2.00%); the lowest reachable within the registry bounds: A 0.30%, B 5.06%, C 47.77%.",
+              "finding": "The vault script admits only the owner path until claimHeight, so the base ratio must cover the whole term's drawdown. P(bad debt) at the shipped ratios: A 0.45%, B 2.74%, C 20.44% (tolerances 0.50%, 1.00%, 2.00%); the lowest reachable within the registry bounds: A 0.32%, B 2.74%, C 20.44%. At the upper bound each class meets its tolerance only for terms up to A 71 d, B 0 d, C 0 d (class maxima 90, 365, 1825 d), and a vault that is bad at the claim opening is short by 19%, 41%, 57% of its debt on average. A bad vault is not yet a realised loss: nobody may claim it below the debt, it stays claimable if the price recovers, and YED holders bear the gap only through the peg (D-RD-AUD-3).",
               "fix": "Rule change (out of scope for tuning): a claim/top-up path during the term (e.g. RED-4 from lockHeight at a higher threshold), term-scaled ratios, or shorter maximum terms.",
               "id": "G3-DN1",
               "params": [
@@ -557,9 +545,9 @@
             {
               "consequence": "residualMinZat only matters under RED-4(b); raising claimThresholdBps transfers more value from absent owners to claimants.",
               "evidence": {
-                "claim.forfeit_bps": 507.781
+                "claim.forfeit_bps": 511.425
               },
-              "finding": "The claimant cap uses the same threshold that made the vault underwater, so a RED-4(a) claimant takes the whole collateral; an absent owner forfeits everything above the debt (mean forfeit at the first trigger: 508 bps of the debt).",
+              "finding": "The claimant cap uses the same threshold that made the vault underwater, so a RED-4(a) claimant takes the whole collateral; an absent owner forfeits everything above the debt (mean forfeit at the first trigger: 511 bps of the debt).",
               "fix": "Rule change: cap the RED-4(a) claimant at debt \u00d7 (1 + a bounty) and return the rest.",
               "id": "G3-DN2",
               "params": [
@@ -571,11 +559,11 @@
             {
               "consequence": "Claimants do not show up in a steady decline; abandoned vaults drift into bad debt.",
               "evidence": {
-                "claim.bad": 0.201613,
-                "claim.mean_bps": 242.911,
-                "claim.show_up": 0.643307
+                "claim.bad": 0.223289,
+                "claim.mean_bps": 236.128,
+                "claim.show_up": 0.627239
               },
-              "finding": "pClaim = max(pMid, pSlow) lags a falling price, so when a vault first shows underwater the claimant's expected margin is 243 bps of the debt at the current threshold (show-up rate 64%; already bad debt at the trigger: 20%).",
+              "finding": "pClaim = max(pMid, pSlow) lags a falling price, so when a vault first shows underwater the claimant's expected margin is 236 bps of the debt at the current threshold (show-up rate 63%; already bad debt at the trigger: 22%).",
               "fix": "Parameter (claimThresholdBps, see its recommendation) or a rule change: a fresher claim price (e.g. pFast or the attested aClaim for RED-4(a)).",
               "id": "G3-DN3",
               "params": [
@@ -586,11 +574,11 @@
             {
               "consequence": "The emergency path's benefit depends on a YED discount appearing in a crash.",
               "evidence": {
-                "emerg.b_par_loss_bps": 1583.67,
-                "emerg.b_share": 0.960938,
-                "emerg.benefit": 0.350011
+                "emerg.b_par_loss_bps": 2196.79,
+                "emerg.b_share": 0.5625,
+                "emerg.benefit": -0.0052081
               },
-              "finding": "Under RED-4(b) the claimant receives the debt's worth at pClaim, the higher of the two prices, so at par it is a loss (1584 bps of the debt on average in the crash runs); it only works as a par exit for YED holders when YED trades at a discount.",
+              "finding": "Under RED-4(b) the claimant receives the debt's worth at pClaim, the higher of the two prices, so at par it is a loss (2197 bps of the debt on average in the crash runs); it only works as a par exit for YED holders when YED trades at a discount.",
               "fix": "Rule change: pay the RED-4(b) claimant at pEmerg (or with a bounty).",
               "id": "G3-DN4",
               "params": [
@@ -601,9 +589,9 @@
             {
               "consequence": "Ratios are sized at multiplier 1\u00d7; G2 (sigmaRefBps) decides whether that changes.",
               "evidence": {
-                "sigma_median_bps": 13296.5
+                "sigma_median_bps": 10000
               },
-              "finding": "The median hour-mode \u03c3 multiplier over the ensemble is 13296.5 bps (\u03c3\u0302 on the smoothed pFast stays below sigmaRefBps, D-WP3-6), so the base ratio alone carries the drawdown budget.",
+              "finding": "The median hour-mode \u03c3 multiplier over the ensemble is 10000 bps (\u03c3\u0302 on the smoothed pFast stays below sigmaRefBps, D-WP3-6), so the base ratio alone carries the drawdown budget.",
               "fix": "Parameter coupling with G2, not a rule change.",
               "id": "G3-DN5",
               "params": [
@@ -617,13 +605,13 @@
               "consequence": "Boundary moves only shift the problem between classes.",
               "evidence": {
                 "heterogeneity": {
-                  "A": 4,
-                  "B": 1.88746,
-                  "C": 1.48613
+                  "A": 3.33712,
+                  "B": 1.59161,
+                  "C": 1.07925
                 },
                 "max": 0.5
               },
-              "finding": "P(bad debt) rises with the term inside each class (heterogeneity A 4.00, B 1.89, C 1.49 against 0.5); with three fixed classes (NUM_CLASSES) and one ratio per class, long terms are under-collateralised relative to short ones.",
+              "finding": "P(bad debt) rises with the term inside each class (heterogeneity A 3.34, B 1.59, C 1.08 against 0.5); with three fixed classes (NUM_CLASSES) and one ratio per class, long terms are under-collateralised relative to short ones.",
               "fix": "Rule change: more classes, or a ratio that grows with the lock length.",
               "id": "G3-DN6",
               "params": [
@@ -640,9 +628,9 @@
           "group": "G3",
           "reason": "",
           "round": 2,
-          "seconds": 81.26,
+          "seconds": 36.623,
           "status": "ok",
-          "summary": "G3 [space]: space: 79 candidates; 82 evaluated (7 cached, 4 workers) in 81.3 s",
+          "summary": "G3 [space]: space: 80 candidates; 83 evaluated (9 cached, 5 workers) in 36.6 s",
           "warnings": []
         },
         "G4": {
@@ -665,12 +653,12 @@
             {
               "consequence": "Owner continuity is bought with collateral (G3 must size ratios for lock + grace).",
               "evidence": {
-                "dP.A": 0.00341596,
-                "dP.B": 0.00960465,
-                "dP.C": 0.0119719,
+                "dP.A": 0.0032994,
+                "dP.B": 0.00549526,
+                "dP.C": 0.00801543,
                 "owner.p_miss": 0.00426666
               },
-              "finding": "The grace window adds 0.34% (A), 0.96% (B), 1.20% (C) to P(bad debt) at the shipped values because nobody can claim during it (fact 1.5-1); for class A a 30-day grace is 33\u2013100 % of the term.",
+              "finding": "The grace window adds 0.33% (A), 0.55% (B), 0.80% (C) to P(bad debt) at the shipped values because nobody can claim during it (fact 1.5-1); for class A a 30-day grace is 33\u2013100 % of the term.",
               "fix": "Rule change: allow RED-4 claims from lockHeight at a lower threshold while the owner path stays open.",
               "id": "G4-DN2",
               "params": [
@@ -682,9 +670,9 @@
           "group": "G4",
           "reason": "",
           "round": 2,
-          "seconds": 80.707,
+          "seconds": 56.153,
           "status": "ok",
-          "summary": "G4 [space]: space: 57 candidates; 59 evaluated (1 cached, 4 workers) in 80.7 s",
+          "summary": "G4 [space]: space: 57 candidates; 59 evaluated (1 cached, 5 workers) in 56.2 s",
           "warnings": []
         },
         "G5": {
@@ -693,35 +681,35 @@
           "group": "G5",
           "reason": "",
           "round": 2,
-          "seconds": 2.93,
+          "seconds": 2.45,
           "status": "ok",
-          "summary": "G5 [space]: space: 96 candidates, 56 rejected (abandon_ge_runbook\u00d72, activation_order\u00d754); 104 evaluated (5 cached, 4 workers) in 2.9 s",
+          "summary": "G5 [space]: space: 96 candidates, 56 rejected (abandon_ge_runbook\u00d72, activation_order\u00d754); 104 evaluated (5 cached, 5 workers) in 2.4 s",
           "warnings": []
         },
         "G6": {
           "applied": true,
           "design_notes": [
-            "G6 design note (FEE-1 base): FEE-1 is a share of the vault's collateral, so a vault's round-trip fee as a share of its debt is 2\u00b7feeBps\u00b7baseRatio at every size \u2014 1.70% for class A (ARMED) at the current values, above max_fee_share_small for any feeBps > 12 bps. Levying FEE-1 on the debt value (mintedCents at pMint) would make the fee class-neutral; that is a rule change, out of scope for tuning."
+            "G6 design note (FEE-1 base): FEE-1 is a share of the vault's collateral, so a vault's round-trip fee as a share of its debt is 2\u00b7feeBps\u00b7baseRatio at every size \u2014 1.78% for class A (ARMED) at the current values, above max_fee_share_small for any feeBps > 11 bps. Levying FEE-1 on the debt value (mintedCents at pMint) would make the fee class-neutral; that is a rule change, out of scope for tuning."
           ],
           "group": "G6",
           "reason": "",
           "round": 2,
-          "seconds": 16.539,
+          "seconds": 11.193,
           "status": "ok",
-          "summary": "G6 [space]: space: 293 candidates, 5 rejected (fee_floor_mintable\u00d75); 305 evaluated (11 cached, 4 workers) in 16.5 s",
+          "summary": "G6 [space]: space: 293 candidates, 5 rejected (fee_floor_mintable\u00d75); 305 evaluated (12 cached, 5 workers) in 11.2 s",
           "warnings": []
         },
         "G7": {
           "applied": true,
           "design_notes": [
-            "G7 design note (cap-exempt liquidation): the worst-day liquidation demand of class-A vaults alone ($3,258, p95 of the worst crash) exceeds max_depth_fraction of the p10 daily YEC volume ($2,500). Class A at \u03c3 = 1 sits exactly at recapRatioBps and bypasses MINT-6 (W20), so supplyCapBps cannot bound it; only a rule change (cap-exempt supply counted against its own limit) or a higher class-A ratio would. The depth figure is a placeholder unless a depth file is loaded."
+            "G7 design note (cap-exempt liquidation): the worst-day liquidation demand of class-A vaults alone ($4,278, p95 of the worst crash) exceeds max_depth_fraction of the p10 daily YEC volume ($2,500). Class A at \u03c3 = 1 sits exactly at recapRatioBps and bypasses MINT-6 (W20), so supplyCapBps cannot bound it; only a rule change (cap-exempt supply counted against its own limit) or a higher class-A ratio would. The depth figure is a placeholder unless a depth file is loaded."
           ],
           "group": "G7",
           "reason": "",
           "round": 2,
-          "seconds": 22.462,
+          "seconds": 26.163,
           "status": "ok",
-          "summary": "G7 [space]: space: 24 candidates; 29 evaluated (1 cached, 4 workers) in 22.5 s",
+          "summary": "G7 [space]: space: 24 candidates; 30 evaluated (1 cached, 5 workers) in 26.2 s",
           "warnings": []
         },
         "G8": {
@@ -730,9 +718,9 @@
           "group": "G8",
           "reason": "",
           "round": 2,
-          "seconds": 15.033,
+          "seconds": 6.385,
           "status": "ok",
-          "summary": "G8 [space]: space: 346 candidates, 10 rejected (bundle_size\u00d79, quantile_sum\u00d71), 2 duplicates; 364 evaluated (23 cached, 4 workers) in 15.0 s",
+          "summary": "G8 [space]: space: 346 candidates, 10 rejected (bundle_size\u00d79, quantile_sum\u00d71), 2 duplicates; 364 evaluated (23 cached, 5 workers) in 6.4 s",
           "warnings": []
         },
         "G9": {
@@ -756,9 +744,9 @@
           "group": "G9",
           "reason": "",
           "round": 2,
-          "seconds": 0.954,
+          "seconds": 0.897,
           "status": "ok",
-          "summary": "G9 [space]: space: 141 candidates; 107 evaluated (51 cached, 4 workers) in 1.0 s",
+          "summary": "G9 [space]: space: 141 candidates; 107 evaluated (51 cached, 5 workers) in 0.9 s",
           "warnings": []
         },
         "R": {
@@ -767,7 +755,7 @@
           "group": "R",
           "reason": "",
           "round": 2,
-          "seconds": 0.003,
+          "seconds": 0.001,
           "status": "ok",
           "summary": "R [space]: space: 1 candidates; 0 evaluated (2 cached, 1 worker) in 0.0 s",
           "warnings": []
@@ -777,14 +765,6 @@
         {
           "group_moves": {
             "G1": {
-              "pFastMinFill": [
-                48,
-                24
-              ],
-              "pFastWindow": [
-                96,
-                48
-              ],
               "pMidMinFill": [
                 384,
                 768
@@ -795,21 +775,13 @@
               ]
             },
             "G2": {
+              "sigmaMultMaxBps": [
+                30000,
+                42500
+              ],
               "sigmaRefBps": [
                 10000,
                 7000
-              ],
-              "volPeriodsPerYear": [
-                8760,
-                17520
-              ],
-              "volStep": [
-                48,
-                24
-              ],
-              "volWindow": [
-                2016,
-                2880
               ]
             },
             "G3": {
@@ -824,10 +796,6 @@
               "baseRatioBps[2]": [
                 30000,
                 60000
-              ],
-              "emergencyRatioBps": [
-                10500,
-                10900
               ]
             },
             "G6": {
@@ -837,7 +805,7 @@
               ],
               "attestFeeBps": [
                 2500,
-                3500
+                4500
               ],
               "deviationBps": [
                 1000,
@@ -853,17 +821,13 @@
               ],
               "peerMin": [
                 5,
-                12
+                8
               ]
             },
             "G7": {
               "divergenceBps": [
                 2000,
-                1000
-              ],
-              "supplyCapBps": [
-                1500,
-                5000
+                1500
               ]
             },
             "G8": {
@@ -903,7 +867,7 @@
             ],
             "attestFeeBps": [
               2500,
-              3500
+              4500
             ],
             "baseRatioBps[0]": [
               50000,
@@ -931,15 +895,11 @@
             ],
             "divergenceBps": [
               2000,
-              1000
+              1500
             ],
             "dormancyMinBundles": [
               20,
               12
-            ],
-            "emergencyRatioBps": [
-              10500,
-              10900
             ],
             "feeBps": [
               25,
@@ -948,14 +908,6 @@
             "nPenalty": [
               288,
               144
-            ],
-            "pFastMinFill": [
-              48,
-              24
-            ],
-            "pFastWindow": [
-              96,
-              48
             ],
             "pMidMinFill": [
               384,
@@ -967,7 +919,7 @@
             ],
             "peerMin": [
               5,
-              12
+              8
             ],
             "qHighBps": [
               6667,
@@ -977,32 +929,20 @@
               3333,
               3500
             ],
+            "sigmaMultMaxBps": [
+              30000,
+              42500
+            ],
             "sigmaRefBps": [
               10000,
               7000
-            ],
-            "supplyCapBps": [
-              1500,
-              5000
-            ],
-            "volPeriodsPerYear": [
-              8760,
-              17520
-            ],
-            "volStep": [
-              48,
-              24
-            ],
-            "volWindow": [
-              2016,
-              2880
             ],
             "walletConfirmations": [
               6,
               24
             ]
           },
-          "seconds": 249.902,
+          "seconds": 218.196,
           "statuses": {
             "G1": "ok",
             "G2": "ok",
@@ -1020,7 +960,7 @@
           "group_moves": {},
           "index": 2,
           "moves": {},
-          "seconds": 282.806,
+          "seconds": 182.633,
           "statuses": {
             "G1": "ok",
             "G2": "ok",
@@ -1035,21 +975,12 @@
           }
         }
       ],
-      "seconds": 532.778,
+      "seconds": 400.859,
       "warnings": []
     },
-    "moved": 22,
+    "moved": 18,
     "patch": {
       "changes": [
-        {
-          "change_path": "locked",
-          "current": 96,
-          "function": "SetCommon",
-          "line": 23,
-          "param": "pFastWindow",
-          "recommended": 48,
-          "section": "\u00a73.1"
-        },
         {
           "change_path": "locked",
           "current": 576,
@@ -1058,15 +989,6 @@
           "param": "pMidWindow",
           "recommended": 1152,
           "section": "\u00a73.2"
-        },
-        {
-          "change_path": "locked",
-          "current": 48,
-          "function": "SetCommon",
-          "line": 23,
-          "param": "pFastMinFill",
-          "recommended": 24,
-          "section": "\u00a73.1"
         },
         {
           "change_path": "locked",
@@ -1083,7 +1005,7 @@
           "function": "SetCommon",
           "line": 38,
           "param": "peerMin",
-          "recommended": 12,
+          "recommended": 8,
           "section": "\u00a73.33"
         },
         {
@@ -1115,20 +1037,11 @@
         },
         {
           "change_path": "locked",
-          "current": 1500,
-          "function": "SetCommon",
-          "line": 48,
-          "param": "supplyCapBps",
-          "recommended": 5000,
-          "section": "\u00a73.28"
-        },
-        {
-          "change_path": "locked",
           "current": 2000,
           "function": "SetCommon",
           "line": 51,
           "param": "divergenceBps",
-          "recommended": 1000,
+          "recommended": 1500,
           "section": "\u00a73.30"
         },
         {
@@ -1160,39 +1073,21 @@
         },
         {
           "change_path": "locked",
-          "current": 2016,
-          "function": "SetCommon",
-          "line": 56,
-          "param": "volWindow",
-          "recommended": 2880,
-          "section": "\u00a73.4"
-        },
-        {
-          "change_path": "locked",
-          "current": 48,
-          "function": "SetCommon",
-          "line": 57,
-          "param": "volStep",
-          "recommended": 24,
-          "section": "\u00a73.5"
-        },
-        {
-          "change_path": "locked",
-          "current": 8760,
-          "function": "SetCommon",
-          "line": 58,
-          "param": "volPeriodsPerYear",
-          "recommended": 17520,
-          "section": "\u00a73.5"
-        },
-        {
-          "change_path": "locked",
           "current": 10000,
           "function": "SetCommon",
           "line": 59,
           "param": "sigmaRefBps",
           "recommended": 7000,
           "section": "\u00a73.6"
+        },
+        {
+          "change_path": "locked",
+          "current": 30000,
+          "function": "SetCommon",
+          "line": 60,
+          "param": "sigmaMultMaxBps",
+          "recommended": 42500,
+          "section": "\u00a73.7"
         },
         {
           "change_path": "locked",
@@ -1223,20 +1118,11 @@
         },
         {
           "change_path": "locked",
-          "current": 10500,
-          "function": "SetCommon",
-          "line": 85,
-          "param": "emergencyRatioBps",
-          "recommended": 10900,
-          "section": "\u00a73.25"
-        },
-        {
-          "change_path": "locked",
           "current": 2500,
           "function": "SetCommon",
           "line": 89,
           "param": "attestFeeBps",
-          "recommended": 3500,
+          "recommended": 4500,
           "section": "\u00a73.42"
         },
         {
@@ -1292,13 +1178,13 @@
         "origin": "vendored",
         "sha256": "dfe9a2b4cc324077b5bccb91152c7efb179e88cabdb8360c44aa24a5c0d2ca67"
       },
-      "summary": "24 locked/per-release line change(s), 2 patch-release, 0 header constant(s) listed only"
+      "summary": "18 locked/per-release line change(s), 2 patch-release, 0 header constant(s) listed only"
     },
-    "pid_cpu_count": 4,
+    "pid_cpu_count": 10,
     "python": "3.11.15",
     "ready": false,
-    "recommended_digest": "7bcd5263467d32b1d1affcffd2526813f9180aaeb143d16be665fd3a2e05bf8f",
-    "run_id": "quick-synthetic",
+    "recommended_digest": "a8f8de57888698f6c13b376a533773733a117c3c26d4c6a2ba1ed2d20930c6bf",
+    "run_id": "quick-s2",
     "sensitivity": {
       "grouped": true,
       "insensitive": [
@@ -1326,14 +1212,11 @@
         "attestFeeBps",
         "claimThresholdBps",
         "classMin[0]",
-        "classMin[1]",
-        "classMax[0]",
         "classMax[2]",
         "baseRatioBps[0]",
         "emergencyRatioBps",
         "supplyCapBps",
         "globalRatioHaltBps",
-        "volWindow",
         "sigmaMultMaxBps",
         "minMint",
         "maxMint",
@@ -1367,21 +1250,21 @@
         "attestInterval"
       ],
       "method": "sobol",
-      "n_evals": 625,
-      "seconds": 56.06
+      "n_evals": 629,
+      "seconds": 17.9
     },
     "timings": {
-      "joint": 532.7777470109995,
-      "load": 0.0004284450005798135,
-      "render": 1.644795788999545,
-      "sensitivity": 56.06504141000005,
-      "total": 590.5270542550006
+      "joint": 400.85855483298656,
+      "load": 0.0025727500033099204,
+      "render": 0.34028120900620706,
+      "sensitivity": 17.90000437499839,
+      "total": 419.1226314170053
     },
-    "workers": 4
+    "workers": 5
   },
   "format": "ybcal-manifest/1",
-  "policy_hash": "b510b66ce59d5f364052bba47b96a0a5941d799a17e80af8e70779a63eb37abe",
-  "policy_path": "/home/user/yb-calibration/policy/default.toml",
+  "policy_hash": "24a0b7ebfacf1b67e17b83ad4caad925d23fbeeb522c2f78db3804f0862c86e8",
+  "policy_path": "/Users/boy/projects/yellowback-workspace/wt/ybcal-audit/policy/default.toml",
   "seed": 20261003,
   "synthetic_only": true,
   "ybcal_version": "0.1.0",

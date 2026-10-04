@@ -384,8 +384,10 @@ def decide_with_materiality(
     with no policy constraint violated; ties break toward current (PLAN §2.3, §5.10).
 
     * If no evaluated row is feasible → ``BLOCKED`` (the current row is returned).
-    * If the current row violates a constraint and a feasible row exists → ``CHANGE`` to the best
-      feasible row regardless of materiality (a violation is never "kept").
+    * If the current row violates a constraint and a feasible row exists → ``CHANGE`` (a violation is
+      never "kept") to the feasible row **closest to current** among those whose primary is within
+      ``materiality`` of the best feasible row's (minimal change, D-RD-AUD-9: a forced move goes no
+      further than the evidence needs; ties → the better primary).
     * ``params`` restricts what "current" means to those fields (a joint table may vary others).
     """
     thr = materiality if isinstance(materiality, (int, float)) else float(materiality.materiality)
@@ -404,8 +406,15 @@ def decide_with_materiality(
         return r.metrics.primary_value if metric is None else float(r.metrics.values[metric])
 
     if not cur.metrics.feasible:
-        return MaterialityDecision(best, "CHANGE", relative_improvement(val(cur), val(best), minimize=mini),
-                                   f"current violates {', '.join(cur.metrics.violated)}")
+        sign = 1.0 if mini else -1.0
+        near = [r for r in feas if relative_improvement(val(best), val(r), minimize=mini) >= -thr]
+        pick = min(near, key=lambda r: (table.distance(r), sign * val(r))) if near else best
+        why = f"current violates {', '.join(cur.metrics.violated)}"
+        if pick is not best:
+            why += (f"; nearest feasible within materiality of the best ({val(pick):.4g} vs "
+                    f"{val(best):.4g}) chosen over the best (minimal change)")
+        imp = relative_improvement(val(cur), val(pick), minimize=mini)
+        return MaterialityDecision(pick, "CHANGE", imp, why)
     imp = relative_improvement(val(cur), val(best), minimize=mini)
     if best is cur or imp <= thr:
         return MaterialityDecision(cur, "KEEP", max(imp, 0.0),

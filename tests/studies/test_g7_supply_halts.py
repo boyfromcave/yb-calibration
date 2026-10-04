@@ -129,11 +129,17 @@ def test_cap_and_halt_rules():
     base = mainnet()
     st = G.make_study()
     t = ResultTable(base)
-    _row(t, base, {"cap.value": 1500}, {"depth_bound": True})
-    _row(t, base.replace(supplyCapBps=2500), {"cap.value": 2500}, {"depth_bound": True})
-    _row(t, base.replace(supplyCapBps=4000), {"cap.value": 4000}, {"depth_bound": False})
+    _row(t, base, {"cap.bc_refused": 0.9}, {"depth_bound": True})
+    _row(t, base.replace(supplyCapBps=2500), {"cap.bc_refused": 0.3}, {"depth_bound": True})
+    _row(t, base.replace(supplyCapBps=4000), {"cap.bc_refused": 0.1}, {"depth_bound": False})
     row, verdict, _ = st.decide_family(t, _fam("cap"), Policy())
     assert verdict == "CHANGE" and row.params["supplyCapBps"] == 2500
+    # D-RD-AUD-5: a larger cap that admits (almost) no more B/C demand is no improvement
+    t1 = ResultTable(base)
+    _row(t1, base, {"cap.bc_refused": 0.91}, {"depth_bound": True})
+    _row(t1, base.replace(supplyCapBps=2000), {"cap.bc_refused": 0.90}, {"depth_bound": True})
+    row, verdict, _ = st.decide_family(t1, _fam("cap"), Policy())
+    assert verdict == "KEEP" and row.params["supplyCapBps"] == 1500
     h = ResultTable(base)
     ok = {"halt_sys_bad": True, "halt_below_floor": True, "halt2_timely": True}
     _row(h, base, {"halt.false_calm": 0.1}, {**ok, "halt_sys_bad": False})
@@ -156,3 +162,53 @@ def test_determinism():
     b = st.evaluate(mainnet(), env).values
     for k in a:
         assert (math.isnan(a[k]) and math.isnan(b[k])) or a[k] == b[k], k
+
+
+def test_cap_keeps_current_when_the_depth_bound_is_uninformative():
+    """D-RD-AUD-5: with no cap-bound debt at any swept cap (all classes ≥ recapRatioBps) the "largest
+    cap" rule has no evidence: KEEP instead of the top of the grid."""
+    base = mainnet()
+    st = G.make_study()
+    t = ResultTable(base)
+    none = {"cap.bound_debt_usd": 0.0, "cap.bound_uncensored_share": math.nan, "cap.informative": 0.0}
+    _row(t, base, {"cap.bc_refused": 0.0, **none}, {"depth_bound": True})
+    _row(t, base.replace(supplyCapBps=5000), {"cap.bc_refused": 0.0, **none}, {"depth_bound": True})
+    row, verdict, reason = st.decide_family(t, _fam("cap"), Policy())
+    assert verdict == "KEEP" and row.params["supplyCapBps"] == 1500 and "uninformative" in reason
+
+
+def test_censored_cap_bound_debt_is_unverified(tiny_run):
+    """D-RD-AUD-5: a cap whose cap-bound debt mostly opens its claim path beyond the book cannot pass
+    the depth bound, however small the (censored) measured demand."""
+    run, _ = tiny_run
+    lim = G.JUDGEMENT["cap_min_uncensored_share"]
+    for r in run.table:
+        v, c = r.metrics.values, r.metrics.constraints
+        unc = v["cap.bound_uncensored_share"]
+        if v["cap.bound_debt_usd"] > 0 and (not math.isfinite(unc) or unc < lim):
+            assert c["depth_bound"] is False and v["viol.depth_bound"] > 0
+
+
+def test_calm_halt3_hours_share_the_availability_budget(tiny_run):
+    """D-RD-AUD-6: HALT-3 hours in calm count against max_no_price_hours."""
+    run, _ = tiny_run
+    pol = Policy()
+    for r in run.table:
+        v, c = r.metrics.values, r.metrics.constraints
+        assert c["calm_availability"] == (v["div.calm_halt_hours_per_year"] <= pol.max_no_price_hours)
+    assert "calm_availability" in _fam("divergence").constraints
+    assert run.table.current().metrics.values["cap.informative"] in (0.0, 1.0)
+
+
+def test_unverifiable_current_cap_is_kept():
+    """D-RD-AUD-5: when the current cap's bound debt is mostly censored, the book cannot judge it:
+    KEEP rather than ratchet the cap down to one that admits nothing."""
+    base = mainnet()
+    st = G.make_study()
+    t = ResultTable(base)
+    cen = {"cap.bound_debt_usd": 9e3, "cap.bound_uncensored_share": 0.1, "cap.informative": 0.0}
+    _row(t, base, {"cap.bc_refused": 0.91, **cen}, {"depth_bound": False})
+    _row(t, base.replace(supplyCapBps=250), {"cap.bc_refused": 0.92, "cap.bound_debt_usd": 0.0,
+                                             "cap.informative": 0.0}, {"depth_bound": True})
+    row, verdict, reason = st.decide_family(t, _fam("cap"), Policy())
+    assert verdict == "KEEP" and row.params["supplyCapBps"] == 1500 and "unverifiable" in reason

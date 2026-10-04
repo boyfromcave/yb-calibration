@@ -62,6 +62,7 @@ from ybcal.params.invariants import Context
 from ybcal.params.paramset import ParamSet
 from ybcal.params.registry import REGISTRY, derived_names, params_for_group
 from ybcal.sim import agents as AG
+from ybcal.sim import drift as DR
 from ybcal.sim import engine as E
 from ybcal.sim import metrics as M
 from ybcal.sim import vaults as VB
@@ -126,6 +127,7 @@ JUDGEMENT: dict[str, Any] = {
     "claim_horizon_days": 365,  # claim study: first crossing must happen within a year
     "emergency_coverages": (1.02, 1.1, 1.25, 1.5),  # emergency study: coverage at crash start, × threshold
     "emergency_open_hours": 48,  # emergency study: vaults are claimable from this hour (medians full)
+    "emergency_stress_premium_bps": -2000,  # YED price, emergency study's depeg stress row (D-RD-AUD-4)
     "boundary_days_quick": {0: (60, 120), 1: (270, 548)},
     "boundary_days_full": {0: (45, 60, 75, 120, 150, 180), 1: (180, 270, 450, 548, 730)},
 }
@@ -225,7 +227,8 @@ def ensemble(env: Env, params: Mapping) -> Ensemble:
     P = paths_per_scenario(env.budget)
     years = horizon_years(env.budget)
     okey = tuple(int(params[k]) for k in ORACLE_KEYS)
-    key = (env.seed, P, years, data_fingerprint(env), okey)
+    drift = DR.check(pget(env.policy, "price_drift", DR.DEFAULT_DRIFT))
+    key = (env.seed, P, years, data_fingerprint(env), okey, drift)
     hit = _ENS.get(key)
     if hit is not None:
         _ENS.move_to_end(key)
@@ -233,20 +236,24 @@ def ensemble(env: Env, params: Mapping) -> Ensemble:
     n = round(years * 8760) + 1
     real = _real_hourly(env)
     true: dict[str, np.ndarray] = {}
+    drifts: dict[str, dict] = {}
     if real is not None:
         from ybcal.data.pricepath import make_path
 
         pp = make_path(real_price(env).t0, "hour", real[None, :], "real")  # type: ignore[union-attr]
         model = SY.BlockBootstrap.fit(pp)
-        true["bootstrap"] = model.simulate(
-            P, n, "hour", env.rng_for("ybcal-hour-ensemble", "bootstrap"), int(real[-1])
-        ).prices.astype(np.int64)
+        true["bootstrap"] = _drifted_prices(
+            model, P, n, env.rng_for("ybcal-hour-ensemble", "bootstrap"), drift, int(real[-1])
+        )
+        drifts["bootstrap"] = DR.describe(drift, model)
+        # the realised history keeps its own drift: it is what happened, not a model
         true["history"] = real[None, :].astype(np.int64)
         prov = "real-data"
     else:
         for name in SYNTHETIC_PRESETS:
-            pp = SY.preset(name).simulate(P, n, "hour", env.rng_for("ybcal-hour-ensemble", name))
-            true[name] = np.asarray(pp.prices, dtype=np.int64)
+            model = SY.preset(name)
+            true[name] = _drifted_prices(model, P, n, env.rng_for("ybcal-hour-ensemble", name), drift)
+            drifts[name] = DR.describe(drift, model)
         prov = "synthetic"
     kernel = E.OracleTransferKernel.ideal(params, substeps=HOUR_SUBSTEPS)
     hours = {name: E.simulate_hours(params, tp, kernel) for name, tp in true.items()}
@@ -256,12 +263,29 @@ def ensemble(env: Env, params: Mapping) -> Ensemble:
         true,
         hours,
         prov,
-        meta={"paths": P, "years": years, "kernel": f"ideal/{HOUR_SUBSTEPS}"},
+        meta={
+            "paths": P,
+            "years": years,
+            "kernel": f"ideal/{HOUR_SUBSTEPS}",
+            "price_drift": drift,
+            "drifts": drifts,
+        },
     )
     _ENS[key] = ens
     while len(_ENS) > 2:
         _ENS.popitem(last=False)
     return ens
+
+
+def _drifted_prices(
+    model: SY.PriceModel, P: int, n: int, rng: np.random.Generator, drift: str, p0: int = SY.DEFAULT_P0
+) -> np.ndarray:
+    """``model.simulate(P, n, "hour", rng, p0)`` with the log returns shifted to the ``drift``
+    convention (:mod:`ybcal.sim.drift`; same draws, so ``"model"`` reproduces ``simulate`` exactly)."""
+    dt = SY.as_dt("hour")
+    r = model.log_returns(P, n, dt, rng)[:, : n - 1]
+    r = DR.apply(r, dt, drift, model)
+    return np.asarray(SY.returns_to_path(r, p0, dt).prices, dtype=np.int64)
 
 
 def warmup_hours(params: Mapping) -> int:
@@ -315,6 +339,26 @@ def bad_debt(
         )
         _BD[key] = hit
     return hit
+
+
+def term_frontier_days(by_term: Sequence[np.ndarray], terms: Any, tol: float, how: str) -> float:
+    """The longest grid term (days) whose P(bad debt), aggregated over members like ``pbad``, is within
+    ``tol`` while every shorter grid term is too: how far the class could reach at this ratio. 0 when
+    even the shortest term fails; NaN without data (D-RD-AUD-3)."""
+    if terms is None or not len(by_term):
+        return math.nan
+    t = np.asarray(terms, dtype=float)
+    out = 0.0
+    seen = False
+    for i in range(t.size):
+        v = agg([float(b[i]) for b in by_term if i < b.size], how)
+        if not math.isfinite(v):
+            continue
+        seen = True
+        if v > tol:
+            break
+        out = float(t[i]) / BLOCKS_PER_DAY
+    return out if seen else math.nan
 
 
 def agg(values: Sequence[float], how: str, *, minimize: bool = True) -> float:
@@ -615,10 +659,16 @@ def emergency_stats(cr: CrashRuns, params: Mapping, policy: Any) -> dict[int, di
     hour pClaim shows the vault underwater at the threshold **and** the claimant's margin clears
     ``claimant_min_profit_bps``; RED-4(b) (ARMED, aClaim = the true price, so pEmerg = min(pClaim,
     true)) at the first hour pEmerg has shown it underwater at the emergency ratio for
-    ``ceil(emergencyPersist / 48)`` consecutive hours — executed by a YED holder exiting at par.
-    ``shortfall`` = mean max(0, 1 − collateral value / debt) at the closure (at the horizon end if
-    never closed). Returns ``{e: {"<scen>.<stat>": …}}`` with ``shortfall``, ``shortfall_a``,
-    ``b_share`` and ``b_par_loss_bps`` (the par-exit holder's loss, 1 − true/pClaim)."""
+    ``ceil(emergencyPersist / 48)`` consecutive hours **and** the exit pays: a RED-4(b) claimant burns
+    the debt in YED bought at ``1 + premium`` and receives the debt's worth at pClaim, sold at the true
+    price less the claimant slippage, so it acts only when ``(1 − true/pClaim)·10⁴ + slippage ≤
+    −premium_bps`` (D-RD-AUD-4: at the policy's working peg, premium 0, a (b) closure is a loss and
+    nobody executes it; the stress row ``*_stress`` repeats the test at
+    ``emergency_stress_premium_bps``, a YED discount). ``shortfall`` = mean max(0, 1 − collateral
+    value / debt) at the closure (at the horizon end if never closed). Returns ``{e: {"<scen>.<stat>":
+    …}}`` with ``shortfall``, ``shortfall_a``, ``b_share``, ``b_par_loss_bps`` (the exit's loss,
+    1 − true/pClaim, over the (b) triggers whether or not executed) and ``shortfall_stress`` /
+    ``b_share_stress``."""
     cfg = agents_from_policy(policy)
     covs = tuple(float(c) for c in pget(policy, "emergency_coverages"))
     o = int(pget(policy, "emergency_open_hours"))
@@ -637,7 +687,9 @@ def emergency_stats(cr: CrashRuns, params: Mapping, policy: Any) -> dict[int, di
         cfg.market.premium_bps,
         int(policy.claimant_min_profit_bps),
         tuple(grid),
+        int(pget(policy, "emergency_stress_premium_bps")),
     )
+    stress = int(pget(policy, "emergency_stress_premium_bps"))
     hit = _EMERG.get(key)
     if hit is not None:
         return hit
@@ -665,6 +717,11 @@ def emergency_stats(cr: CrashRuns, params: Mapping, policy: Any) -> dict[int, di
         )
         ha = _first_true(under_a & (marg >= float(policy.claimant_min_profit_bps)), oo)
         pem = np.minimum(pcx, tp)[:, None, :]
+        # the (b) claimant's loss per hour (bps of the debt) before slippage: 1 − true/pClaim
+        exit_loss = ((1 - tp / pcx) * BPS)[:, None, :]
+
+        def pays(premium: int, loss: np.ndarray = exit_loss) -> np.ndarray:
+            return loss + cfg.claimant.slippage_bps <= -premium
 
         short_a = np.maximum(0.0, 1 - _closure_cov(coll, tp, ha)).mean()
         for e in grid:
@@ -673,25 +730,22 @@ def emergency_stats(cr: CrashRuns, params: Mapping, policy: Any) -> dict[int, di
             for k in range(persist_h + 1):
                 run[..., k:] &= m[..., : n - k] if k else m
                 run[..., :k] = False
-            hb = _first_true(run, oo + persist_h)
-            h = np.minimum(ha, hb)
-            sb = np.maximum(0.0, 1 - _closure_cov(coll, tp, h)).mean()
-            isb = (hb < ha) & (hb < n)
-            if isb.any():
-                hh = hb[isb]
-                pi = np.nonzero(isb)[0]
-                loss = (1 - tp[pi, hh] / pcx[pi, hh]) * BPS
-                par = float(loss.mean())
+            trig = _first_true(run, oo + persist_h)
+            trig_b = (trig < ha) & (trig < n)
+            if trig_b.any():
+                pi = np.nonzero(trig_b)[0]
+                hh = trig[trig_b]
+                par = float(((1 - tp[pi, hh] / pcx[pi, hh]) * BPS).mean())
             else:
                 par = math.nan
-            out[e].update(
-                {
-                    f"{name}.shortfall": float(sb),
-                    f"{name}.shortfall_a": float(short_a),
-                    f"{name}.b_share": float(isb.mean()),
-                    f"{name}.b_par_loss_bps": par,
-                }
-            )
+            row = {f"{name}.shortfall_a": float(short_a), f"{name}.b_par_loss_bps": par}
+            for tag, prem in (("", cfg.market.premium_bps), ("_stress", stress)):
+                hb = _first_true(run & pays(prem), oo + persist_h)
+                h = np.minimum(ha, hb)
+                isb = (hb < ha) & (hb < n)
+                row[f"{name}.shortfall{tag}"] = float(np.maximum(0.0, 1 - _closure_cov(coll, tp, h)).mean())
+                row[f"{name}.b_share{tag}"] = float(isb.mean())
+            out[e].update(row)
     _EMERG[key] = out
     return out
 
@@ -946,7 +1000,14 @@ def ratio_rule(c: int, policy: Any | None = None) -> Rule:
         "the registry bounds meets the policy.",
         primary=f"ratio.{name}",
         constraints=(f"bad_debt_{name}",),
-        report=(f"pbad.{name}", f"pbad_lock.{name}", f"yed_per_usd.{name}", f"het.{name}"),
+        report=(
+            f"pbad.{name}",
+            f"pbad_lock.{name}",
+            f"es.{name}",
+            f"tmax_ok_days.{name}",
+            f"yed_per_usd.{name}",
+            f"het.{name}",
+        ),
         sens_metric=f"pbad.{name}",
     )
 
@@ -971,8 +1032,10 @@ RULES_FIXED = (
         ("emergencyRatioBps",),
         ("emergencyRatioBps",),
         "emergencyRatioBps ∈ (10,000, claimThresholdBps): minimise the debt left uncovered at closure "
-        "(ARMED, RED-4(b) available) over crash-70-1d / crash-90-30d (worst scenario); KEEP unless the "
-        "improvement exceeds materiality.",
+        "(ARMED, RED-4(b) available) over crash-70-1d / crash-90-30d (worst scenario), counting a RED-4(b) "
+        "closure only when the exit pays at the policy's YED price (yed_premium_bps; at par it never "
+        "does, D-RD-AUD-4); KEEP unless the improvement exceeds materiality. The same metric under a "
+        "YED discount (emergency_stress_premium_bps) is reported as emerg.shortfall_stress.",
         primary="emerg.shortfall",
         report=(
             "emerg.shortfall",
@@ -980,6 +1043,8 @@ RULES_FIXED = (
             "emerg.benefit",
             "emerg.b_share",
             "emerg.b_par_loss_bps",
+            "emerg.shortfall_stress",
+            "emerg.b_share_stress",
         ),
         sens_metric="emerg.shortfall",
     ),
@@ -1060,7 +1125,8 @@ class G3Study:
         cons: dict[str, bool] = {}
         hets: list[float] = []
         for c, name in enumerate(CLASS_NAMES):
-            ps_, pl_, het_ = [], [], []
+            ps_, pl_, het_, es_, bt_ = [], [], [], [], []
+            terms_c = None
             for m in ens.names:
                 fb = bad_debt(
                     ens,
@@ -1079,8 +1145,15 @@ class G3Study:
                 ps_.append(fb.p[name])
                 pl_.append(fb.p_lock[name])
                 het_.append(h)
+                es_.append(fb.shortfall.get(name, math.nan))
+                values[f"es.{name}.{m}"] = es_[-1]
+                bt_.append(np.asarray(fb.by_term[name], dtype=float))
+                terms_c = fb.terms[name]
             p = agg(ps_, how)
             tol = float(pol.max_bad_debt(name))
+            # severity and the term frontier (evidence, D-RD-AUD-3)
+            values[f"es.{name}"] = agg(es_, how)
+            values[f"tmax_ok_days.{name}"] = term_frontier_days(bt_, terms_c, tol, how)
             values[f"pbad.{name}"] = p
             values[f"pbad_lock.{name}"] = agg(pl_, how)
             values[f"ratio.{name}"] = float(cand[f"baseRatioBps[{c}]"])
@@ -1094,8 +1167,10 @@ class G3Study:
             values[f"viol.bad_debt_{name}"] = 0.0 if ok else (p / tol - 1 if np.isfinite(p) else 1e9)
             hmax = float(pol.class_heterogeneity_max)
             hv = values[f"het.{name}"]
-            cons[f"het_{name}"] = bool(not np.isfinite(hv) or hv <= hmax)
-            values[f"viol.het_{name}"] = 0.0 if cons[f"het_{name}"] else hv / hmax - 1
+            # heterogeneity triggers design note G3-DN6; it is not a constraint of any parameter's rule
+            # (D-RD-AUD-10), so it stays out of `cons` and cannot mark a candidate infeasible
+            het_ok = bool(not np.isfinite(hv) or hv <= hmax)
+            values[f"viol.het_{name}"] = 0.0 if het_ok else hv / hmax - 1
         values["het.max"] = float(np.nanmax(hets)) if np.isfinite(hets).any() else math.nan
         # claimant incentive
         depth = depth_p10_usd(env, float(pol.claimant_slippage_pctl))
@@ -1126,6 +1201,8 @@ class G3Study:
             values["emerg.shortfall_a"] = agg([row[f"{s}.shortfall_a"] for s in cr.names], how)
             values["emerg.benefit"] = values["emerg.shortfall_a"] - values["emerg.shortfall"]
             values["emerg.b_share"] = float(np.nanmean([row[f"{s}.b_share"] for s in cr.names]))
+            values["emerg.shortfall_stress"] = agg([row[f"{s}.shortfall_stress"] for s in cr.names], how)
+            values["emerg.b_share_stress"] = float(np.nanmean([row[f"{s}.b_share_stress"] for s in cr.names]))
             pl = [row[f"{s}.b_par_loss_bps"] for s in cr.names]
             values["emerg.b_par_loss_bps"] = float(np.nanmean(pl)) if np.isfinite(pl).any() else math.nan
             for s in cr.names:
@@ -1313,16 +1390,46 @@ def design_notes(results: ResultTable, policy: Any | None = None) -> list[dict[s
         )
         for n in CLASS_NAMES
     }
+    top: dict[str, Mapping[str, float]] = {}
+    for i, n in enumerate(CLASS_NAMES):
+        k = f"baseRatioBps[{i}]"
+        rows = [r for r in results if set(r.delta) <= {k}]
+        if rows:
+            top[n] = max(rows, key=lambda r, k=k: int(r.params[k])).metrics.values
+    reach = {n: fmt(top[n].get(f"tmax_ok_days.{n}")) if n in top else math.nan for n in CLASS_NAMES}
+    short = {n: fmt(top[n].get(f"es.{n}")) if n in top else math.nan for n in CLASS_NAMES}
+    cmax = {n: int(results.base[f"classMax[{i}]"]) // BLOCKS_PER_DAY for i, n in enumerate(CLASS_NAMES)}
+    sev = {
+        n: (short[n] / lo_p[n] if isinstance(lo_p[n], int | float) and lo_p[n] > 0 else math.nan)
+        for n in CLASS_NAMES
+    }
+
+    def _days(x: Any) -> str:
+        return f"{x:.0f} d" if isinstance(x, int | float) and math.isfinite(x) else "n/a"
+
     notes = [
         design_note(
             "G3-DN1",
             "No liquidation before lockHeight + grace (fact 1.5-1)",
             "The vault script admits only the owner path until claimHeight, so the base ratio must cover the "
-            f"whole term's drawdown. P(bad debt) at the shipped ratios: A {pb['A']}, B {pb['B']}, C "
-            f"{pb['C']} "
+            f"whole term's drawdown. P(bad debt) at the shipped ratios: A {_pct(pb['A'])}, "
+            f"B {_pct(pb['B'])}, C {_pct(pb['C'])} "
             f"(tolerances {_pct(tol['A'])}, {_pct(tol['B'])}, {_pct(tol['C'])}); the lowest reachable within "
-            f"the registry bounds: A {_pct(lo_p['A'])}, B {_pct(lo_p['B'])}, C {_pct(lo_p['C'])}.",
-            evidence={"pbad_current": pb, "pbad_at_upper_bound": lo_p, "tolerance": tol},
+            f"the registry bounds: A {_pct(lo_p['A'])}, B {_pct(lo_p['B'])}, C {_pct(lo_p['C'])}. "
+            f"At the upper bound each class meets its tolerance only for terms up to "
+            f"A {_days(reach['A'])}, B {_days(reach['B'])}, C {_days(reach['C'])} "
+            f"(class maxima {cmax['A']}, {cmax['B']}, {cmax['C']} d), and a vault that is bad at the "
+            f"claim opening is short by {_pct(sev['A'], 0)}, "
+            f"{_pct(sev['B'], 0)}, {_pct(sev['C'], 0)} of its debt on average. A bad vault "
+            "is not yet a realised loss: nobody may claim it below the debt, it stays claimable if the price "
+            "recovers, and YED holders bear the gap only through the peg (D-RD-AUD-3).",
+            evidence={
+                "pbad_current": pb,
+                "pbad_at_upper_bound": lo_p,
+                "tolerance": tol,
+                "term_reach_days_at_upper_bound": reach,
+                "shortfall_at_upper_bound": short,
+            },
             consequence="Classes whose tolerance cannot be met at any ratio are BLOCKED; capital efficiency "
             "of long terms collapses before the risk does.",
             fix="Rule change (out of scope for tuning): a claim/top-up path during the term (e.g. RED-4 from "

@@ -114,6 +114,18 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-D3](#d-rd-d3-2026-10-03-data--reconstructed-spreads-stand-in-for-the-two-week-log) | data (M7) | reconstructed spreads stand in for the two-week log |
 | [D-RD-D4](#d-rd-d4-2026-10-03-data--stale-runs-regime-embedding-and-garch-at-its-bounds) | data (M7) | stale runs, regime embedding and GARCH at its bounds |
 | [D-RD-D5](#d-rd-d5-2026-10-03-data--data-informed-policy-keys) | data (M7) | data-informed policy keys |
+| [D-RD-AUD-1](#d-rd-aud-1-2026-10-03-audit--one-drift-convention-for-solvency-ensembles-centred) | audit | one drift convention for solvency ensembles (centred) |
+| [D-RD-AUD-2](#d-rd-aud-2-2026-10-03-audit--the-summary-quotes-g3s-pbad-debt-not-the-fast-model) | audit | the summary quotes G3's P(bad debt), not the fast model |
+| [D-RD-AUD-3](#d-rd-aud-3-2026-10-03-audit--pbad-debt-at-claim-opening-stays-the-constraint-severity-and-reach-are-evidence) | audit | P(bad debt) at claim opening stays the constraint; severity and reach are evidence |
+| [D-RD-AUD-4](#d-rd-aud-4-2026-10-03-audit--a-red-4b-closure-counts-only-when-the-exit-pays) | audit | a RED-4(b) closure counts only when the exit pays |
+| [D-RD-AUD-5](#d-rd-aud-5-2026-10-03-audit--supplycapbps-moves-only-for-admitted-demand-and-an-evidenced-depth-bound) | audit | `supplyCapBps` moves only for admitted demand and an evidenced depth bound |
+| [D-RD-AUD-6](#d-rd-aud-6-2026-10-03-audit--halt-3-calm-hours-share-the-availability-budget) | audit | HALT-3 calm hours share the availability budget |
+| [D-RD-AUD-7](#d-rd-aud-7-2026-10-03-audit--a-blocked-sigmamultmaxbps-reports-the-bound-and-what-drives-the-need) | audit | a BLOCKED `sigmaMultMaxBps` reports the bound and what drives the need |
+| [D-RD-AUD-8](#d-rd-aud-8-2026-10-03-audit--peermin-must-hold-at-the-participation-floor) | audit | `peerMin` must hold at the participation floor |
+| [D-RD-AUD-9](#d-rd-aud-9-2026-10-03-audit--forced-moves-are-minimal-g1-reads-real-pool-shares) | audit | forced moves are minimal; G1 reads real pool shares |
+| [D-RD-AUD-10](#d-rd-aud-10-2026-10-03-audit--heterogeneity-is-not-a-constraint-neighbours-name-the-rules-own-constraints) | audit | heterogeneity is not a constraint; neighbours name the rule's own constraints |
+| [D-RD-AUD-11](#d-rd-aud-11-2026-10-03-audit--volstep--pfastwindow--2) | audit | `volStep ≥ pFastWindow / 2` |
+| [D-RD-AUD-12](#d-rd-aud-12-2026-10-03-audit--quick-budget-verdicts-are-not-lock-grade-seed-and-policy-robustness) | audit | quick-budget verdicts are not lock-grade: seed and policy robustness |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -1290,3 +1302,203 @@ reconstructed, so `divergeBpsAttest` ≈ 5,800 bps, provisional until the live l
 (0.52) exceeds it, which the owner should see.
 **Consequences.** G5 should also be read at 0.48 (the ceiling without the top pool); G7/G9 depth
 checks become binding at ~$70/day of liquidation volume (`max_depth_fraction` × $700).
+## D-RD-AUD-1 (2026-10-03, audit) — one drift convention for solvency ensembles (centred)
+
+**Finding.** The G3/G4 hour ensemble mixed drift conventions: `gbm`, `merton` and `regime` are
+martingales (expected log drift −0.72, −0.69, −0.72 a year: the median price falls ~50 % a year),
+`garch` is centred (0), and a real-data block bootstrap kept the sample's own drift (the year to
+2026-10-04 on Coinpaprika: $0.062 → $0.361, +1.77 a year of log drift, 200 % daily volatility).
+D-WP2-5 had removed exactly this bleed from every scenario base ("an uncentred 120 %-vol GBM adds
+−72 %/yr of log drift, which would turn every scenario into a bleed"), and G1/G2/G6/G7 all centre,
+but G3 called `SY.preset(name).simulate` directly. Over 1–5-year terms the drift, not the
+dispersion, decided the class ratios: class C P(bad debt) at 600 % was 53 % martingale vs 20 %
+centred (quick, seed 20261003); with real data the bootstrap's +177 %/yr would have driven every
+ratio to its lower bound.
+**Decision.** New policy key `price_drift` (`"centred"` default | `"martingale"` | `"model"`),
+implemented in `ybcal.sim.drift` as a deterministic shift of each member's log returns (same draws,
+so common random numbers and `"model"` reproduce the old paths exactly). G3/G4's ensemble and the
+joint top-risk model read it; the real `history` member keeps its realised drift (it is what
+happened, not a model). Default **centred**: a probability of a log-price threshold should not
+embed a directional view, and the project convention (D-WP2-5) is centred. `martingale` is kept as a
+stress run; at YEC-like volatility it makes every multi-year class look near-certain to fail.
+**Consequence.** Verdicts are unchanged in kind — B and C stay BLOCKED, A moves to ≈ 725 % — but the
+numbers shown to the owner are no longer an artefact: C at 600 % is 20 % (centred) instead of 53 %.
+The worst member for class A is now the regime switch (its turbulent state carries −3.5/yr of log
+drift by design: a crash regime).
+
+## D-RD-AUD-2 (2026-10-03, audit) — the summary quotes G3's P(bad debt), not the fast model
+
+**Finding.** The executive summary's second risk quoted the joint pass's top-risk model ("class C
+9.47 % vs 2.0 %") while the BLOCKED box above it showed G3's 47.8 % for the same class at the same
+ratio: the fast model uses one GARCH-t member (centred), four terms and a thinner start grid.
+**Decision.** `report.build.top_risks` quotes G3's aggregate `pbad.{c}` at the recommended ratio
+(`g3_bad_debt_over`) and names its source; the fast model is the fallback only when G3 did not run,
+and is then labelled "GARCH-t only".
+
+## D-RD-AUD-3 (2026-10-03, audit) — P(bad debt) at claim opening stays the constraint; severity and reach are evidence
+
+**Question.** Is "P(collateral < debt when the claim path opens)" the right bad-debt definition?
+Checked against ycash6 `a862a8a06`: the vault script (`script.cpp:79-93`) is `IF <lockHeight> CLTV
+<owner> CHECKSIG ELSE <lockHeight + grace> CLTV TRUE ENDIF` and RED-2 (`state.cpp:515-517`) makes
+every spend burn the full debt, so (1) nobody — owner or claimant — can act before `lockHeight`,
+and no claimant before `lockHeight + grace`; (2) a vault under water is never claimed (the
+claimant would burn more YED than the collateral is worth) and its owner walks away; (3) HALT-2
+(`state.cpp:1237`) and the soft supply cap (MINT-6, W20) only stop *new* mints — no rule pools
+collateral across vaults or lets a YED holder redeem against the system. So the YED behind a bad
+vault has no burner: holders bear the gap through the peg.
+**Decision.** Keep the policy's definition as the constraint: it is the first moment any rule could
+act and the event after which the gap is the holders'. It is pessimistic in one way (a bad vault
+stays claimable and can recover) and optimistic in another (it ignores severity). Both are now
+reported: `es.{c}` = E[max(0, 1 − value/debt)] at claim opening (severity; `FastBadDebt.shortfall`)
+and `tmax_ok_days.{c}` = the longest grid term within tolerance (how far the class reaches at that
+ratio). G3-DN1 quotes both at the upper ratio bound: at quick/synthetic, B and C meet their
+tolerance for **no** grid term even at 700 %/600 %, A only up to 71 days, and a bad C vault is short
+by 58 % of its debt. That is a real property of the design (no liquidation during the term on a
+100–200 %-volatility collateral), not a modelling artefact; the levers are the owner's: relax
+`max_bad_debt_prob` for B/C, shorten `classMax[1]`/`classMax[2]` (parameters), or a rule change.
+
+## D-RD-AUD-4 (2026-10-03, audit) — a RED-4(b) closure counts only when the exit pays
+
+**Finding.** The emergency study counted every RED-4(b) trigger as a closure "by a YED holder exiting
+at par" (D-WP4-6), although RED-5 under (b) pays that claimant the debt's worth at pClaim, the
+higher price in a crash (mean loss 2,134 bps of the debt), and the policy's own market assumption
+is a working peg (`yed_premium_bps = 0`). Crediting closures nobody would execute made the uncovered
+debt fall monotonically in `emergencyRatioBps`, so the rule always picked the top of its range
+(10,900, one step under θ).
+**Decision.** A (b) closure happens at the first persisted trigger hour at which
+`(1 − true/pClaim)·10⁴ + claimant_slippage_bps ≤ −yed_premium_bps`. The same metric under a 20 %
+YED discount (`emergency_stress_premium_bps` = −2,000, a JUDGEMENT constant) is reported as
+`emerg.shortfall_stress`.
+**Consequence.** At the default policy (b) changes the uncovered debt by < 1 pp at any e, so
+`emergencyRatioBps` is KEEP 10,500 (PROVISIONAL); the owner sees the depeg case beside it. G3-DN4
+already records the rule-level fix (pay (b) at pEmerg or with a bounty).
+
+## D-RD-AUD-5 (2026-10-03, audit) — `supplyCapBps` moves only for admitted demand and an evidenced depth bound
+
+**Finding.** The synthetic report moved `supplyCapBps` 15 % → 50 % (the top of the grid) with
+"improves primary metric by 233 %": the primary was the cap value itself, so any feasible larger cap
+was an "improvement", and the depth constraint was vacuous. In the joint set every class ratio was
+≥ `recapRatioBps` (500 %), so the W20 soft cap bound no class (`liq.demand_bound_usd` = 0 at every
+cap). Standalone at the shipped ratios, the 50 % cap admitted $40 k of B/C debt of which only 13 %
+opens its claim path inside the 365 + 60-day book: every class-C claim and the long B ones are
+censored, so the measured cap-bound demand ($1.6 k against a $2.5 k budget) proved nothing. The move
+also contradicted the owner's W20 decision (`SUPPLY_CAP_BPS` stays 1,500).
+**Decision.** (1) Primary = `cap.bc_refused` (share of class-B/C mint attempts refused by MINT-6 in
+the first year, minimise; ties toward current): a larger cap is a benefit only when it admits
+demand, and materiality applies to that benefit. (2) `depth_bound` holds only when the cap-bound
+debt is zero or at least `cap_min_uncensored_share` (0.5, JUDGEMENT) of it opens its claim path in
+the book; otherwise it is *unverified* and counts as violated. (3) When no swept cap has any
+cap-bound debt, the family keeps the current value ("uninformative"). (4) When the *current* cap's
+bound debt is itself mostly censored, the book can neither confirm nor refute it: KEEP
+("unverifiable") — added after the standard-budget seed check, where (2) alone ratcheted the cap
+down to 250 bps (a cap admitting nothing) on one seed and BLOCKED it on another.
+**Consequence.** Quick/synthetic standalone: KEEP 1,500 (B/C stay refused 91 % at 15 % and at 20 %;
+the early-cap design note, fact 1.5-2, carries the real issue). A real depth file and a longer book
+are what can justify a different cap.
+
+## D-RD-AUD-6 (2026-10-03, audit) — HALT-3 calm hours share the availability budget
+
+**Finding.** `divergenceBps` maximised a per-path F1 with a recall floor that includes the slow
+`crash-90-30d` (its downward jumps are what HALT-3 catches); false positives came from a
+`calm-90d` base of GBM 60 % — a third of YEC's realised daily volatility (200 % for the year to
+2026-10). A tighter band (2,000 → 1,500, or 1,000 in the joint run) therefore cost nothing in the
+synthetic calm, while on YEC's real price it would halt minting often.
+**Decision.** New constraint `calm_availability`: HALT-3 hours per year in `calm-90d` ≤
+`max_no_price_hours` — HALT-3 stops minting like NO_PRICE, so it draws on the same availability
+budget. The recall definition is kept (catching the downward jumps of a slow crash is legitimate).
+**Consequence.** No change on synthetic data (0 h/yr at every value); with real data the calm base
+becomes a bootstrap of real returns (G1 `realise`) and the constraint can bind. The synthetic
+recommendation (1,500) stays PROVISIONAL and rests on the 60 %-vol calm placeholder.
+
+## D-RD-AUD-7 (2026-10-03, audit) — a BLOCKED `sigmaMultMaxBps` reports the bound and what drives the need
+
+**Finding.** The synthetic report's BLOCKED cap ("p99 turbulent multiplier 5.28× exceeds the search
+bound 50,000") listed the *current* 30,000 as the least-violating value, unlike every other BLOCKED
+rule. The need itself was a joint-pass artefact: standalone (pFastWindow 96, volStep 48) the p99
+turbulent multiplier is 4.19× (→ CHANGE 42,500); after G1 moved pFastWindow to 48 and G2 volStep to
+24 the noisier σ̂ read 5.28×. In the placeholder turbulent Merton process one 40 % jump inside a
+2-day window alone reads as σ̂ ≈ 480 %, so the p99 measures jump size, not sustained volatility.
+**Decision.** Keep the PLAN §5.2 rule; a BLOCKED cap recommends the bound (50,000) as the least
+violating value, and the recommendation's notes state the p99 σ̂ at the current vs chosen windows,
+the single-jump caveat and the K12 cost of a high cap (an undefined sample sets the multiplier to
+the cap, so every K12 trap then asks for cap × base ratio).
+**Consequence.** With D-RD-AUD-9 the joint pass keeps pFastWindow at 96, so the synthetic need is
+back to ≈ 4.2× (CHANGE to 42,500, PROVISIONAL). Real data decides: the turbulent σ comes from a
+regime fit to real returns.
+
+## D-RD-AUD-8 (2026-10-03, audit) — `peerMin` must hold at the participation floor
+
+**Finding.** `peerMin` = "the largest value with P(not evaluated) ≤ 5 %" at the expected 80 %
+tagging share moved 5 → 12 (19 peer blocks at peerLag 10, quote density ≈ 0.8). Minting keeps
+running down to the participation floor (`participationFloor/signalWindow` = 60 %); there the
+density is 0.6 and P(Bin(19, 0.6) < 12) ≈ 42 %: REG-4 would stop judging most tags exactly when
+participation is weakest.
+**Decision.** New constraint `not_evaluated_floor` on the `peer_min` and `peer_lag` families: the
+analytic P(not evaluated) at the density scaled to the participation floor
+(`floor_density = density · min(1, floor/expected_enforcing_share)`) must also be ≤
+`max_not_evaluated_prob`; `adjust_changes` re-checks peerMin at that density when peerLag moves.
+**Consequence.** quick/synthetic: peerMin 5 → 8 (PROVISIONAL; P(not evaluated) at the floor 4.0 %) instead of 12. A real pool-share log
+sets the density; few pools with one dominant change the picture further (a dominant pool's own tags
+fill its peer window — modelling limitation, see the audit report).
+
+## D-RD-AUD-9 (2026-10-03, audit) — forced moves are minimal; G1 reads real pool shares
+
+**Finding.** G1 moved `pFastWindow` 2 h → 1 h *and* `pMidWindow` 12 h → 1 d because the current set
+violated `max_no_price_hours` (20.5 h/yr vs 6) and `decide_with_materiality` then jumped to the
+best-J feasible set. Only pMid fixes the violation: (96, 1,152, 2,016) has 2.2 h/yr and J 1.50 vs
+the best (48, 1,152, 2,016) at 4.2 h/yr and J 1.28 — within materiality, so the extra pFast move
+rested on a 15 % J gain that would not have cleared materiality on its own, and it is what pushed
+G2's σ̂ cap need to 5.28× (D-RD-AUD-7). Separately, G1/G2 always used `expected_pool_count` equal
+pools even when a pool-share log was loaded, although background NO_PRICE is set by the largest
+pool's share against the ⌈2W/3⌉ fill: with the G6 placeholder shares (25/20/15/10/6/4 %) no window
+set reaches 6 h/yr (best 18 h/yr at 192/1,152/3,024; shipped 46 h/yr).
+**Decision.** (1) `decide_with_materiality`: a violating current moves to the feasible row closest
+to current among those within materiality of the best feasible primary (minimal change, PLAN §2.3).
+(2) `g1_price_windows.oracle_config` uses the tagging pools of a real pool-share log when one is
+loaded (`g6.pool_model`), else the policy's equal pools; `realise` is keyed on the pool shares.
+**Consequence.** quick/synthetic G1: pFastWindow KEEP 96, pMidWindow 576 → 1,152 (PROVISIONAL). The
+longer pMid is robust across tagging shares 0.76–0.90 (it rides out single-pool feed outages); its
+cost is slower recovery after an all-feeds outage (26.5 h vs 16.5 h per 6-hour outage). With a
+concentrated real pool landscape G1 may turn BLOCKED on `max_no_price_hours`: that is a real
+availability risk (the largest pool's feed uptime), not a window choice.
+
+## D-RD-AUD-10 (2026-10-03, audit) — heterogeneity is not a constraint; neighbours name the rule's own constraints
+
+**Finding.** G3 put `het_{A,B,C}` (within-class term heterogeneity, a design-note trigger) into every
+candidate's constraints, and the report's "why not the neighbours" listed every violated constraint
+of the whole set: `emergencyRatioBps` −1 step "violates het_A, bad_debt_B, het_B, bad_debt_C,
+het_C" — none of which its rule reads.
+**Decision.** Heterogeneity stays a value (`het.*`, `viol.het_*`) and drives G3-DN6 only.
+`report.explain.neighbours_text` names only constraints that appear in the recommendation's own
+`constraints_current`; a neighbour failing only other rules' constraints is compared on the primary.
+
+## D-RD-AUD-11 (2026-10-03, audit) — `volStep ≥ pFastWindow / 2`
+
+**Finding.** At the standard budget (seeds 1, 2) G2 minimised the calm CV of σ̂ by taking the
+smallest step on the grid (volStep 12, volWindow 3,456) and then calibrated `sigmaRefBps` to 3,500–
+4,000. σ̂ samples pFast, a rolling median over `pFastWindow` (96) blocks; sampled every 12 blocks
+its increments overlap and are smoothed, so the K13 annualisation (iid increments) measures the
+median filter, not the price: σ̂ falls with the step and its CV falls for the wrong reason. The
+low reference then inflated every multiplier and BLOCKED the cap.
+**Decision.** New G2 constraint `sampling`: `volStep · 2 ≥ pFastWindow` (`g2_volatility.sampling_ok`).
+The shipped pair (48, 96) sits exactly on it.
+
+## D-RD-AUD-12 (2026-10-03, audit) — quick-budget verdicts are not lock-grade: seed and policy robustness
+
+**Evidence** (standalone studies at the shipped set, synthetic, `.work/seeds.py`, `.work/g3pol.py`):
+- *Stable across seeds 1–3 (quick) and 1–2 (standard):* B and C BLOCKED (700 % / 600 % least
+  violating); `emergencyRatioBps` KEEP; `peerMin` 8; `qLowBps` 3,500; `dormancyMinBundles` 12;
+  `walletConfirmations` 24; `bondMin` 30,000 YEC; `divergeBpsAttest` 1,100; `nPenalty` 144;
+  `accuracyBandBps` 100; the fee pair BLOCKED at the shipped ratios (low-adoption attestor revenue
+  $22–26/month vs the $50 floor with a 2 % fee-share cap).
+- *Unstable at quick:* `baseRatioBps[0]` 725 % (seed 20261003) vs BLOCKED at 800 % (seeds 1–3) —
+  standard gives 775 %/800 %; G1 windows (seed 2 chose 48/864/1,152); G7 cap/halt/divergence;
+  G2 window/step (fixed by D-RD-AUD-11).
+- *Policy sensitivity of class A* (quick, default seed): `ensemble_agg = mean` → 525 %;
+  `sigma_mult_at = p90` → 525 %; `term_distribution` short-heavy → 625 %, long-heavy → 800 %;
+  `price_drift = martingale` → BLOCKED. B and C are BLOCKED under every one of these.
+**Decision.** No code change: the quick budget is a smoke run. A value is lock-grade only from a
+standard (or deep) run whose verdict is the same on at least two seeds; class A's ratio is decided
+by the worst member (the regime-switch preset) and by three owner policy choices, which the owner
+must confirm before it is locked. Recorded for the integrator's real-data runs.
+

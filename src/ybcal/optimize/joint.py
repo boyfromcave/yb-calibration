@@ -552,7 +552,10 @@ def _hourly(env: Env) -> tuple[tuple, np.ndarray, str]:
     n = _risk_paths(env)
     years = float(env.budget.hour_horizon_years)
     fp = data_fingerprint(env)
-    key = ("hourly", env.seed, n, years, fp)
+    from ybcal.sim import drift as DR
+
+    drift = DR.check(getattr(env.policy, "price_drift", DR.DEFAULT_DRIFT))
+    key = ("hourly", env.seed, n, years, fp, drift)
     hit = _HOURLY.get(key)
     if hit is None:
         rng = env.rng_for("joint-sensitivity", "paths")
@@ -567,7 +570,11 @@ def _hourly(env: Env) -> tuple[tuple, np.ndarray, str]:
                     prov = "real-data"
             except Exception:
                 model = SY.preset("garch")
-        pp = SY.simulate_years(model, n, years, "hour", rng)
+        # same draws as SY.simulate_years, shifted to the policy's drift convention (D-RD-AUD-1)
+        steps = round(years * SY.steps_per_year("hour")) + 1
+        dt = SY.as_dt("hour")
+        r = DR.apply(model.log_returns(n, steps, dt, rng)[:, : steps - 1], dt, drift, model)
+        pp = SY.returns_to_path(r, SY.DEFAULT_P0, dt)
         hit = (np.asarray(pp.prices, dtype=np.int64), prov)
         _HOURLY.clear()
         _MEDIANS.clear()

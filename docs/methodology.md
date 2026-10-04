@@ -326,3 +326,17 @@ report can be used to lock a set.
 - **Sensitivity at quick budget** is per study group, not per parameter (D-WP8-4), and is computed
   on a fast top-risk model meant for ranking, not for deciding values (D-WP8-2).
 - **Header constants** (`DEFAULT_REF_LAG` in `params.h`) are recommended and listed, never patched.
+- **Methodology audit (2026-10-03, D-RD-AUD-1..10).** Ranked by how much they could still move a
+  locked value: (1) the YEC price model — volatility level (presets ≈ 120 %, the real year to
+  2026-10 ≈ 200 %) and the drift convention (`price_drift`, centred by default; `martingale` is the
+  stress) set every base ratio, `sigmaRefBps` and `sigmaMultMaxBps`; (2) the pool landscape — count,
+  largest share, feed-outage rate and tagging share — sets background NO_PRICE (G1 windows), REG-4
+  peer density (`peerMin`) and HALT-3 availability; (3) the cross-exchange spread placeholder (40–150
+  bps) against YEC's thin markets (2–3 % between venues in the live log) sets `deviationBps`,
+  `accuracyBandBps`, `divergeBpsAttest`; (4) the adoption case and revenue floors set the fee pair,
+  `bondMin`, `dormancyMinBundles`; (5) the G7 crash book (365 + 60 days) censors class-B/C claim
+  openings, so `supplyCapBps` keeps its value unless the depth bound is evidenced; (6) the YED peg is
+  exogenous (`yed_premium_bps`), so the emergency tier's value is shown under a depeg stress only;
+  (7) hour mode uses the noise-free oracle kernel. Not a model limitation but a design fact: with no
+  liquidation before `lockHeight + grace`, classes B and C cannot meet the default bad-debt
+  tolerances at any ratio within bounds on 100–200 %-volatility collateral (G3-DN1).

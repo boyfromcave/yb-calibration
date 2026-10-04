@@ -143,7 +143,10 @@ def test_cap_rule(tmp_path):
     assert r.recommended == 37500 and r.verdict == "CHANGE"
     # beyond the 50,000 bound → BLOCKED
     t = _table(tmp_path, [({}, dict(cv=0.15, p50=10000.0, p99t=60000.0))])
-    assert _rec(G.make_study().decide(t, Policy()), "sigmaMultMaxBps").verdict == "BLOCKED"
+    r = _rec(G.make_study().decide(t, Policy()), "sigmaMultMaxBps")
+    # D-RD-AUD-7: the least-violating value of a BLOCKED cap is the bound, not the current value
+    assert r.verdict == "BLOCKED" and r.recommended == 50000
+    assert any("K12 trap" in n for n in r.notes) and any("single jumps" in n for n in r.notes)
 
 
 def test_synthetic_is_provisional(tmp_path):
@@ -202,3 +205,13 @@ def test_determinism_per_seed():
     G1.clear_caches()
     b = st.evaluate(mainnet(), env_for(seed=3)).values
     assert a == b
+
+
+def test_sampling_constraint():
+    """D-RD-AUD-11: σ̂ may not sample the pFast median finer than half its window."""
+    from ybcal.params.paramset import mainnet as _m
+
+    b = _m()
+    assert G.sampling_ok(b)  # 48 ≥ 96/2
+    assert not G.sampling_ok(b.replace(volStep=24))
+    assert G.sampling_ok(b.replace(volStep=24, pFastWindow=48))

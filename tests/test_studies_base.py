@@ -130,3 +130,16 @@ def test_study_modules_are_stubs_until_implemented():
     for g in STUDY_MODULES:
         with contextlib.suppress(NotImplementedError):
             load_study(g)
+
+
+def test_forced_move_goes_to_the_nearest_feasible_within_materiality():
+    """D-RD-AUD-9: a violating current moves to the closest feasible row whose primary is within
+    materiality of the best feasible one — not straight to the best."""
+    # current violates; 40,320 (1 step, primary 0.55) is within 20 % of the best 0.5 (2 steps away)
+    t = _table([(34_560, 0.1, False), (40_320, 0.55, True), (46_080, 0.5, True)])
+    d = decide_with_materiality(t, 0.2)
+    assert d.verdict == "CHANGE" and d.row.params["grace"] == 40_320 and "minimal change" in d.reason
+    # outside materiality of the best → the best
+    t = _table([(34_560, 0.1, False), (40_320, 0.7, True), (46_080, 0.5, True)])
+    d = decide_with_materiality(t, 0.2)
+    assert d.verdict == "CHANGE" and d.row.params["grace"] == 46_080

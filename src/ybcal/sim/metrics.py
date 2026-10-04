@@ -340,6 +340,9 @@ class FastBadDebt:
     by_grace: dict[str, dict[int, float]]
     n: dict[str, int]
     meta: dict = field(default_factory=dict)
+    #: mean uncovered share of the debt at the claim-path opening, ``E[max(0, 1 − value/debt)]``,
+    #: term-grid mean — the severity behind ``p`` (D-RD-AUD-3; 0 when no sample is bad)
+    shortfall: dict[str, float] = field(default_factory=dict)
 
 
 def _sigma_choice(sig: np.ndarray, sigma, skip: int) -> np.ndarray:
@@ -399,6 +402,7 @@ def p_bad_debt_fast(
         skip_hours = math.ceil((int(params["volWindow"]) + int(params["pSlowWindow"])) / BLOCKS_PER_HOUR)
     kernel = kernel or E.OracleTransferKernel.ideal(params)
     acc: dict[tuple[int, int, str], list[int]] = {}
+    sf: dict[tuple[int, int], float] = {}
     terms_of = {c: AG.term_grid(params, c, n_terms, term_distribution)[0] for c in classes}  # type: ignore[arg-type]
     starts = np.arange(skip_hours, n, max(1, int(start_stride)))
     for a in range(0, P, chunk_paths):
@@ -433,7 +437,11 @@ def p_bad_debt_fast(
                     r = acc.setdefault((c, ti, key), [0, 0])
                     r[0] += int(bad.sum())
                     r[1] += int(good.sum())
-    p, p_lock, inc, by_term, by_grace, nn = {}, {}, {}, {}, {}, {}
+                    if key == f"g{g0}" and bad.any():
+                        val = coll[:, cols][bad].astype(np.float64) * tpe[bad].astype(np.float64) / COIN
+                        gap = np.maximum(0.0, 1.0 - val / (cents * 1e4))
+                        sf[(c, ti)] = sf.get((c, ti), 0.0) + float(gap.sum())
+    p, p_lock, inc, by_term, by_grace, nn, short = {}, {}, {}, {}, {}, {}, {}
     for c in classes:
         name = CLASS_NAMES[c]
         nt = len(terms_of[c])
@@ -455,6 +463,12 @@ def p_bad_debt_fast(
         inc[name] = p[name] - p_lock[name]
         by_grace[name] = {g: float(np.nanmean(rate(f"g{g}")[0])) for g in gl}
         nn[name] = cnt // max(nt, 1)
+        per = [
+            sf.get((c, ti), 0.0) / acc[(c, ti, f"g{g0}")][1]
+            for ti in range(nt)
+            if acc.get((c, ti, f"g{g0}"), [0, 0])[1]
+        ]
+        short[name] = float(np.mean(per)) if per else float("nan")
     return FastBadDebt(
         p,
         p_lock,
@@ -471,6 +485,7 @@ def p_bad_debt_fast(
             "paths": P,
             "hours": n,
         },
+        shortfall=short,
     )
 
 

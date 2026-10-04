@@ -241,3 +241,34 @@ def test_determinism():
         (x == y) or (math.isnan(x) and math.isnan(y))
         for x, y in zip(a.values.values(), b.values.values(), strict=True)
     )
+
+
+def test_shortfall_is_bounded_by_p_bad(run):
+    """D-RD-AUD-3: E[max(0, 1 − value/debt)] at claim opening lies in [0, P(bad)]."""
+    _, _, tab, _, _ = run
+    v = tab.current().metrics.values
+    for c in "ABC":
+        for m in ("gbm", "merton", "garch", "regime"):
+            es, p = v[f"es.{c}.{m}"], v[f"pbad.{c}.{m}"]
+            if math.isfinite(p):
+                assert 0.0 <= es <= p + 1e-12
+                assert (es == 0.0) == (p == 0.0)
+
+
+def test_term_frontier_days():
+    terms = np.array([1152 * 30, 1152 * 60, 1152 * 90])
+    worst = [np.array([0.001, 0.004, 0.02]), np.array([0.002, 0.006, 0.01])]
+    assert G3.term_frontier_days(worst, terms, 0.005, "worst") == 30.0
+    assert G3.term_frontier_days(worst, terms, 0.05, "worst") == 90.0
+    assert G3.term_frontier_days(worst, terms, 0.0005, "worst") == 0.0
+    assert math.isnan(G3.term_frontier_days([], terms, 0.01, "worst"))
+
+
+def test_emergency_closure_needs_a_paying_exit(run):
+    """D-RD-AUD-4: RED-4(b) closes only when the exit pays at the policy's YED price, so at par it
+    closes no more vaults than under a YED discount (the paying set only grows with the discount)."""
+    _, _, tab, _, _ = run
+    v = tab.current().metrics.values
+    assert 0.0 <= v["emerg.b_share"] <= v["emerg.b_share_stress"] + 1e-12
+    for k in ("emerg.shortfall", "emerg.shortfall_stress", "emerg.shortfall_a"):
+        assert 0.0 <= v[k] <= 1.0

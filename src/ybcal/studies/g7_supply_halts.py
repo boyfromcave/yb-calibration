@@ -45,7 +45,7 @@ from ybcal.params.paramset import ParamSet
 from ybcal.params.registry import REGISTRY, params_for_group
 from ybcal.studies import g1_price_windows as G1
 from ybcal.studies.base import Budget, Env, Metrics, Recommendation, ResultRow, ResultTable
-from ybcal.studies.g5_activation import Family, FamilyStudy, env_out_dir, family_rows
+from ybcal.studies.g5_activation import Family, FamilyStudy, env_out_dir, family_rows, family_table
 from ybcal.studies.g6_miners_fees import (
     _cached,
     _ekey,
@@ -67,6 +67,9 @@ JUDGEMENT: dict[str, float] = {
     "p10_daily_volume_usd": 25_000.0,  # placeholder p10 daily YEC volume when no depth file is loaded
     "system_ratio_alarm_bps": 15_000,  # HALT-2 must fire before the true system ratio reaches this
     "demand_quantile": 95.0,  # quantile over paths of the worst-day liquidation demand
+    # share of the cap-bound debt whose claim path must open inside the book for the depth bound to
+    # count as evidence (D-RD-AUD-5)
+    "cap_min_uncensored_share": 0.5,
 }
 POLICY_KEYS: dict[str, str] = {
     "p10_daily_volume_usd": "p10_daily_volume_usd",
@@ -276,6 +279,15 @@ def book_metrics(env: Env, cand: ParamSet) -> dict[str, Any]:
         out["cap.bc_refused_share"] = (
             float((bc & (v["reason"] == "mint-supply-cap")).sum() / n_bc) if n_bc else math.nan
         )
+        # how much evidence the depth bound carries (D-RD-AUD-5): the cap-bound debt minted in the prefix
+        # and the share of it whose claim path opens inside the book's horizon (the rest — every class-C
+        # vault, the long class-B ones — can never show up in liq.demand_bound_usd)
+        bound = (v["outcome"] == VB.O_ACTIVE) & ~exempt_v & (v["step"] < crash_h)
+        bd = float(v["cents"][bound].sum()) / 100
+        out["cap.bound_debt_usd"] = bd / max(1, Pn)
+        out["cap.bound_uncensored_share"] = (
+            float(v["cents"][bound & (v["claim_open_step"] >= 0)].sum()) / 100 / bd if bd > 0 else math.nan
+        )
         a = (v["term_class"] == 0) & (v["step"] < crash_h)
         out["cap.a_accepted_share"] = float((a & (v["outcome"] == VB.O_ACTIVE)).sum() / max(1, int(a.sum())))
         # figure series (JSON-safe, ~weekly)
@@ -428,6 +440,10 @@ def _fams() -> tuple[Family, ...]:
         "cap.days_first_admit_empty",
         "book.supply_usd_year1",
         "book.exempt_share_year1",
+        "cap.bound_debt_usd",
+        "cap.bound_uncensored_share",
+        "cap.informative",
+        "cap.value",
     )
     halt = (
         "halt.false_calm",
@@ -457,12 +473,18 @@ def _fams() -> tuple[Family, ...]:
             "cap",
             ("supplyCapBps",),
             ("supplyCapBps",),
-            "supplyCapBps: the largest cap (step 250) whose cap-bound (classes below recapRatioBps) "
+            "supplyCapBps: the cap (step 250) that admits the most class-B/C mint attempts (primary: "
+            "the share refused by the cap in the first year, ties toward the current value — a larger "
+            "cap is a benefit only when it admits demand, D-RD-AUD-5) among caps whose cap-bound "
+            "(classes below recapRatioBps) "
             "liquidation demand on the worst day of the worst crash (p95 over paths) stays ≤ "
-            "max_depth_fraction × the p10 daily YEC volume; the cap-exempt class-A demand is reported "
-            "against the same budget (design note when it alone exceeds it); KEEP unless > materiality.",
-            primary="cap.value",
-            minimize=False,
+            "max_depth_fraction × the p10 daily YEC volume, counted only where at least half of the "
+            "cap-bound debt opens its claim path inside the book (else the bound is unverified, "
+            "D-RD-AUD-5); KEEP when no swept cap binds any class; the cap-exempt class-A demand is "
+            "reported against the same budget (design note when it alone exceeds it); KEEP unless > "
+            "materiality.",
+            primary="cap.bc_refused",
+            minimize=True,
             constraints=("depth_bound",),
             report=cap,
             sens_metric="liq.demand_bound_usd",
@@ -489,10 +511,11 @@ def _fams() -> tuple[Family, ...]:
             ("divergenceBps",),
             "divergenceBps: the best F1 of HALT-3 over crash falls (crash-70-1d, crash-90-30d, the dump of "
             "pump-dump-3x) versus calm windows (calm-90d, the rally of pump-dump-3x, flash-wick-50-1h) "
-            "subject to recall ≥ halt_recall_floor; KEEP unless > materiality.",
+            "subject to recall ≥ halt_recall_floor and HALT-3 hours per year in calm-90d ≤ "
+            "max_no_price_hours (minting availability, D-RD-AUD-6); KEEP unless > materiality.",
             primary="div.f1",
             minimize=False,
-            constraints=("recall",),
+            constraints=("recall", "calm_availability"),
             report=div,
             sens_metric="div.recall",
             provenance_key="price_provenance",
@@ -556,6 +579,8 @@ class G7Study(FamilyStudy):
             else:
                 v[k] = float(x)
         v["cap.value"] = float(cand["supplyCapBps"])
+        r_bc = v.get("cap.bc_refused_share", math.nan)
+        v["cap.bc_refused"] = float(r_bc) if math.isfinite(r_bc) else 0.0  # no B/C attempt: nothing refused
         v["liq.p10_volume_usd"] = vol
         v["liq.budget_usd"] = budget_usd
         from ybcal.sim import supply as SUP
@@ -563,8 +588,17 @@ class G7Study(FamilyStudy):
         typ = typical_mint_cents(cand)
         v["cap.typical_mint_usd"] = typ / 100
         v["cap.days_first_admit_empty"] = SUP.days_until_cap_admits_const(typ, reference_price(env), cand)
-        c["depth_bound"] = v["liq.demand_bound_usd"] <= budget_usd
-        v["viol.depth_bound"] = max(0.0, v["liq.demand_bound_usd"] / max(budget_usd, 1e-9) - 1.0)
+        # D-RD-AUD-5: the depth bound is evidence only when the cap-bound debt's claims open inside the
+        # book; a cap that admits mostly long B/C debt (claims beyond the horizon) is unverified, not safe
+        unc = v.get("cap.bound_uncensored_share", math.nan)
+        bound_debt = v.get("cap.bound_debt_usd", 0.0)
+        min_unc = judgement(pol, "cap_min_uncensored_share")
+        v["cap.informative"] = float(bound_debt > 0 and math.isfinite(unc) and unc >= min_unc)
+        verified = bound_debt <= 0 or bool(v["cap.informative"])
+        c["depth_bound"] = verified and v["liq.demand_bound_usd"] <= budget_usd
+        v["viol.depth_bound"] = max(0.0, v["liq.demand_bound_usd"] / max(budget_usd, 1e-9) - 1.0) + (
+            0.0 if verified else (min_unc - (unc if math.isfinite(unc) else 0.0)) / min_unc
+        )
         # ---- HALT-2 ---------------------------------------------------------------------------------
         h = int(cand["globalRatioHaltBps"])
         r0 = v["book.global_ratio_true"]
@@ -588,8 +622,36 @@ class G7Study(FamilyStudy):
         # ---- HALT-3 ---------------------------------------------------------------------------------
         v.update(divergence_metrics(env, cand))
         c["recall"] = v["div.recall"] >= float(pol.halt_recall_floor)
+        # HALT-3 in a calm market stops minting like NO_PRICE does: it shares the availability budget
+        # (D-RD-AUD-6). Synthetic calm is GBM 60 %; with real data the calm base is a bootstrap.
+        c["calm_availability"] = v["div.calm_halt_hours_per_year"] <= float(pol.max_no_price_hours)
         prov = "real-data" if price_prov == "real-data" else "synthetic"
         return Metrics(v, "zero", True, c, prov, meta)
+
+    def decide_family(self, table: ResultTable, fam: Family, policy) -> tuple[ResultRow, str, str]:
+        """The cap family keeps the current value when its depth bound carries no evidence at the
+        current set (D-RD-AUD-5): "the largest cap whose cap-bound liquidation demand fits the depth
+        budget" with no cap-bound demand to measure — every class at or above recapRatioBps (W20 soft
+        cap), or the cap-bound vaults' claims opening beyond the book — would otherwise always pick
+        the top of the grid."""
+        if fam.name == "cap":
+            rows = family_table(table, fam)
+            cur = rows.current()
+            if cur is not None:
+                cv = cur.metrics.values
+                if all(not r.metrics.values.get("cap.bound_debt_usd", 1.0) for r in rows):
+                    return cur, "KEEP", (
+                        "depth bound uninformative at this set: no cap-bound debt at any swept cap (every "
+                        "class minimum ≥ recapRatioBps bypasses the soft cap, W20); current kept"
+                    )
+                if cv.get("cap.bound_debt_usd", 0.0) > 0 and not cv.get("cap.informative", 1.0):
+                    unc = cv.get("cap.bound_uncensored_share", math.nan)
+                    return cur, "KEEP", (
+                        f"depth bound unverifiable at the current cap: only {unc:.0%} of the cap-bound "
+                        "debt opens its claim path inside the book, so the book can neither confirm nor "
+                        "refute it; current kept (no evidence to move either way)"
+                    )
+        return super().decide_family(table, fam, policy)
 
     def decide(self, results: ResultTable, policy) -> list[Recommendation]:
         recs = super().decide(results, policy)

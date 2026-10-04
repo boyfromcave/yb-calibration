@@ -332,6 +332,10 @@ class G2Study:
         constraints = {
             "max_sigma_lag_blocks": bool(v["responsiveness_blocks"] <= lag),
             "k12_trap_le_max_sigma_lag": bool(v["k12_trap_after_feed_blocks"] <= lag),
+            # D-RD-AUD-11: pFast is a rolling median over pFastWindow blocks; sampled more finely than
+            # half that window its increments overlap and are smoothed, so the K13 annualisation (iid
+            # increments) no longer measures volatility and the calm CV falls for the wrong reason
+            "sampling": sampling_ok(cand),
         }
         meta = {
             "budget": env.budget.name,
@@ -372,8 +376,9 @@ def make_study() -> G2Study:
 RULE_WS = (
     "volWindow/volStep minimise the coefficient of variation of σ̂ (pFast-based) in a "
     "stationary calm regime, subject to: σ̂ reaching 90 % of a calm → turbulent shift within "
-    "max_sigma_lag_blocks ({lag:,} blocks, median path), and the K12 cap trap after a 6-hour feed "
-    "outage ending within the same bound. Keep the current pair unless the CV improves by more "
+    "max_sigma_lag_blocks ({lag:,} blocks, median path), the K12 cap trap after a 6-hour feed "
+    "outage ending within the same bound, and volStep ≥ pFastWindow / 2 (samples of the pFast median "
+    "no finer than half its window, D-RD-AUD-11). Keep the current pair unless the CV improves by more "
     "than materiality ({mat:.0%})."
 )
 RULE_REF = (
@@ -406,6 +411,11 @@ def _row_for(results: ResultTable, **kv) -> Any:
         if all(r.params[k] == v for k, v in kv.items()):
             return r
     return None
+
+
+def sampling_ok(params) -> bool:
+    """D-RD-AUD-11: volStep ≥ pFastWindow / 2 (σ̂ samples the pFast median no finer than half its window)."""
+    return int(params["volStep"]) * 2 >= int(params["pFastWindow"])
 
 
 def decide_g2(results: ResultTable, policy: Policy) -> list[Recommendation]:
@@ -486,10 +496,15 @@ def decide_g2(results: ResultTable, policy: Policy) -> list[Recommendation]:
     covers = cap_cur >= need
     crel = (cap_cur - cap_rule) / cap_cur
     if cap_blocked:
+        # least violating = the bound (the cap closest to covering the percentile), as for every other
+        # BLOCKED rule (D-RD-AUD-7); the report shows it as the owner's fallback, not a recommendation
         cap_v, cap_rec, cap_why = (
             "BLOCKED",
-            cap_cur,
-            (f"p{pct} turbulent multiplier {need / BPS:.2f}× exceeds the search bound {cspec.bounds[1]:,}"),
+            int(cspec.bounds[1]),
+            (
+                f"p{pct} turbulent multiplier {need / BPS:.2f}× exceeds the search bound "
+                f"{cspec.bounds[1]:,}; least violating: the bound"
+            ),
         )
     elif covers and crel <= mat:
         cap_v, cap_rec, cap_why = (
@@ -508,6 +523,25 @@ def decide_g2(results: ResultTable, policy: Policy) -> list[Recommendation]:
             else f"rule value {cap_rule:,} is {crel:.0%} below the current cap > {mat:.0%}"
         )
 
+    # what moves the cap's need (D-RD-AUD-7): the windows (σ̂ noise grows as pFastWindow, volWindow
+    # and volStep shrink) and single jumps — one 40 % jump in a 2-day window alone reads as σ̂ ≈ 480 %
+    cur_q = float(cur.metrics.values.get(f"sigma_hat_p{pct}_turbulent", math.nan))
+    cap_notes = [
+        f"p{pct} turbulent σ̂: {cur_q:,.0f} bps at the current windows (volWindow "
+        f"{cur.params.as_int('volWindow')}, volStep {cur.params.as_int('volStep')}, pFastWindow "
+        f"{cur.params.as_int('pFastWindow')}) vs {turb_q:,.0f} bps at the chosen ones; the need is "
+        f"σ̂/sigmaRefBps = {need / BPS:.2f}× at the recommended reference {ref_rec:,}",
+        "The turbulent ensemble is a placeholder Merton process (12 jumps/yr, N(−2 %, 20 %)); its p99 σ̂ "
+        "is set by single jumps inside the volWindow, so the cap need is a statement about jump size, "
+        "not about sustained volatility (docs/studies/g2.md, Assumptions).",
+    ]
+    if cap_blocked:
+        cap_notes.append(
+            "A cap at the bound turns every K12 trap (an undefined sample) into a mint requirement of "
+            f"{cspec.bounds[1] / BPS:.0f}× the base ratio; at the current cap it is "
+            f"{cap_cur / BPS:.0f}× (cap_undefined_h_per_year_realised = "
+            f"{float(cur.metrics.values.get('cap_undefined_h_per_year_realised', math.nan)):.1f} h/yr)."
+        )
     evidence = write_evidence(results, ws, cur, chosen, out)
     keys_ws = (
         "sigma_hat_cv_calm",
@@ -648,7 +682,7 @@ def decide_g2(results: ResultTable, policy: Policy) -> list[Recommendation]:
             prov,
             list(evidence),
             GROUP,
-            [f"underlying verdict before the provenance rule: {cap_v}"],
+            [f"underlying verdict before the provenance rule: {cap_v}", *cap_notes],
         )
     )
     return recs

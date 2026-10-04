@@ -51,6 +51,7 @@ class Policy:
     class_heterogeneity_max: float = 0.50
     term_distribution: str = "uniform"
     sigma_mult_at: str = "median"
+    price_drift: str = "centred"
     claimant_min_profit_bps: int = 200
     claimant_slippage_pctl: int = 90
     # oracle (G1, G2)
