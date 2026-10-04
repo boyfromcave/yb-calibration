@@ -1,0 +1,20 @@
+# A pool whose agent is configured with one venue only — SafeTrade, the thinnest and stalest of the
+# three (45 % of hours without a trade within an hour, D-RD-D3) — quotes that venue's 15-minute TWAP.
+# Honest but mis-configured: REG-4 should notice it (it is inaccurate) without the honest pools paying.
+name = "venue-pool"
+description = "the pool nearest 10 % of hash quotes SafeTrade alone (a one-venue agent), whole horizon"
+stresses = "REG-4 against a thin-venue quote (deviationBps, accuracyBandBps), FEE-W accuracy weight"
+tags = ["oracle", "real-landscape"]
+horizon_days = 30
+resolution = "block"
+p0_usd = 0.36
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.90 }
+
+[schedules.venue_pool_share]
+default = 0.10
+
+[constants]
+venue_pool_source = "safetrade"

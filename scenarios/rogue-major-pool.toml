@@ -1,0 +1,36 @@
+# The real pool landscape (pool-shares.csv, D-RD-D5): one pool mines 52 % of the blocks. From day 5 it
+# quotes 15 % high. REG-4's peer median is then mostly its own quotes, so the question is who REG-4
+# penalises: the rogue pool or the honest minority (D-RD-ATT-6).
+name = "rogue-major-pool"
+description = "the 52 % pool quotes 15 % high from day 5 (real pool landscape); REG-4 under a majority liar"
+stresses = "REG-4 when one pool supplies most peer quotes (peerLag, peerMin, deviationBps), FEE-W exclusion"
+tags = ["oracle", "adversarial", "real-landscape"]
+horizon_days = 30
+resolution = "block"
+p0_usd = 0.36
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.90 }
+
+[schedules.attacker_share]
+default = 0.0
+changes = [{ at_days = 5, value = 0.52 }]
+
+[schedules.attacker_bias_bps]
+default = 0
+changes = [{ at_days = 5, value = 1500 }]
+
+[constants]
+attacker_share = 0.52
+attacker_bias_bps = 1500
+
+[[variants]]
+name = "rogue-major-pool-15"
+description = "the 52 % pool quotes 15 % high from day 5 (above deviationBps)"
+set = { "schedules.attacker_bias_bps.changes.0.value" = 1500, "constants.attacker_bias_bps" = 1500 }
+
+[[variants]]
+name = "rogue-major-pool-5"
+description = "the 52 % pool quotes 5 % high from day 5 (below deviationBps: invisible to REG-4)"
+set = { "schedules.attacker_bias_bps.changes.0.value" = 500, "constants.attacker_bias_bps" = 500 }

@@ -107,6 +107,10 @@ All bases are centred GBMs (σ in the table); "core" = in the quick budget's set
 | `dev-absence-{14,30,60,90,180}` | hour | 104–270 | | 1.00 | — | enforcing 0.80 → 0.40 at day 30 (a defect halts ENFORCEMENT); `dev_present` 0 for `days`; both restored on return |
 | `owner-absence` | hour | 400 | yes | 1.00 | — | `owner_present_fraction` 0.98, 0.90 for 3 weeks from day 170; constants: log-normal absence median 7 d, σ 1, 1/yr |
 | `sunset-no-renewal` | hour | 450 | | 1.00 | — | signal 0.80 → 0 at day 365 (the sunset), `renewal` 0 |
+| `rogue-major-pool-{15,5}` | block | 30 | | 0.90 | — | the pool nearest 52 % (real landscape) quotes +15 % / +5 % from day 5 (`attacker_share`, `attacker_bias_bps`) |
+| `major-pool-offline` | block | 30 | | 0.90 | — | `offline_pool_share` 0.52 from day 5: its hash leaves, the rest mine every block |
+| `venue-pool` | block | 30 | | 0.90 | — | `venue_pool_share` 0.10: that pool's agent reads SafeTrade alone (`constants.venue_pool_source`) |
+| `attestor-capture-capital` | block | 30 | | flat | — | constants: adversary capital 10k–500k USD of YEC bonds, split over ≤ 6 seats, against 9 minimum honest seats |
 
 ### Notes per scenario
 
@@ -145,6 +149,18 @@ All bases are centred GBMs (σ in the table); "core" = in the quick budget's set
 - **sunset-no-renewal** — after `enforceUntilHeight` (start + 1 year) miners drop the signal bit
   (index.cpp:713) and ACT-4 trips within about a signal window; measures the continuity cost of a
   missed renewal (W18).
+
+- **rogue-major-pool-{15,5}** (D-RD-ATT-6) — REG-4 when one pool supplies most peer quotes: at +15 %
+  the peers' median follows the liar in its own windows, so G6 reports both the honest pools' and
+  the rogue's penalised share; +5 % stays under `deviationBps` (invisible to REG-4 by design — the
+  attestors' `min` is the protection).
+- **major-pool-offline** — the 52 % pool's hash leaves; peer counts and FEE-0 with the remaining
+  pools (G6 `adv.major_pool_offline.*`).
+- **venue-pool** — an honest pool mis-configured with one thin venue (SafeTrade): REG-4 should mark
+  it inaccurate without the honest pools paying (G6 `adv.venue_pool.*`).
+- **attestor-capture-capital** (D-RD-ATT-9) — attestor capture priced in money at the real YEC price:
+  G8 reports P(aMint up 10 %) and P(down 10 %) per capital level, the adversary choosing the best
+  split of its YEC into seats of at least `bondMin`.
 
 ## Adding a scenario
 

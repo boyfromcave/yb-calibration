@@ -164,6 +164,9 @@ class Policy:
     max_not_evaluated_prob: float = 0.05
     expected_pool_count: int = 6
     max_false_penalty_rate: float = 0.01
+    pool_feed: str = "agent"
+    agent_min_sources: int = 3
+    agent_outlier_bps: int = 1000
     # fees (G6)
     max_fee_share_small: float = 0.02
     pool_min_monthly_revenue_usd: float = 50.0
@@ -182,6 +185,9 @@ class Policy:
     max_attest_unavailability: float = 0.01
     max_single_entity_weight_share: float = 0.25
     diverge_spread_multiplier: float = 3.0
+    max_mint10_refusal_prob: float = 0.01
+    min_bond_cap_years: float = 1.0
+    min_harm_capture_seats_share: float = 0.75
     pin_low_move_fraction: float = 0.05
     max_false_pin_prob: float = 0.01
     max_false_ejection_prob: float = 0.01

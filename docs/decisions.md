@@ -156,6 +156,18 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-ORA-6](#d-rd-ora-6-2026-10-04-oracle--halt-3-availability-read-on-the-real-history) | oracle (wave 2) | HALT-3 availability read on the real history |
 | [D-RD-ORA-7](#d-rd-ora-7-2026-10-04-oracle--globalratiohaltbps-is-owner-pinned-in-effect) | oracle (wave 2) | globalRatioHaltBps is owner-pinned in effect |
 | [D-RD-ORA-8](#d-rd-ora-8-2026-10-04-oracle--final-values-for-g1-g2-and-g7s-halts-and-how-they-were-tested) | oracle (wave 2) | final values for G1, G2 and G7's halts, and how they were tested |
+| [D-RD-ATT-1](#d-rd-att-1-2026-10-04-attestation--honest-pools-and-attestors-quote-what-the-shipped-agents-quote) | attestation (wave 2) | honest pools and attestors quote what the shipped agents quote |
+| [D-RD-ATT-2](#d-rd-att-2-2026-10-04-attestation--the-sample-agent-configs-must-ship-min_sources--2) | attestation (wave 2) | the sample agent configs must ship `min_sources = 2` |
+| [D-RD-ATT-3](#d-rd-att-3-2026-10-04-attestation--divergebpsattest-is-decided-on-pfast-vs-amint-not-on-venue-pairs) | attestation (wave 2) | `divergeBpsAttest` is decided on pFast vs aMint, not on venue pairs |
+| [D-RD-ATT-4](#d-rd-att-4-2026-10-04-attestation--bondmin-priced-at-the-reference-price-seat-splitting-capture-security-over-one-set-lifetime) | attestation (wave 2) | `bondMin` priced at the reference price; seat-splitting capture; security over one set lifetime |
+| [D-RD-ATT-5](#d-rd-att-5-2026-10-04-attestation--attestinterval-what-the-attestation-age-adds-to-mint-10) | attestation (wave 2) | `attestInterval`: what the attestation age adds to MINT-10 |
+| [D-RD-ATT-6](#d-rd-att-6-2026-10-04-attestation--the-real-pool-landscape-as-scenarios) | attestation (wave 2) | the real pool landscape as scenarios |
+| [D-RD-ATT-7](#d-rd-att-7-2026-10-04-attestation--npenalty-at-the-calm-steady-state) | attestation (wave 2) | `nPenalty` at the calm steady state |
+| [D-RD-ATT-8](#d-rd-att-8-2026-10-04-attestation--fees-under-the-owner-pinned-afee-1-the-attestor-floor-is-an-environment-limit) | attestation (wave 2) | fees under the owner-pinned AFEE-1: the attestor floor is an environment limit |
+| [D-RD-ATT-9](#d-rd-att-9-2026-10-04-attestation--attestor-capture-priced-in-money) | attestation (wave 2) | attestor capture priced in money |
+| [D-RD-ATT-10](#d-rd-att-10-2026-10-04-attestation--robustness-runs-and-the-final-g6g8-values) | attestation (wave 2) | robustness runs and the final G6/G8 values |
+| [D-RD-ATT-11](#d-rd-att-11-2026-10-04-attestation--qlowbps-stays-3333-griefing-resistance-is-not-bought-with-cheaper-theft) | attestation (wave 2) | `qLowBps` stays 3,333: griefing resistance is not bought with cheaper theft |
+| [D-RD-ATT-12](#d-rd-att-12-2026-10-04-attestation--devnet-attestor-dormancy-scenario) | attestation (wave 2) | devnet `attestor-dormancy` scenario |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -2260,3 +2272,200 @@ vault-cycle, identical on both lines. A run of the sharpest real one-day crash (
 **Not done (handed over).** G1 at the standard budget (one seed ran > 1 h on the shared machine and
 was stopped) and the standard robust matrix (36 runs): `.work/runs/robust-standard.sh` in this
 worktree, resumable.
+## D-RD-ATT-1 (2026-10-04, attestation) — honest pools and attestors quote what the shipped agents quote
+
+**Decision.** G6's REG-4 streams and G8's MINT-10 / PIN models price an honest pool's quote and an
+attestation as the shipped agents do: per venue a 15-minute window average, silence drop, a 10 %
+outlier filter around the median, fail closed below `min_sources`/`min_venues`, then the median of the
+kept venues (`ycash6 contrib/yellowback/yellowback_price.py` `PriceFeed.aggregate` lines 778-796;
+`contrib/yellowback/attest/src/price.rs` `PriceFeed::aggregate`). `ybcal.sim.feeds.agent_quotes` is
+parity-tested against the upstream Python agent (400 random cases, `tests/sim/test_feeds.py`). The
+venues come from `VenueReplay`: each venue's real log deviation from the CoinGecko aggregate, read row
+by row from the loaded spreads log at a random start per path. The WP-7d model — pool *i* reads venue
+*i* mod 3 alone — is kept as policy `pool_feed = "venue"` and as the single-venue overlay
+(`judge.venue_penalised.*`).
+**Reason.** The one-venue model turned the venues' disagreement (worst real pair p95 1,906 bps) into
+honest REG-4 deviation: honest p99 1,884 bps, calm p75 337 bps, 5.7 % false penalties, so
+`deviationBps`, `peerLag` and `nPenalty` were BLOCKED in rd2. The agent median sits on the aggregate
+(|agent − CoinGecko| p50 0–29 bps, p95 45–370 bps by year/window): honest p99 650–700 bps, calm p75
+54 bps, calm false penalties ≈ 0.
+**Consequence.** REG-4, PIN false pins and MINT-10 are now judged on the feeds the network will run.
+
+## D-RD-ATT-2 (2026-10-04, attestation) — the sample agent configs must ship `min_sources = 2`
+
+**Finding.** Both sample configs (`contrib/yellowback/pool/yellowback-quote.toml.sample:31`,
+`attest/attest.toml.sample:35`) set `min_sources = 3` with exactly three venues and `max_age = 3600`
+on SafeTrade and nonkyc. On the real venues (SafeTrade has no trade within an hour in 45 % of hours,
+`spreads-reconstructed-maxage1h.csv`) every agent fails closed on **53 %** of blocks — synchronously, so
+no pool writes a quote tag: FEE-0 on 22 % of mint heights and, through PRICE-1's fill rules, NO_PRICE
+halts (G1). Without the `max_age` guard the outlier filter alone fails 8.6 % of blocks (FEE-0 3.2 %).
+With `min_sources = 2` (`min_venues` 2 kept) the agent fails closed on 0.2–0.3 % of blocks.
+**Decision.** `policy/real-data-2026-10.toml` models the agents at `agent_min_sources = 2` and the
+report states the dependency: the agent sample configs must change (an agent-config change, no
+consensus change; outside this repository — owner action). `agent_min_sources = 3` is run as a
+sensitivity (`.work/robust-*` q-ms3).
+
+## D-RD-ATT-3 (2026-10-04, attestation) — `divergeBpsAttest` is decided on pFast vs aMint, not on venue pairs
+
+**Decision.** MINT-10 (`ycash6 src/yellowback/state.cpp:371-377`, W17) compares the pools' `pFast`
+(PRICE-1 lower median of quote tags over 96 blocks) with the bundle's `aMint` (qLow weighted quantile
+of m + k attestations). The rule is now: the smallest value, rounded up to 100 bps, at which MINT-10
+refuses at most `max_mint10_refusal_prob` (1 %) of honest calm mints, both sides built by the shipped
+agents on the real venue replay (`mint10_gaps`). The proposal's spreads.py rule (3 × the worst venue
+pair's p95 → 5,000 bps on the reconstructed log) is reported as `div.target_spreads`.
+**Reason.** Neither population reads one venue: the venue-pair spread measures a configuration no
+agent ships. What separates pFast from aMint on real data is pFast's lag (a two-hour median) — gap p99
+1,400–1,650 bps calm, 1,500–1,730 crash-70-1d, 1,600–1,870 pump-dump-3x. 5,000 bps would make MINT-10
+inert; 1,500 refuses 0.9–1.3 % of honest calm mints. Theft is not at stake either way: pMint =
+min(xMint, aMint), so a wide band only over-collateralises.
+**Consequence.** `divergeBpsAttest` KEEP 1,500 (see D-RD-ATT-10 for windows and models).
+An attestor set mis-configured on one venue raises calm refusals to 2.5–6 %.
+
+## D-RD-ATT-4 (2026-10-04, attestation) — `bondMin` priced at the reference price; seat-splitting capture; security over one set lifetime
+
+**Decision.** (1) Bug: the WP-7c code priced the bond at the *first* row of the loaded history
+(2020-03, $0.075) and took the worst price of the whole 6.5-year history; it now uses the reference
+price (the last real price, as G6) and one-year paths from it. rd2's "60,000 YEC" came from that bug.
+(2) The cheapest capture is many seats of just over `bondMin`, not one heavy seat: with 9 seats and
+m + k = 6, an adversary moves aMint up 10 % with P ≥ ½ from 7 seats (exact W9 selection + bundle
+kernels, `seats_to_capture`) and down from 2. (3) `bondMin` is a verify family: security — the harmful
+capture capital (7 × bondMin) covers `min_bond_cap_years` (1.0) of MINT-6 cap growth (supplyCapBps ×
+subsidy since startHeight = 98,500 YEC/yr; both in YEC, so the test does not move with the price) —
+and affordability — opportunity cost ≤ `attestor_min_monthly_revenue_usd` at the reference price.
+**Reason.** A YEC-denominated bond's USD value is unknowable a year out (one-year p10–p90 of a
+20,000 YEC bond: $730–$57,800 on the real bootstrap), but so is the cap's USD headroom: the ratio of
+the two is price-free. One year is one parameter-set lifetime (`enforceUntilHeight` = start +
+420,480): the successor set re-tunes the bond with observed attestor revenue.
+**Frontier** (standard, $0.36): 15k YEC ratio 1.07, opp. $23/mo; **20k ratio 1.42, $30/mo**, harm
+capital $50.5k, grief $21.7k; 25k 1.78, $38; 30k 2.13, $45; 35k 2.49, $53 (over the $50 floor).
+Attestor revenue at feeBps 15 and low adoption is $40/seat/month: 20k is the largest round bond the
+revenue covers. **KEEP 20,000 YEC.**
+**Residual.** Harmful capture costs ≈ $50k of YEC bonds aged 180 days (`ageCap`) *plus* a colluding
+pool majority (pMint = min) — and one real pool already mines 52 %. The attestors are the guard against
+that pool; at YEC's market cap (~$5 M) $50k is affordable to a determined attacker. A renewal set
+should raise the bond as adoption (and attestor revenue) grows.
+
+## D-RD-ATT-5 (2026-10-04, attestation) — `attestInterval`: what the attestation age adds to MINT-10
+
+**Decision.** The staleness constraint is now the MINT-10 refusal the attestations' *age* adds:
+refusals with ages U{1..k} minus refusals with one-block-old attestations ≤ `max_mint10_refusal_prob`.
+**Reason.** The closed form (2.326·σ·√maxAge at the hourly σ 440 %/yr) forced k 10 → 5 in rd2; a
+direct "refusals at k ≤ 1 %" test then sat on a knife edge (1.15–1.25 % at standard) and preferred
+*older* attestations (k 20–30), because pFast lags the market and older attestations are closer to it.
+Both would have moved the locked `attestMaxAge` (= 2k, D-3). Neither is k's doing.
+**Consequence.** `attestInterval` KEEP 10 (`attestMaxAge` 20 untouched). Node/agent cost of k = 5 had it
+been chosen: 1.8 attestations relayed per block for 9 seats (budget 2.0) — cheap, but not needed.
+
+## D-RD-ATT-6 (2026-10-04, attestation) — the real pool landscape as scenarios
+
+**Decision.** New scenarios (`scenarios/rogue-major-pool.toml`, `major-pool-offline.toml`,
+`venue-pool.toml`) driven in G6's judgement streams through the schedules `attacker_share` /
+`attacker_bias_bps`, `offline_pool_share` and `venue_pool_share` (+ `constants.venue_pool_source`);
+reported as `adv.*` metrics, never part of the honest p99.
+**Findings (REG-4, `state.cpp:910-936`).** With the 52 % pool quoting +15 %, the peers' lower median is
+its own quote in most windows: at `deviationBps` 1,000 the *honest* pools are penalised on ~40 % of
+their tags and the liar on ~42 %; at 1,400 honest 0.04 %, liar 22 %; from ~1,550 neither (honest
+deviation from the liar's median 1,304 bps, the liar's from the honest 1,500). +5 % is invisible to
+REG-4 at any sane value. REG-4's penalty only steers the wallet's payee choice (`Penalized` →
+`DefaultPayee`, `state.cpp:999-1011, 1029-1046`), so a majority liar costs honest pools fee income,
+not consensus; the price protection against it is the attestors' min (PRICE-2) — design note.
+The 52 % pool offline: peers stay sufficient at peerMin ≤ 12 only while the remaining pools tag; the
+remaining enforcing share is then below `participationFloor`, so minting halts first.
+A SafeTrade-only pool is penalised on 2–7 % of tags at 1,000–1,600 bps and is out of the accuracy band
+most of the time: REG-4 notices it without the honest pools paying.
+
+## D-RD-ATT-7 (2026-10-04, attestation) — `nPenalty` at the calm steady state
+
+**Decision.** `pen.honest_excluded` (the share of time an honest pool is excluded from FEE-W) uses the
+calm false-penalty rate; the stale-pools worst case is reported as `pen.honest_excluded_stress`
+(16–18 % at 288). Below a tenth of `max_honest_exclusion` it counts as zero (noise).
+**Reason.** rd2 used the stale-pools scenario (30 % of the hash an hour late for 85 days) as the steady
+state; with the agent feeds the calm rate is ≈ 0 and relative "improvements" of 0.16 % → 0.11 % of the
+time moved the wallet default.
+
+## D-RD-ATT-8 (2026-10-04, attestation) — fees under the owner-pinned AFEE-1: the attestor floor is an environment limit
+
+**Decision.** `attestFeeBps` stays 2,500 (D-3, owner-pinned): the fee grid is searched with it fixed;
+the free optimum is evidence in the notes. At the policy adoption case no `feeBps` meets both the
+minMint fee-share cap (2 %) and the $50/seat/month attestor floor (feeBps 15: share 1.69 %, attestor
+$40; 20: 2.25 %, $54). The attestor floor is treated as environment-limited (D-RD-INF-3 shape,
+note G6-ENV-1): keep the user-protecting cap, pay attestors the most it allows → **feeBps 25 → 15**.
+**Frontier** (standard, low / mid / high adoption, per pool and per seat per month; round-trip share
+of a minMint class-A vault, ARMED): 10 bps 1.12 %, pools $455 / $2,274 / $11,370, seats $27 / $135 /
+$673; **15 bps 1.69 %, $681 / $3,406 / $17,032, $40 / $202 / $1,008**; 20 bps 2.25 %, $908 / $4,539 /
+$22,697, $54 / $269 / $1,343; 25 bps 2.81 %, $1,135 / $5,673 / $28,364, $67 / $336 / $1,678.
+**Owner choice.** The floor ($50) is a placeholder; the economic bound is the bond's opportunity
+cost ($30/month at 20,000 YEC and $0.36), which 15 bps clears. If the owner prefers the floor over the
+cap, 20 bps meets it at a 2.25 % round trip. Evidence on D-3: with AFEE free the grid's best point
+does not need more than 25 % at 15 bps — the binding quantity is adoption, not the share.
+
+## D-RD-ATT-9 (2026-10-04, attestation) — attestor capture priced in money
+
+**Decision.** `scenarios/attestor-capture-capital.toml` (capital levels $10k–$500k at the reference
+price, best split over ≤ 6 seats ≥ bondMin, nine honest minimum seats); G8 reports `capcap.<usd>.harm`
+/ `.grief` at the current set.
+**Finding** (20,000 YEC, $0.36): $25k → griefing in 95 % of bundles, no theft; **$50k → aMint up 10 %
+in 80 % of bundles** (6–7 seats); ≥ $100k → every bundle. Theft additionally needs xMint pushed up.
+
+## D-RD-ATT-10 (2026-10-04, attestation) — robustness runs and the final G6/G8 values
+
+**Runs** (`.work/runs/robust.sh`, `ybcal robust --groups G6,G8 --max-rounds 1`, agents at
+`min_sources = 2`): A standard × 3 seeds, full history, bootstrap, `spreads-reconstructed-maxage1h.csv`
+(`.work/robust-std`); B quick × windows {full, last365, 2021-22, 2025-26} × models {bootstrap, regime,
+martingale} (`.work/robust-wm`, 12 runs); C quick × 2 seeds on the un-guarded reconstruction
+(`.work/robust-nomaxage`); D quick × 2 seeds on the live `spreads.py` log as of 2026-10-04 09:34 UTC
+(54 rows, `.work/robust-live`). `martingale` (policy `price_drift`) does not change G6/G8's demeaned
+bootstrap: those runs equal bootstrap.
+**Final values** (verdict, where they agree):
+
+| Param | Current → final | Evidence |
+|---|---|---|
+| `peerMin` | 5 → **12** | 17/17 runs (largest value with P(not evaluated) ≤ 5 % at the expected share and at the participation floor) |
+| `deviationBps` | 1,000 → **1,700** | consolidated value feasible in 12/12 (B) and 3/3 (A); modal 1,400–1,600, window-sensitive (2021-22 needs 1,700): the binding case is a pool quoting an hour late (≤ 1 % of its tags); 20 % liars caught ≥ 99.9 %, 10 % liars no longer |
+| `accuracyBandBps` | 300 → **100** | rule target in 17/17 (honest calm p75 54–57 bps with the agent feeds); wallet weighting only |
+| `payeeWindow` | 100 → **200** | standard: FEE-0 0.16–0.28 % at 100 vs 0.1 % budget (synchronised agent fail-closed and pool outages); 200 feasible 3/3; quick runs keep 100 |
+| `feeMin` | 0.5 → **0.2 YEC** | 17/17; the minMint edge-redeem test at `worst_price_usd` — conditional on G3's `baseRatioBps[0]` (rd2's joint set kept 0.5) |
+| `feeBps` | 25 → **15** | environment limit G6-ENV-1 (D-RD-ATT-8), 17/17 |
+| `attestFeeBps` | 2,500 KEEP | owner-pinned D-3 |
+| `nPenalty` | 288 KEEP | consolidated 3/3; 192 differs by 0.05 % of the time (excluded wallet default) |
+| `nReg`, `peerLag`, `accuracyWindow`, `payeeTiltBps` | KEEP | 17/17 |
+| `divergeBpsAttest` | 1,500 KEEP | standard target 1,600–1,700 (within materiality); windows: last365 / 2021-22 bootstrap 2,100 (honest calm refusals at 1,500: 2.1–2.2 %), regime 900–1,100 (0.1–0.2 %); hourly bootstrap overstates sub-hour noise; a refusal delays a mint, never mis-prices it |
+| `dormancyMinBundles` | 20 → **15** | consolidated 3/3 (rule's 12 also feasible; 15 is the smaller change) |
+| `attestInterval` | 10 KEEP | age adds no refusals (−0.4 to 0 pp) in 17/17 |
+| `qLowBps` | 3,333 KEEP | 17/17 (D-RD-ATT-11) |
+| `bondMin` | 20,000 YEC KEEP | 17/17 (D-RD-ATT-4) |
+| all other G8 fields | KEEP | 17/17; `emergencyPersist` PROVISIONAL (synthetic scenarios) |
+
+**Live vs reconstructed spreads (D-RD-D3 bias).** 54 live rows (4.4 h): pair p50 cg–st 188, cg–nk 86,
+st–nk 282 bps vs the reconstruction's last 7 days 231 / 67 / 380; live worst-pair p95 383 bps vs 1,142
+(7 d) / 1,906 (365 d) reconstructed. The candle-close reconstruction plausibly inflates the tail 3–5×,
+but 4.4 quiet hours cannot measure a p95. None of the final values depends on venue-pair tails any
+more: the agents' median sits on the aggregate (|agent − CoinGecko| = 0 on every live row).
+
+## D-RD-ATT-11 (2026-10-04, attestation) — `qLowBps` stays 3,333: griefing resistance is not bought with cheaper theft
+
+**Decision.** The qLow family's constraints are theft-side: a 25 % single entity cannot move aMint up,
+and a seat-splitting adversary needs ≥ `min_harm_capture_seats_share` (0.75) of the seats to move aMint
+up with P ≥ ½. The proposal §7.2 griefing rule (a 25 % entity spans qLow) is reported.
+**Reason.** Exact kernels: at qLow 3,333 theft needs 7 of 9 seats (P 0.61; 6 seats 0.22); at **any
+qLow above one third** (3,350 … 3,500) 6 seats steal with P 0.77. rd2's 3,500 removed the 25 % entity's
+griefing (0.91 → 0) at the price of making theft one seat (≈ $7k of YEC) cheaper. No qLow meets both;
+griefing only over-collateralises new mints.
+
+## D-RD-ATT-12 (2026-10-04, attestation) — devnet `attestor-dormancy` scenario
+
+**Decision.** `ybcal.devnet.scenarios` gains `attestor-dormancy`: seats arm, node 0 mints every k + 2
+blocks, seat 0 is dark for `dormancyBlocks + 4·dormancyCheck` blocks. `attestor-outage-1` stops a seat
+for a third of two slow windows — shorter than the scaled mainnet `dormancyBlocks` (512) — so DORMANT
+was never reached at mainnet timing.
+**Result.** The final G6/G8 set (`docs/attest-wave2/recommended-g6g8.json`: mainnet + peerMin 12,
+deviationBps 1,700, accuracyBandBps 100, payeeWindow 200, feeMin 0.2 YEC, feeBps 15,
+dormancyMinBundles 15), scaled ×31.5 with terms ×1,440, overlay-built at ycash6 `7702d22` and ycash-dd
+`f78a5f8`: the full suite **VALIDATED on both lines, 9/9 scenarios** — calm 423, crash-70 426,
+hashrate-drop 487, attestor-outage-1 411 (22 bundles), oracle-attack-34 395, feed-outage 450,
+vault-cycle 601 (3 vaults, 990 claimable rows), pin 355 (14 / 16 bundles), attestor-dormancy 815 heights
+(89 bundles) — node and simulator equal block by block. In attestor-dormancy seat 0 never signs again
+after its outage (DORMANT is final until REV-1); in attestor-outage-1 it returns. Counts are scaled by
+the tool's floors (`dormancyMinBundles` 15 → 2 at regtest scale), so the devnet confirms the rules'
+timing and arithmetic at the scaled set, not the mainnet count itself. Reports:
+`.work/devnet/validate3-{y6,dd}.json` in this worktree.
