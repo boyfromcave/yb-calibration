@@ -148,6 +148,12 @@ def configure_run(p: argparse.ArgumentParser) -> None:
         "--keep", action="store_true", help="keep the node datadirs (default: wiped after the scrape)"
     )
     p.add_argument(
+        "--node-arg",
+        action="append",
+        default=[],
+        help="extra ycash.conf line for every node, e.g. debug=mempool (repeatable)",
+    )
+    p.add_argument(
         "--launcher",
         action="store_true",
         help="drive contrib/yellowback/devnet/yellowback-devnet (attestor seats) instead of the "
@@ -379,6 +385,7 @@ def cli_run(args: argparse.Namespace) -> int:
         jitter_bps=args.jitter_bps,
         allow_version_skew=args.allow_version_skew,
         keep=args.keep,
+        node_args=args.node_arg,
         launcher_worktree=launcher_wt,
     )
     if isinstance(res, Skipped):

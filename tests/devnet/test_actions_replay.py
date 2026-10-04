@@ -214,3 +214,10 @@ def test_miner_plan_carries_shares_across_one_block_steps():
     got = [m for _ in range(100) for m in plan.miners(ReplayStep(1_000_000, 1, pool_weights=(34, 33, 33)))]
     assert Counter(got) == {0: 34, 1: 33, 2: 33}
     assert MinerPlan(3, False).miners(ReplayStep(1_000_000, 6)) == [0, 1, 2, 0, 1, 2]
+
+
+def test_default_run_dirs_never_collide(tmp_path, monkeypatch):
+    from ybcal.devnet.runner import default_run_dir
+
+    monkeypatch.setenv("YBCAL_WORK", str(tmp_path))
+    assert len({default_run_dir("calm") for _ in range(50)}) == 50

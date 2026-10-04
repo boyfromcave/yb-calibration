@@ -533,8 +533,9 @@ class BuildStep:
 
 #: 6.20.0 needs the cxx bridge headers before any target-only make (doc/yellowback-devnet.md §0).
 CXXBRIDGE_CMD = (
+    "if grep -q '^CXXBRIDGE_H = ' src/Makefile.am; then "  # v4.5.0 (ycash-dd) has no cxx bridge
     "awk '/^CXXBRIDGE_H = /{f=1;next} f&&/^ *rust\\/gen/{gsub(/[ \\\\]/,\"\");print;next} f{exit}' "
-    "src/Makefile.am | xargs make -C src -j{jobs}"
+    "src/Makefile.am | xargs make -C src -j{jobs}; fi"
 )
 
 

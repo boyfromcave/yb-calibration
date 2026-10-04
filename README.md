@@ -45,8 +45,10 @@ registry entries in about 10 minutes on 4 cores (milestone M5).
 
 Two milestones need the owner's machine:
 
-- **M6, devnet validation**: the simulator has not yet been run against real nodes; this sandbox
-  cannot build `ycashd` and the only CI binary predates the pin. See [docs/devnet.md](docs/devnet.md).
+- **M6, devnet validation**: done 2026-10-03. The differential suite (8 scenarios, incl. vaults,
+  claims, attestation and PIN) passes block for block on ycash6 (pin `7702d22`) and ycash-dd, with
+  the shipped regtest column and the scaled shipped mainnet set. See
+  [docs/devnet.md §7](docs/devnet.md#7-validation-results-2026-10-m6) and D-RD-DEV-1..7.
 - **M7, real data**: until real YEC prices and exchange spreads are supplied, every price-driven
   verdict is **PROVISIONAL** and the lock-readiness checklist fails by design. See
   [Real-data workflow](#real-data-workflow).

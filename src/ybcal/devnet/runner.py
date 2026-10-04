@@ -770,8 +770,9 @@ def mint_txinfo(client: Any, vaults: Sequence[dict[str, Any]]) -> dict[str, Any]
 
 
 def default_run_dir(name: str) -> Path:
-    """``.work/devnet/<name>-<timestamp>``."""
-    return work_dir() / "devnet" / f"{name}-{time.strftime('%Y%m%d-%H%M%S')}"
+    """``.work/devnet/<name>-<timestamp>-<6 hex>``: two suites started in the same second (one per
+    node line) once collided on the timestamp alone and wrote into each other's datadirs."""
+    return work_dir() / "devnet" / f"{name}-{time.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
 
 
 def run_devnet(
@@ -789,6 +790,7 @@ def run_devnet(
     jitter_bps: int = 10,
     allow_version_skew: bool = False,
     keep: bool = False,
+    node_args: Sequence[str] = (),
     launcher_worktree: Path | None = None,
     devnet_factory: Callable[[DevnetConfig], Any] | None = None,
 ) -> RunResult | Skipped:
@@ -841,6 +843,7 @@ def run_devnet(
             port_base=port_base if port_base is not None else default_port_base(),
             n_pools=n_pools,
             dark_miner="dark_miner" in schedule.needs,
+            extra_args=list(node_args),
         )
         net = (devnet_factory or MinimalDevnet)(cfg)
     restore = _sigterm_raises()

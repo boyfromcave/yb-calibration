@@ -216,4 +216,8 @@ def test_cli_build_dry_run_with_clone(env: Path, capsys: pytest.CaptureFixture[s
     )
     doc = json.loads(capsys.readouterr().out)
     assert doc["compiled"] == {"deviationBps": 1500} and "+    r.deviationBps = 1500;" in doc["patch"]
-    assert doc["steps"][0].startswith("./zcutil/build.sh")
+    if doc["reuse"]:  # a built clone: borrow its depends and cargo target (D-RD-DEV-1)
+        assert " -cpR " in doc["steps"][0] or " -a " in doc["steps"][0]
+        assert "./autogen.sh" in doc["steps"]
+    else:
+        assert doc["steps"][0].startswith("./zcutil/build.sh")

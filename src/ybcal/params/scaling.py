@@ -379,8 +379,8 @@ def scale_to_regtest(
         )
     if int(src["attestArmMin"]) > 3:
         notes.append(
-            f"attestArmMin = {src['attestArmMin']} (not scaled): a devnet with fewer attestors never "
-            "arms; override -yellowbackattestarmmin for attestation runs"
+            f"attestArmMin = {src['attestArmMin']} (not scaled): the devnet attestation scenarios "
+            "register max(3, attestArmMin) emulated seats so the layer arms (D-RD-DEV-4)"
         )
 
     res = mainnet.replace(out)  # derived values (min-fills, qHigh, attestMaxAge, 8,760 …) recomputed

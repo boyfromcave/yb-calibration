@@ -56,11 +56,10 @@ definition of done for the request (M5 + documentation) is met.
 
 ### What remains
 
-- **M6 — devnet live run.** The devnet layer is complete but has never run against a node: this
-  sandbox cannot build `ycashd` (depends hosts blocked), and the only prebuilt binary (CI run
-  37081639884) is from `94bafa4`, eight commits before the pin (W20 soft cap missing, mainnet
-  `abandonBlocks` 4,032). On a networked machine: `ybcal devnet build --ycash6 PATH` then
-  `ybcal devnet validate` (see `docs/devnet.md`).
+- **M6 — devnet live run.** Done 2026-10-03: `ybcal devnet validate` VALIDATED on ycash6 and
+  ycash-dd, shipped regtest column and scaled mainnet set (`docs/devnet.md` §7). Remaining
+  limitations (wallet timing, ARMED claimability, abandonment/notices) in D-RD-DEV-7. The final
+  recommended set still needs its own run: `ybcal devnet build/validate --overlay reports/<run>/`.
 - **M7 — real data.** Fetch ≥ 1 year of hourly YEC/USD and ≥ 2 weeks of `spreads.py` logs on a
   networked machine (`data/README.md`), set `yec_daily_volume_p10_usd`, confirm the policy
   placeholders (`docs/policy.md`), then `ybcal recommend --budget standard` (or `deep`). Until then

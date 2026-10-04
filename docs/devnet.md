@@ -67,17 +67,24 @@ A build runs these steps:
    must already be in your clone; ybcal never fetches.
 3. **Overlay patch.** It writes the overlay's compiled values into `RegtestParams()` in
    `src/yellowback/params.cpp`, inside the worktree only (§3).
-4. **Build.** The first build runs `./zcutil/build.sh -j N` (depends, configure and a full build:
-   35–60 min cold). After that it generates the cxx bridge headers, then runs
-   `make -C src -j N ycashd ycash-cli` (about 2 min incremental), as `doc/yellowback-devnet.md` §0
-   describes.
+4. **Build.** When the clone you pass already has a built `depends/<triple>` and a cargo `target/`
+   (any clone you have built once), the worktree borrows them: the depends prefix is symlinked
+   (read-only use), the cargo target is cloned copy-on-write (`cp -cpR`; nothing is written into
+   your clone), then `autogen.sh` and `configure` against the borrowed `config.site`. The first
+   build of a worktree then takes about 4 minutes (cargo recompiles once because the vendored crate
+   paths differ); every later overlay build is a `params.cpp` recompile and relink, about 10 s to
+   2 min. `--no-reuse` (or a clone without a built depends) falls back to `./zcutil/build.sh -j N`
+   (35–60 min cold). The cxx bridge headers are generated where `src/Makefile.am` has them (ycash6;
+   v4.5.0 has none), then `make -C src -j N ycashd ycash-cli`. Every step runs with GNU
+   libtool/coreutils first in `PATH` (Homebrew), `LIBTOOLIZE=glibtoolize` when needed and
+   `CARGO_TARGET_DIR=<worktree>/target` (a shell-profile shared target would break the link).
+   `--ycash6` may name a ycash-dd clone with `--ref HEAD`: the same patch and build work on v4.5.0.
 5. **Cache.** It copies the binaries to `.work/bin/<key>/` with a `manifest.json` (commit, compiled
    values, patch). `key` is `stock-<commit12>` for the stock column, or `ov-<sha16>` of the
    compiled values. The six runtime flags are not part of the key, so varying them never rebuilds.
    `--force` rebuilds.
 
-On macOS, put GNU `libtool`/`coreutils` first in `PATH`, as the ycash6 devnet guide shows. Logs go
-to `.work/logs/build-<key>-<time>.log`.
+Logs go to `.work/logs/build-<key>-<time>.log`.
 
 ---
 
@@ -117,6 +124,12 @@ A run works through these stages:
 
 Other options:
 - `--portseed` (default 101) and `--pools 1-3` choose the ports and the number of pools.
+- `--port-base B` (or `$YBCAL_DEVNET_PORT_BASE`) keeps every port of the devnet in `B … B+999`:
+  port seed `s` (0–40) takes p2p `B+24s+n` and RPC `B+24s+12+n`. Busy ports are refused before any
+  node starts. On a shared machine use your reserved band (this workspace: `41000`).
+- `--node-arg LINE` adds a `ycash.conf` line to every node (e.g. `debug=mempool`).
+- `--keep` keeps the datadirs (`debug.log` for a post-mortem); a failed run still writes
+  `scrape-partial/`.
 - `--launcher` drives `contrib/yellowback/devnet/yellowback-devnet up --no-viz` from a worktree
   instead. That gives you the attestor seats with real `yellowback-attest` agents, which
   `attestor-outage-1` needs. The launcher hard-codes `-yellowbackstartheight=1
@@ -125,18 +138,31 @@ Other options:
 
 ### Built-in scenarios (regtest scale, deterministic in `--seed`)
 
-| Scenario | Program | Needs |
+Miners follow one smooth weighted round robin across the whole schedule (`MinerPlan`), so
+`pool_weights` and `signal_share_bps` hold even when every step is one block (D-RD-DEV-2).
+
+| Scenario | Program | Exercises |
 |---|---|---|
-| `calm` | random walk ±0.5 %/block for 3 slow windows | — |
-| `crash-70` | a calm slow window, then a linear fall to 30 % over one fast window, then 2 slow windows | — |
-| `hashrate-drop` | signalling share 80 % → 45 % for two signal windows → 80 % | dark miner (automatic) |
-| `attestor-outage-1` | one attestor's agent stopped for the middle third | `--launcher` + `yellowback-attest` |
-| `oracle-attack-34` | a pool holding 34 % of the tagged blocks quotes +25 % for two mid windows | — |
+| `calm` | random walk ±0.5 %/block for 3 slow windows | PRICE-1/2, activation, NO_PRICE warm-up |
+| `crash-70` | a calm slow window, a linear fall to 30 % over one fast window, 2 slow windows | HALT-3 divergence; σ with `{"sigmaRefBps": 100000}` |
+| `hashrate-drop` | signalling share 80 % → 45 % for two signal windows → 80 % (dark miner) | PARTICIPATION, ENFORCEMENT halts; abandonment at small `abandonBlocks` |
+| `attestor-outage-1` | `max(3, attestArmMin)` seats arm the layer; node 0 mints every `attestInterval + 2` blocks; seat 0's agent stopped for the middle third | ARM-1/2, seating, selection, BUNDLE-1, MINT-9/10, AFEE-1, dormancy |
+| `oracle-attack-34` | a pool with 34 % of the tagged blocks quotes +25 % for two mid windows | median robustness |
+| `feed-outage` | every feed dark for 1.5 mid windows (signal-only tags), resuming 8 % lower | NO_PRICE from staleness, recovery |
+| `vault-cycle` | mint A/B/C at the class minimum locks, YED to a liquidator, redeem A, crash to 20 %, a mint into the halt, claim what is claimable, C left claimable | MINT-2..8, wallet collateral, RED-1..5, HALT-2, claim timing |
+| `pin` | seats + mints every `attestInterval`; pool 1's feed frozen through a 15 % climb, then a seat's agent frozen through another | PIN-1 keys, PIN-2 seqs |
 
-At the shipped regtest windows a scenario is 359–487 blocks (bootstrap included), about 12–17 minutes at
-~2 s a block.
+The attestor seats are emulated (D-RD-DEV-4): each pool node registers seats with
+`yed_registerattestor` and, every `attestInterval` cited heights (`cited = tip − REF_LAG`, phase
+= seq), signs the step's price with `yed_signattestation` and hands it to every node with
+`yed_addattestation` — the job of `yellowback-attest attest` (`contrib/yellowback/attest/src/attest.rs`).
+`--launcher` (real agents) remains for runs where the launcher's ports are acceptable.
 
----
+Wallet actions (`ReplayStep.actions`, run by `ybcal.devnet.actions.WalletDriver`): `mint`, `send`,
+`redeem`, `claim`, `claim_all`, `register`, `freeze`. Before every block the driver pushes each
+transaction any node holds into the miner's mempool (p2p relay is seconds and once dropped a
+carrier); after every block it waits for each two-step completion (the transaction spending the
+carrier's output 0 as its last input) using the chain's view (`gettxout`), not the wallet's.
 
 ## 3. Overlays and time scaling
 
@@ -291,6 +317,11 @@ those runs.
   `scrape.json` (range and errors). A node without `yed_listattestors` is recorded as an error,
   not a failure.
 
+- `actions.json` (runs with wallet actions): the driver's events (each action with its RPC result
+  or error, each two-step completion), per-block vault rows (`status`, `claimable`), per-block
+  attestor rows (seq `status`, `pinned`), the layer status and `yed_getprice` pinned keys/seqs per
+  block, every seat and signature, and `yed_gettxinfo` of every MINT and closing transaction.
+
 `ybcal.devnet.scrape.load_history_csv` reads `history.csv` back into typed records.
 
 ---
@@ -298,7 +329,7 @@ those runs.
 ## 6. The differential suite
 
 ```bash
-ybcal devnet validate                       # all five scenarios
+ybcal devnet validate                       # all eight scenarios
 ybcal devnet validate --scenario calm --scenario crash-70 --overlay o.json --out suite.json
 ```
 
@@ -312,6 +343,22 @@ Vault rows can be compared with `key="vault"`. The pass criterion is exact equal
 state, with an allowlist (`"field"`, `"field@h"`, `"field@lo-hi"`) only for behaviour the
 simulator does not model. Each field reports its first mismatching height and its counts.
 
+For a run with wallet actions the comparison also replays the node's *transactions* through the
+simulator's rule layer (`ybcal.devnet.vaultreplay`, `ybcal.devnet.attestreplay`): each MINT and
+spend at its node height and refHeight, the seats' registrations and signatures, the block hashes.
+The simulator re-derives everything the rules decide from them and the suite compares:
+
+- vault rows (`status`, `voidReason`, `feePaidZat`, `closeHeight`, `burnedCents`, …, key `vault`);
+- per height and vault, `status` and `claimable` as `yed_listvaults` reports them (unarmed heights);
+- the wallet's collateral against `wallet_collateral_int` at R (ARMED: at `min(xMint, aMint)`);
+- every mint the wallet refused must be refused by the simulator's verdict at the same R;
+- the layer status (UNARMED/TRIGGERED/ARMED), each seq's status and `pinned`, PIN-1 pinned keys,
+  and each MINT's bundle statistic `aMint` and seqs (`yed_gettxinfo`).
+
+`ybcal devnet diff RUN_DIR` repeats the whole comparison for a kept run (no node needed) and writes
+`RUN_DIR/diff.json` with the mismatching rows. `ybcal devnet validate --parallel N` runs N scenario
+devnets at once on consecutive port seeds.
+
 Each scenario ends in one status:
 - `pending WP-3..5` only if `ybcal.sim.engine.simulate_devnet` cannot be imported (it exists since
   WP-3, D-WP3-7; the contract is in D-WP9-5);
@@ -323,7 +370,108 @@ The suite report goes to `.work/devnet/validate-<time>.json`. Only an all-pass s
 
 ---
 
-## 7. Troubleshooting
+## 7. Validation results 2026-10 (M6)
+
+Run 2026-10-03 on the owner's machine (arm64 macOS, 10 cores), ports 41000–41999, by the devnet
+agent. Every row is an exact block-by-block comparison (D-WP9-5) with no allowlist; "vaults",
+"claimable" and "attest" are the extra parts of §6 for scenarios with wallet actions. Reports:
+`.work/devnet/validate-{y6,dd,ov-y6,ov-dd}.json` in the `ybcal/devnet` worktree.
+
+**Binaries (D-RD-DEV-6).** ycash6: built by `ybcal devnet build` at the pin, `v6.21.0-rc1-7702d2260`
+(the workspace's `ycash6/src/ycashd` is a `94bafa4` build that predates W19–W21 and was not used for
+the record). ycash-dd: `ycash-dd/src/ycashd` (`v4.5.0-cdfc4945f-dirty`, pre-W20) for the shipped
+regtest column under `--allow-version-skew`; for the overlay a binary built from ycash-dd `HEAD`
+(`f78a5f8`) with the same patch.
+
+**Parameter sets.** *Regtest*: the shipped regtest column (runtime flags at their regtest defaults).
+*Scaled mainnet*: the shipped mainnet set scaled by `ybcal.params.scaling` (factor 31.5, terms
+`--term-factor 1440`; 33 compiled values patched into `RegtestParams()`, flags
+`-yellowbacksigmaref=10000 -yellowbacksupplycapbps=1500 -yellowbackattestarmmin=5`).
+
+| Scenario | ycash6, regtest | ycash-dd, regtest | ycash6, scaled mainnet | ycash-dd, scaled mainnet |
+|---|---|---|---|---|
+| calm | PASS 423 | PASS 423 | PASS 423 | PASS 423 |
+| crash-70 | PASS 431 | PASS 431 | PASS 426 | PASS 426 |
+| crash-70, `sigmaRefBps` 100000 | PASS 431 (43 σ multipliers) | PASS 431 (43) | — | — |
+| hashrate-drop | PASS 487 | PASS 487 | PASS 487 | PASS 487 |
+| attestor-outage-1 | PASS 379; 22 vaults, 22 bundles | PASS 379; 22, 22 | PASS 411; 22, 22 | PASS 411; 22, 22 |
+| oracle-attack-34 | PASS 407 | PASS 407 | PASS 395 | PASS 395 |
+| feed-outage | PASS 459 | PASS 459 | PASS 450 | PASS 450 |
+| vault-cycle | PASS 453; 3 vaults, 546 claimable rows | PASS 453; 3, 546 | PASS 601; 3, 990 | PASS 601; 3, 990 |
+| pin | PASS 379; 21 vaults, 21 bundles | PASS 379; 30, 30 | PASS 355; 17, 17 | PASS 355; 13, 13 |
+| **suite** | **VALIDATED** | **VALIDATED** | **VALIDATED** | **VALIDATED** |
+
+Numbers are blocks compared × 13 per-height fields (prices, σ multiplier, halt mask, activation,
+signal count, issued, supply, collateral, global ratio), then vault rows and bundles compared.
+
+**What the runs exercised** (node-side, identical in the simulator): NOT_ACTIVE and NO_PRICE
+warm-up; HALT-3 divergence for 32–33 blocks after the crash; PARTICIPATION (147 blocks) and
+ENFORCEMENT (101) under the hashrate drop; NO_PRICE from staleness for ~74 blocks in the feed outage;
+HALT-2 global ratio for 120 (regtest) / 296 (scaled) blocks after the vault-cycle crash; σ with 43
+distinct multipliers; ARM-1/2 with 3 or 5 seats; DORMANT for the stopped seat (regtest
+`dormancyBlocks` 16; the scaled 512 is longer than the scenario); PIN-1 pinning pool 1's payout key
+for 16 (regtest) / 9 (scaled) heights and PIN-2 pinning the frozen seat for 11–16 / 2–9 heights;
+MINT-2..10 with and without bundles, RED owner and claim paths, a wallet refusal into HALT-3
+(simulator verdict `mint-halted-divergence` as well), and per-height claimability of every vault.
+The oracle attacker (34 % of tagged blocks at +25 %) moved no median and tripped no halt.
+
+**Divergences found and resolved.**
+
+| # | Where | Divergence | Resolution |
+|---|---|---|---|
+| 1 | harness | start-up hung: index reports `height: -1` at genesis | `index_reached` accepts heights below `startHeight` (D-RD-DEV-1) |
+| 2 | harness | ports outside the shared band; TIME_WAIT counted as busy | `--port-base`, SO_REUSEADDR bind test (D-RD-DEV-1) |
+| 3 | harness | carriers dropped from the next block (p2p trickle) and two-step completions fired blocks late (wallet lag) | mempool push before each block; completion detected on `gettxout` and matched on the carrier outpoint (D-RD-DEV-3) |
+| 4 | harness / scenarios | every one-block step mined by pool 0 (no pool mix, no dark share) | `MinerPlan` across the schedule (D-RD-DEV-2) |
+| 5 | harness | concurrent suites shared run directories | random run-dir suffix |
+| 6 | simulator | attestation frame one block behind the engine (`height0` 0): a bundle in the last block "no snapshot" | `BlockSeries.height0` (D-RD-DEV-5) |
+| 7 | simulator | DORMANT recorded one block late in `attestor_status` | recorded post-SNAP (D-RD-DEV-5) |
+| 8 | replay model | wallet collateral under ARMED priced at xMint | MINT-5 at `min(xMint, aMint)` in the vault replay |
+
+No divergence remains. Limitations that are not compared (timing of wallet transactions, ARMED
+claimability flags, abandonment/notices, σ at regtest scale) and the node-wallet finding F-DEV-1 are
+in D-RD-DEV-7.
+
+**Reproduce.**
+
+```bash
+cd wt/ybcal-devnet
+export YBCAL_DEVNET_PORT_BASE=41000
+Y6=/path/to/ycash6 DD=/path/to/ycash-dd
+.venv/bin/ybcal devnet build --ycash6 $Y6                       # stock column at the pin
+B=.work/bin/stock-7702d22606d1/ycashd
+.venv/bin/ybcal devnet validate --ycashd $B --ycash6 $Y6 --portseed 0 --parallel 4
+.venv/bin/ybcal devnet validate --ycashd $DD/src/ycashd --ycash6 $Y6 --allow-version-skew \
+    --portseed 10 --parallel 4
+python -c "from ybcal.params.paramset import mainnet; open('mainnet.json','w').write(mainnet().to_json())"
+.venv/bin/ybcal devnet build --ycash6 $Y6 --overlay mainnet.json --term-factor 1440
+.venv/bin/ybcal devnet validate --ycash6 $Y6 --overlay mainnet.json --term-factor 1440 \
+    --ycashd .work/bin/ov-<key>/ycashd --portseed 0 --parallel 4
+.venv/bin/ybcal devnet build --ycash6 $DD --ref HEAD --overlay mainnet.json --term-factor 1440
+.venv/bin/ybcal devnet validate --ycash6 $DD --ref HEAD --overlay mainnet.json --term-factor 1440 \
+    --ycashd .work/bin/ov-<key>/ycashd --portseed 10 --parallel 4
+.venv/bin/ybcal devnet diff .work/devnet/<run>       # re-compare one kept run, no node needed
+```
+
+About 15 minutes per suite with `--parallel 4` (8 scenarios, 355–601 blocks each).
+
+**Validating a recommended set later.** Pass the report's `recommended.json` (or the report
+directory) as the overlay; a mainnet-scale set is scaled automatically:
+
+```bash
+ybcal devnet build    --ycash6 $Y6 --overlay reports/<run>/ --term-factor 1440
+ybcal devnet validate --ycash6 $Y6 --overlay reports/<run>/ --term-factor 1440 \
+    --ycashd .work/bin/ov-<key>/ycashd --portseed 0 --parallel 4 --strict
+```
+
+`--term-factor 1440` keeps terms short enough that `vault-cycle` reaches claim heights; the price
+scenarios do not depend on it. Repeat with `--ycash6 $DD --ref HEAD` for the v4.5.0 line. A runtime
+flag outside the node's accepted range, or a compiled value `RegtestParams()` cannot take, is
+refused before anything is built.
+
+---
+
+## 8. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
@@ -336,4 +484,6 @@ The suite report goes to `.work/devnet/validate-<time>.json`. Only an all-pass s
 | `skipped (build): … unreachable` | The depends hosts are blocked (proxy or firewall). Build on a networked machine, or use a CI artifact. |
 | `skipped (fetch-binary): … blob.core.windows.net` | GitHub serves artifacts from Azure blob storage. Allow that host, or download in a browser and pass `--ycashd`. |
 | A stale run holds ports | Every node runs with `-datadir=<run>/nodeN`. Find leftovers with `pgrep -f 'ycashd.*\.work/devnet'`, stop them, then delete the run dir. |
+| `ports [...] are in use` | Another devnet (or another agent's node) holds the slot. Use another `--portseed`; with `--port-base` seeds are 0–40. |
+| `yed_mint: transaction commit failed: the transaction was rejected by the mempool` | The wallet re-selected the previous carrier's change output that the previous MINT already spent (finding F-DEV-1, both node lines). Recorded as the action's outcome; the scenario continues. |
 | Live tests | `YBCAL_YCASHD=/path/to/ycashd pytest -m devnet` (add `YBCAL_ALLOW_SKEW=1` for the CI binary). |
