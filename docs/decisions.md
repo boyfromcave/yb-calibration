@@ -1951,3 +1951,24 @@ consequence of the window change (each Recommendation's note says "resolved by s
 current fraction of the new window"); a pin on the absolute value would break the §1.4 ordering
 at any new window. `valveBlocks` (L7) stays pinned: the report shows KEEP 6 with the evidence of
 D-RD-ACT-5 (least harm 12) and the risk of keeping 6.
+
+## D-RD-ACT-8 (2026-10-04, integrator) — devnet confirmation of signalWindow 2592 on both lines
+
+**Decision.** `signalWindow` 2,592 (thresholds 1,944 / 1,556 / 1,296 / 1,556, the L3 fractions) is
+confirmed on real nodes. Eight regtest runs (`ybcal devnet run --term-factor 1440`, real-landscape
+step schedules from `landscape.devnet_steps`), shipped set vs the 2,592 set, ycash6 (pin 7702d22)
+and ycash-dd (HEAD f78a5f8), all `devnet diff` PASS (892–1,017 heights × 13 fields):
+
+| Schedule | Shipped (2,016) | 2,592 |
+|---|---|---|
+| real identified coalition (honest) | false PARTICIPATION halt, 246 blocks | no PARTICIPATION halt |
+| ninjaraider offline 7 days | ENFORCEMENT halt, 246 blocks | ENFORCEMENT halt, 247 blocks |
+
+Both node lines produced identical halt histories. The longer window removes the false halt
+under the real landscape and still detects the loss of the majority pool.
+
+**Robustness.** G5 standard: 2,592 at seeds 1 and 2; seed 3 picked 4,032, the first half of the
+pool log 3,744, the second half kept 2,016. `ybcal robust` consolidation: 2,592 is feasible in 3/5
+runs (s3 and h1 fail `false_halt`); the 7-variant landscape replay finds 2,592 the only window
+meeting the 24 h/yr false-halt budget and 60-day lock-in in every variant. 2,592 stands, with the
+residual: in the worst variants false halts reach ~22 h/yr.
