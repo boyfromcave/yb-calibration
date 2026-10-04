@@ -381,7 +381,8 @@ def halt_metrics(
 ) -> dict[str, float]:
     """Over ``era`` (default: the replay's own): HALT-3 and NO_PRICE hours per year; with ``price``
     also HALT-3 detection of real falls (fires within a day of the start of a ≥ 30 % one-day or
-    ≥ 50 % one-week fall: caught when HALT-3 fires between its peak and a day after its trough),
+    ≥ 50 % one-week fall: caught when HALT-3 fires between its peak and a day after its trough;
+    falls whose window is mostly NO_PRICE cannot test HALT-3 and are left out),
     *false* HALT-3 hours (outside every ≥ 20 % weekly fall, from a day before its peak to two days
     after its trough) and HALT-3 hours in the day after a real one-hour wick > 20 %."""
     ps = prices_for(rep, params)
@@ -402,6 +403,10 @@ def halt_metrics(
 
     # a fall is caught when HALT-3 fires between its peak and a day after its trough
     falls = [(pk, tr) for pk, tr in ev["falls"] if lo <= (pk - a0) * B < hi]
+    def testable(pk: int, tr: int) -> bool:  # HALT-3 needs the medians; mostly NO_PRICE = untestable
+        return bool(ps.no_price[0, (pk - a0) * B : (tr - a0) * B + Dy].mean() < 0.5)
+
+    falls = [f for f in falls if testable(*f)]
     hit = [bool(ps.halt3[0, (pk - a0) * B : (tr - a0) * B + Dy].any()) for pk, tr in falls]
     near = np.zeros(rep.n, dtype=bool)
     for pk, tr in ev["near"]:
@@ -412,7 +417,7 @@ def halt_metrics(
     out[f"{prefix}_halt3_false_h_per_year_{e}"] = (
         float((ps.halt3[0, lo:hi] & ~near[lo:hi]).sum()) / nb * _PER_YEAR_H
     )
-    f1 = [(pk, tr) for pk, tr in ev["falls1d"] if lo <= (pk - a0) * B < hi]
+    f1 = [(pk, tr) for pk, tr in ev["falls1d"] if lo <= (pk - a0) * B < hi and testable(pk, tr)]
     hit1 = [bool(ps.halt3[0, (pk - a0) * B : (tr - a0) * B + Dy].any()) for pk, tr in f1]
     out[f"{prefix}_falls1d_{e}"] = float(len(f1))
     out[f"{prefix}_fall1d_recall_{e}"] = float(np.mean(hit1)) if hit1 else math.nan

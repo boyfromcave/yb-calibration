@@ -419,9 +419,14 @@ def divergence_metrics(env: Env, cand: ParamSet) -> dict[str, float]:
         if name in POSITIVE and "fall" in mk:
             a, b = mk["fall"], min(r.n, mk["fall_end"] + DETECT_TAIL_BLOCKS)
             hit = h3[:, a:b].any(axis=1)
-            tp += int(hit.sum())
-            fn += int((~hit).sum())
-            out[f"div.recall.{name}"] = float(hit.mean())
+            # HALT-3 needs all three medians: a path whose detection window is mostly NO_PRICE
+            # (HALT-1 already stops minting) cannot test it, so recall is conditional on testable
+            # paths (D-RD-ORA-6; the real landscape's ⌈2W/3⌉ fill leaves ~17 % of blocks undefined)
+            testable = np.asarray(pr.no_price[:, a:b], dtype=bool).mean(axis=1) < 0.5
+            tp += int((hit & testable).sum())
+            fn += int((~hit & testable).sum())
+            out[f"div.recall.{name}"] = float(hit[testable].mean()) if testable.any() else 1.0
+            out[f"div.untestable.{name}"] = float((~testable).mean())
         if name in NEGATIVE:
             end = mk["fall"] if name == "pump-dump-3x" and "fall" in mk else r.n
             neg = h3[:, w0:end].any(axis=1)
