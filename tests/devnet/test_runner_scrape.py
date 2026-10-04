@@ -89,8 +89,9 @@ def test_jittered_quote_bounds_and_never_repeats():
 
 def test_schedules_for_the_suite():
     ps = regtest()
-    for name in ("calm", "crash-70", "hashrate-drop", "attestor-outage-1", "oracle-attack-34"):
+    for name in ("calm", "crash-70", "hashrate-drop", "attestor-outage-1", "oracle-attack-34", "feed-outage"):
         s = make_schedule(name, ps, seed=3)
+        assert Schedule.from_dict(json.loads(json.dumps(s.to_dict()))) == s  # run.json round trip
         assert s.steps[0].label == "funding" and s.steps[0].price == 0 and s.steps[0].blocks == 101
         assert s.steps[1].blocks == 64 + 64 + 2
         assert s == make_schedule(name, ps, seed=3)  # deterministic in the seed
@@ -99,6 +100,8 @@ def test_schedules_for_the_suite():
     crash = make_schedule("crash-70", ps, seed=1)
     prices = [st.price for st in crash.steps if st.label == "crash"]
     assert prices[-1] * 10 // prices[0] in (2, 3)
+    outage = make_schedule("feed-outage", ps, seed=1)
+    assert [st.blocks for st in outage.steps if st.price == 0 and st.label == "feed outage"] == [36]
     with pytest.raises(KeyError):
         make_schedule("nope", ps)
 
@@ -185,6 +188,27 @@ def test_ports_follow_the_seed():
     assert r.rpc_port(2, 101) - r.p2p_port(2, 101) == 5000
 
 
+def test_port_base_keeps_a_devnet_in_its_band(monkeypatch: pytest.MonkeyPatch):
+    assert r.p2p_port(0, 0, 41000) == 41000 and r.rpc_port(0, 0, 41000) == 41012
+    assert r.p2p_port(3, 2, 41000) == 41051 and r.rpc_port(11, 40, 41000) == 41983
+    for seed in range(41):
+        ports = [f(n, seed, 41000) for n in range(r.MAX_NODES) for f in (r.p2p_port, r.rpc_port)]
+        assert len(set(ports)) == 24 and all(41000 <= x <= 41999 for x in ports)
+    with pytest.raises(ValueError, match="does not fit"):
+        r.p2p_port(0, 41, 41000)
+    monkeypatch.setenv(r.PORT_BASE_ENV, "41000")
+    assert r.default_port_base() == 41000
+    monkeypatch.delenv(r.PORT_BASE_ENV)
+    assert r.default_port_base() is None
+
+
+def test_index_reached_below_start_height():
+    assert r.index_reached({"height": -1, "startHeight": 1}, 0)  # genesis: nothing to index yet
+    assert not r.index_reached({"height": -1, "startHeight": 1}, 1)
+    assert r.index_reached({"height": -1, "startHeight": 200}, 150)
+    assert r.index_reached({"height": 7, "startHeight": 1}, 7)
+
+
 def test_node_conf(tmp_path: Path):
     sp = split(regtest().replace(sigmaRefBps=10_000))
     cfg = r.DevnetConfig(Path("/x/ycashd"), tmp_path, sp.node_args(), portseed=5, n_pools=2, dark_miner=True)
@@ -199,11 +223,16 @@ def test_node_conf(tmp_path: Path):
         "yellowbacksignal=1",
         f"yellowbackpayoutaddress={pool_addresses()[0]}",
         f"rpcport={r.rpc_port(0, 5)}",
+        "bind=127.0.0.1",
+        "listenonion=0",
     ):
         assert line in c0.splitlines(), line
     assert "[regtest]" not in c0
     assert "yellowbacksignal=0" in c2 and "yellowbackpayoutaddress" not in c2
     assert c0.count("addnode=") == 2
+    based = r.node_conf(r.DevnetConfig(Path("/x"), tmp_path, [], portseed=1, port_base=41000), 1)
+    assert "port=41025" in based.splitlines() and "rpcport=41037" in based.splitlines()
+    assert "addnode=127.0.0.1:41024" in based.splitlines()
     with pytest.raises(ValueError):
         r.DevnetConfig(Path("y"), tmp_path, [], n_pools=4)
 

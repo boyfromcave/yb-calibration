@@ -29,7 +29,15 @@ from ybcal.devnet.overlay import (
     read_params_cpp,
     split,
 )
-from ybcal.devnet.runner import DEFAULT_PORTSEED, DevnetConfig, RunResult, node_conf, run_devnet
+from ybcal.devnet.runner import (
+    DEFAULT_PORTSEED,
+    PORT_BASE_ENV,
+    DevnetConfig,
+    RunResult,
+    default_port_base,
+    node_conf,
+    run_devnet,
+)
 from ybcal.devnet.scenarios import SCENARIOS, SUITE, make_schedule
 from ybcal.devnet.status import Skipped
 from ybcal.devnet.worktree import WorktreeError, create_worktree, work_dir, ycash6_repo
@@ -85,6 +93,28 @@ def _common(p: argparse.ArgumentParser, *, overlay: bool, ycash6: bool, seed: bo
     p.add_argument("--json", action="store_true", help="machine-readable output")
 
 
+def _ports(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--portseed",
+        type=int,
+        default=None,
+        help=f"port seed (default {DEFAULT_PORTSEED}; 0 under a port base, which allows 0-40)",
+    )
+    p.add_argument(
+        "--port-base",
+        type=int,
+        default=None,
+        help=f"keep every port in BASE..BASE+999 (default ${PORT_BASE_ENV}; unset: framework scheme)",
+    )
+
+
+def _port_args(args: argparse.Namespace) -> tuple[int, int | None]:
+    """(portseed, port_base) with the defaults resolved."""
+    base = args.port_base if getattr(args, "port_base", None) is not None else default_port_base()
+    seed = args.portseed if args.portseed is not None else (0 if base is not None else DEFAULT_PORTSEED)
+    return seed, base
+
+
 def configure_build(p: argparse.ArgumentParser) -> None:
     """Extra ``devnet build`` arguments (``--overlay``, ``--ycash6``, ``--ref`` come from cli.py)."""
     _common(p, overlay=False, ycash6=False, seed=False)
@@ -101,14 +131,17 @@ def configure_build(p: argparse.ArgumentParser) -> None:
         "--dry-run", action="store_true", help="print the plan, flags, patch and preflight; build nothing"
     )
     p.add_argument("--force", action="store_true", help="rebuild even when the cache has this overlay")
+    p.add_argument(
+        "--no-reuse",
+        action="store_true",
+        help="do not borrow the clone's built depends/ and cargo target/ (cold zcutil/build.sh)",
+    )
 
 
 def configure_run(p: argparse.ArgumentParser) -> None:
     """Extra ``devnet run`` arguments (``--scenario``, ``--overlay``, ``--seed`` come from cli.py)."""
     _common(p, overlay=False, ycash6=True, seed=False)
-    p.add_argument(
-        "--portseed", type=int, default=DEFAULT_PORTSEED, help=f"port seed (default {DEFAULT_PORTSEED})"
-    )
+    _ports(p)
     p.add_argument("--pools", type=int, default=3, help="pool nodes (1-3, default 3)")
     p.add_argument("--dir", default=None, help="run directory (default .work/devnet/<scenario>-<time>)")
     p.add_argument(
@@ -134,7 +167,7 @@ def configure_run(p: argparse.ArgumentParser) -> None:
 def configure_validate(p: argparse.ArgumentParser) -> None:
     """Extra ``devnet validate`` arguments (``--scenario`` comes from cli.py)."""
     _common(p, overlay=True, ycash6=True, seed=True)
-    p.add_argument("--portseed", type=int, default=DEFAULT_PORTSEED)
+    _ports(p)
     p.add_argument("--out", default=None, help="write the suite report JSON here")
 
 
@@ -243,15 +276,17 @@ def cli_build(args: argparse.Namespace) -> int:
         except OverlayError as e:
             print(f"ybcal devnet build: {e}", file=sys.stderr)
             return EXIT_ERROR
-        pre = b.preflight(None)
+        reuse = None if args.no_reuse else b.find_reuse(repo)
+        pre = b.preflight(reuse.tree if reuse else None)
         jobs = args.jobs or 2
-        steps = b.plan_build(work_dir() / f"ycash6-{ref}", jobs, configured=False)
+        steps = b.plan_build(work_dir() / f"ycash6-{ref}", jobs, configured=False, reuse=reuse)
         doc = {
             "runtime": sp.node_args(),
             "compiled": sp.compiled,
             "key": build_key(sp, ref),
             "patch": patch,
             "preflight": pre.to_dict() if isinstance(pre, Skipped) else "ready",
+            "reuse": None if reuse is None else {"tree": str(reuse.tree), "triple": reuse.triple},
             "steps": [" ".join(s.argv) for s in steps],
         }
         text = head + "\n".join(f"step: {' '.join(s.argv)}  # {s.what}" for s in steps) + "\n"
@@ -261,8 +296,15 @@ def cli_build(args: argparse.Namespace) -> int:
         _emit(args, doc, text)
         return EXIT_OK
     try:
-        res = b.build(repo, sp, commit=ref, jobs=args.jobs, force=args.force)
-    except (WorktreeError, OverlayError) as e:
+        res = b.build(
+            repo,
+            sp,
+            commit=ref,
+            jobs=args.jobs,
+            force=args.force,
+            reuse_from=None if args.no_reuse else "auto",
+        )
+    except (WorktreeError, OverlayError, RuntimeError) as e:
         print(f"ybcal devnet build: {e}", file=sys.stderr)
         return EXIT_ERROR
     if isinstance(res, Skipped):
@@ -300,7 +342,8 @@ def cli_run(args: argparse.Namespace) -> int:
             Path(args.ycashd or "ycashd"),
             Path(args.dir or "RUN_DIR"),
             sp.node_args(),
-            portseed=args.portseed,
+            portseed=_port_args(args)[0],
+            port_base=_port_args(args)[1],
             n_pools=args.pools,
             dark_miner="dark_miner" in sched.needs,
         )
@@ -323,7 +366,8 @@ def cli_run(args: argparse.Namespace) -> int:
         repo=repo,
         commit=args.ref,
         run_dir=Path(args.dir) if args.dir else None,
-        portseed=args.portseed,
+        portseed=_port_args(args)[0],
+        port_base=_port_args(args)[1],
         n_pools=args.pools,
         seed=args.seed or 0,
         jitter_bps=args.jitter_bps,
@@ -380,7 +424,8 @@ def cli_validate(args: argparse.Namespace) -> int:
                 ycashd=binfo.ycashd,
                 repo=repo,
                 commit=args.ref,
-                portseed=args.portseed,
+                portseed=_port_args(args)[0],
+                port_base=_port_args(args)[1],
                 seed=args.seed or 0,
                 allow_version_skew=args.allow_version_skew,
             )
@@ -412,3 +457,70 @@ def cli_validate(args: argparse.Namespace) -> int:
     if not suite.validated and args.strict:
         return EXIT_SKIPPED_STRICT
     return EXIT_OK
+
+
+# ---------------------------------------------------------------------------------------------------
+# diff (re-compare a kept run with the simulator; no node needed)
+
+
+def configure_diff(p: argparse.ArgumentParser) -> None:
+    """``devnet diff RUN_DIR`` arguments."""
+    p.add_argument("run_dir", help="a finished run directory (holds run.json and scrape/history.csv)")
+    p.add_argument(
+        "--allow", action="append", default=[], help="allowlist entry field / field@h / field@lo-hi"
+    )
+    p.add_argument("--show", type=int, default=5, help="mismatching rows to print per field (default 5)")
+    p.add_argument("--json", action="store_true", help="machine-readable output")
+
+
+def diff_run(run_dir: Path, allowlist: list[str] | tuple[str, ...] = ()) -> tuple[Any, list, list]:
+    """(DiffReport, node records, simulator records) for a kept run: the simulator replays the exact
+    schedule, overlay and replay arguments the run recorded in ``run.json``."""
+    from ybcal.devnet.diff import compare
+    from ybcal.devnet.scenarios import Schedule, schedule_prices
+    from ybcal.devnet.scrape import load_history_csv
+    from ybcal.sim.engine import simulate_devnet
+
+    doc = json.loads((run_dir / "run.json").read_text())
+    sched = Schedule.from_dict(doc["schedule"])
+    params = ParamSet.from_dict(doc["params"]) if doc.get("params") else shipped_regtest()
+    ra = doc.get("replay_args") or {}
+    node = load_history_csv(run_dir / "scrape" / "history.csv")
+    sim = simulate_devnet(
+        params,
+        schedule_prices(sched),
+        sched,
+        n_pools=int(ra.get("n_pools", 3)),
+        jitter_bps=int(ra.get("jitter_bps", 10)),
+        seed=int(ra.get("seed", sched.seed)),
+    )
+    return compare(node, sim, allowlist=allowlist), node, sim
+
+
+def cli_diff(args: argparse.Namespace) -> int:
+    """Compare a kept run's scrape with the simulator, field by field (exit 1 on a mismatch)."""
+    run_dir = Path(args.run_dir)
+    try:
+        rep, node, sim = diff_run(run_dir, args.allow)
+    except (OSError, KeyError, ValueError) as e:
+        print(f"ybcal devnet diff: {e}", file=sys.stderr)
+        return EXIT_ERROR
+    by_n = {r["height"]: r for r in node}
+    by_s = {r["height"]: r for r in sim}
+    lines = [rep.summary()]
+    detail: dict[str, list[dict[str, Any]]] = {}
+    for f in rep.fields.values():
+        if f.passed:
+            continue
+        rows = []
+        for h in sorted(set(by_n) & set(by_s)):
+            if by_n[h].get(f.field) != by_s[h].get(f.field):
+                rows.append({"height": h, "node": by_n[h].get(f.field), "sim": by_s[h].get(f.field)})
+        detail[f.field] = rows
+        shown = ", ".join(f"{r['height']}: {r['node']} vs {r['sim']}" for r in rows[: args.show])
+        lines.append(f"  {f.field} (node vs sim): {shown}")
+    out = run_dir / "diff.json"
+    doc = rep.to_dict() | {"mismatch_rows": {k: v[:200] for k, v in detail.items()}}
+    out.write_text(json.dumps(doc, indent=2, default=str) + "\n")
+    _emit(args, doc, "\n".join(lines) + f"\nwritten: {out}")
+    return EXIT_OK if rep.passed else EXIT_ERROR

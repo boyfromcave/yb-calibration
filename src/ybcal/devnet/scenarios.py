@@ -90,6 +90,24 @@ class Schedule:
         """Blocks the schedule mines (bootstrap included)."""
         return sum(s.blocks for s in self.steps)
 
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> Schedule:
+        """Inverse of :meth:`to_dict` (a kept run's ``run.json`` → the exact schedule it replayed)."""
+        steps = tuple(
+            ReplayStep(
+                int(st["price"]),
+                int(st["blocks"]),
+                {int(k): int(v) for k, v in (st.get("pool_bias_bps") or {}).items()},
+                tuple(st["pool_weights"]) if st.get("pool_weights") else None,
+                st.get("signal_share_bps"),
+                tuple(st.get("attestors_down") or ()),
+                st.get("label", ""),
+            )
+            for st in d["steps"]
+        )
+        needs = frozenset(d.get("needs", ()))
+        return cls(d["name"], steps, needs, d.get("description", ""), int(d.get("seed", 0)))
+
     def to_dict(self) -> dict[str, Any]:
         """JSON form (written next to the run's scrape)."""
         return {
@@ -209,6 +227,19 @@ def _oracle_attack(params: ParamSet, rng: random.Random, price: int) -> list[Rep
     )
 
 
+def _feed_outage(params: ParamSet, rng: random.Random, price: int) -> list[ReplayStep]:
+    """Every pool's feed dies for 1.5 mid windows (signal-only tags), then resumes 8 % lower."""
+    slow, mid = int(params["pSlowWindow"]), int(params["pMidWindow"])
+    pre = _walk(rng, price, slow, 50)
+    gap = (3 * mid) // 2
+    post = _walk(rng, pre[-1] * 92 // 100, 2 * slow, 50)
+    return [
+        *steps_from_prices(pre, 1, "pre-outage"),
+        ReplayStep(0, gap, label="feed outage"),
+        *steps_from_prices(post, 1, "post-outage"),
+    ]
+
+
 ScenarioFn = Callable[[ParamSet, random.Random, int], list[ReplayStep]]
 
 #: PLAN §6.4's differential suite: name → (builder, needs, description).
@@ -234,10 +265,22 @@ SCENARIOS: dict[str, tuple[ScenarioFn, frozenset[str], str]] = {
         frozenset(),
         "a pool with 34 % of tagged blocks quotes +25 % for two mid windows",
     ),
+    "feed-outage": (
+        _feed_outage,
+        frozenset(),
+        "every feed dark for 1.5 mid windows (signal-only tags), then resumes 8 % lower",
+    ),
 }
 
 #: The PLAN §6.4 suite, in order.
-SUITE: tuple[str, ...] = ("calm", "crash-70", "hashrate-drop", "attestor-outage-1", "oracle-attack-34")
+SUITE: tuple[str, ...] = (
+    "calm",
+    "crash-70",
+    "hashrate-drop",
+    "attestor-outage-1",
+    "oracle-attack-34",
+    "feed-outage",
+)
 
 
 def make_schedule(

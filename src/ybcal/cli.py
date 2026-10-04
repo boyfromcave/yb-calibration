@@ -60,6 +60,7 @@ ROUTES: dict[tuple[str, ...], Route] = {
     ("devnet", "build"): Route("ybcal.devnet.cli", "cli_build", "WP-9"),
     ("devnet", "run"): Route("ybcal.devnet.cli", "cli_run", "WP-9"),
     ("devnet", "validate"): Route("ybcal.devnet.cli", "cli_validate", "WP-9"),
+    ("devnet", "diff"): Route("ybcal.devnet.cli", "cli_diff", "WP-9"),
     ("report", "open"): Route("ybcal.report.cli", "cli_open", "WP-8"),
 }
 
@@ -222,6 +223,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=None)
     p = subs[("devnet", "validate")] = vg.add_parser("validate", help="the §6.4 differential suite")
     p.add_argument("--scenario", action="append", default=[], help="limit to these scenarios (repeatable)")
+    subs[("devnet", "diff")] = vg.add_parser("diff", help="re-compare a kept run with the simulator")
 
     # report
     rg = group("report", "inspect a finished report")

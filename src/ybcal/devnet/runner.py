@@ -87,14 +87,72 @@ LAUNCHER_RUNTIME: dict[str, Any] = {
 }
 
 
-def p2p_port(n: int, seed: int) -> int:
-    """P2P port of node ``n`` under port seed ``seed`` (devnet seed ``s`` → 11000 + 12·s + n)."""
+#: Width of one port slot under an explicit port base: 12 p2p ports, then 12 RPC ports.
+PORT_SLOT = 2 * MAX_NODES
+#: Ports one explicit base may use (``base … base + PORT_BAND - 1``).
+PORT_BAND = 1000
+#: Environment variable that sets the port base (e.g. ``41000`` keeps every port in 41000–41999).
+PORT_BASE_ENV = "YBCAL_DEVNET_PORT_BASE"
+
+
+def default_port_base() -> int | None:
+    """``$YBCAL_DEVNET_PORT_BASE`` as an integer, else ``None`` (the framework scheme)."""
+    v = os.environ.get(PORT_BASE_ENV, "").strip()
+    return int(v) if v else None
+
+
+def _slot(seed: int, base: int) -> int:
+    off = PORT_SLOT * seed
+    if seed < 0 or off + PORT_SLOT > PORT_BAND:
+        raise ValueError(
+            f"port seed {seed} does not fit the band {base}–{base + PORT_BAND - 1} "
+            f"(seeds 0..{PORT_BAND // PORT_SLOT - 1} under a port base)"
+        )
+    return base + off
+
+
+def p2p_port(n: int, seed: int, base: int | None = None) -> int:
+    """P2P port of node ``n`` under port seed ``seed``.
+
+    Without ``base``: the framework scheme (devnet seed ``s`` → 11000 + 12·s + n). With ``base``
+    (``--port-base`` / ``$YBCAL_DEVNET_PORT_BASE``): ``base + 24·seed + n``, so a whole devnet stays
+    inside ``base … base + 999`` (seeds 0–40) — the band a shared machine reserves for it.
+    """
+    if base is not None:
+        return _slot(seed, base) + n
     return PORT_MIN + n + (MAX_NODES * seed) % (PORT_RANGE - 1 - MAX_NODES)
 
 
-def rpc_port(n: int, seed: int) -> int:
-    """RPC port of node ``n`` (5000 above its p2p port)."""
+def rpc_port(n: int, seed: int, base: int | None = None) -> int:
+    """RPC port of node ``n`` (5000 above its p2p port; 12 above it under a port base)."""
+    if base is not None:
+        return _slot(seed, base) + MAX_NODES + n
     return PORT_MIN + PORT_RANGE + n + (MAX_NODES * seed) % (PORT_RANGE - 1 - MAX_NODES)
+
+
+def port_free(port: int, host: str = "127.0.0.1") -> bool:
+    """True when nothing listens on ``host:port`` (a bind test; the socket is closed at once)."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        # ycashd binds with SO_REUSEADDR too: a TIME_WAIT left by a finished devnet is not a clash
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind((host, port))
+        except OSError:
+            return False
+    return True
+
+
+def index_reached(info: dict[str, Any], height: int) -> bool:
+    """Whether node 0's Yellowback index (``yed_getinfo``) has processed ``height``.
+
+    Below ``startHeight`` the index holds nothing and reports ``height: -1`` (a fresh chain at
+    genesis, the funding blocks), so any height under ``startHeight`` counts as reached.
+    """
+    if int(info.get("height", -1)) >= height:
+        return True
+    return height < int(info.get("startHeight", 1))
 
 
 class Devnet(Protocol):
@@ -119,6 +177,7 @@ class DevnetConfig:
     run_dir: Path
     runtime_args: list[str]
     portseed: int = DEFAULT_PORTSEED
+    port_base: int | None = None  #: explicit port band (see :func:`p2p_port`); None = framework scheme
     n_pools: int = 3
     dark_miner: bool = False
     extra_args: list[str] = field(default_factory=list)
@@ -153,8 +212,11 @@ def node_conf(cfg: DevnetConfig, index: int) -> str:
         *(f"nuparams={n}" for n in NUPARAMS),
         *(a.lstrip("-") for a in cfg.runtime_args),
         # top level: the Zcash 4.x/6.x config parser has no [network] sections
-        f"port={p2p_port(index, cfg.portseed)}",
-        f"rpcport={rpc_port(index, cfg.portseed)}",
+        f"port={p2p_port(index, cfg.portseed, cfg.port_base)}",
+        f"rpcport={rpc_port(index, cfg.portseed, cfg.port_base)}",
+        "bind=127.0.0.1",
+        "discover=0",
+        "listenonion=0",
     ]
     if index < cfg.n_pools:
         lines += [f"yellowbackpayoutaddress={pool_addresses()[index]}", "yellowbacksignal=1"]
@@ -163,7 +225,7 @@ def node_conf(cfg: DevnetConfig, index: int) -> str:
     lines += [a.lstrip("-") for a in cfg.extra_args]
     for other in range(cfg.n_nodes):
         if other != index:
-            lines.append(f"addnode=127.0.0.1:{p2p_port(other, cfg.portseed)}")
+            lines.append(f"addnode=127.0.0.1:{p2p_port(other, cfg.portseed, cfg.port_base)}")
     return "\n".join(lines) + "\n"
 
 
@@ -190,10 +252,15 @@ class MinimalDevnet:
         self._client = client_factory or (lambda url, u, p: RpcClient(url, u, p, timeout=120))
         self.nodes: list[_Node] = []
         for i in range(cfg.n_nodes):
-            url = f"http://127.0.0.1:{rpc_port(i, cfg.portseed)}/"
+            url = f"http://127.0.0.1:{rpc_port(i, cfg.portseed, cfg.port_base)}/"
             self.nodes.append(
                 _Node(i, cfg.run_dir / f"node{i}", self._client(url, cfg.rpc_user, cfg.rpc_password))
             )
+
+    def ports(self) -> list[int]:
+        """Every p2p and RPC port this devnet binds."""
+        c = self.cfg
+        return [f(i, c.portseed, c.port_base) for i in range(c.n_nodes) for f in (p2p_port, rpc_port)]
 
     @property
     def pools(self) -> list[Any]:
@@ -220,6 +287,13 @@ class MinimalDevnet:
         """Start every node, wait through RPC warm-up (~12 s on 6.20.0), import the pool keys."""
         if any(n.datadir.exists() and any(n.datadir.iterdir()) for n in self.nodes):
             raise RuntimeError(f"{self.cfg.run_dir} already holds node data; use a fresh run dir")
+        if self._popen is subprocess.Popen:
+            busy = [p for p in self.ports() if not port_free(p)]
+            if busy:
+                raise RuntimeError(
+                    f"ports {busy} are in use (another devnet or node?): "
+                    "pick another --portseed / --port-base"
+                )
         self.write_confs()
         for n in self.nodes:
             log = (n.datadir / "ycashd.out").open("ab")
@@ -243,8 +317,9 @@ class MinimalDevnet:
         deadline = time.monotonic() + timeout
         while True:
             heights = [int(n.client.call("getblockcount")) for n in self.nodes]
-            idx = int(self.primary.call("yed_getinfo").get("height", -1))
-            if min(heights) >= height and idx >= height:
+            info = self.primary.call("yed_getinfo")
+            idx = info.get("height", -1)
+            if min(heights) >= height and index_reached(info, height):
                 return
             if time.monotonic() > deadline:
                 raise RuntimeError(
@@ -366,7 +441,7 @@ class LauncherDevnet:
         deadline = time.monotonic() + timeout
         while True:
             hs = [int(c.call("getblockcount")) for c in self._all]
-            if min(hs) >= height and int(self.primary.call("yed_getinfo").get("height", -1)) >= height:
+            if min(hs) >= height and index_reached(self.primary.call("yed_getinfo"), height):
                 return
             if time.monotonic() > deadline:
                 raise RuntimeError(f"launcher devnet not synced to {height}: {hs}")
@@ -559,6 +634,8 @@ class RunResult:
     replay: ReplayLog | None = None
     scrape: ScrapeResult | None = None
     message: str = ""
+    params: dict[str, Any] | None = None  #: the overlay's full regtest value set (for ``devnet diff``)
+    replay_args: dict[str, Any] = field(default_factory=dict)  #: seed, jitter_bps, n_pools
 
     def to_dict(self) -> dict[str, Any]:
         """The run manifest (``run.json``)."""
@@ -584,6 +661,8 @@ class RunResult:
             if self.replay
             else None,
             "scrape": {k: str(v) for k, v in self.scrape.files.items()} if self.scrape else None,
+            "params": self.params,
+            "replay_args": self.replay_args,
         }
 
 
@@ -601,6 +680,7 @@ def run_devnet(
     commit: str | None = None,
     run_dir: Path | None = None,
     portseed: int = DEFAULT_PORTSEED,
+    port_base: int | None = None,
     n_pools: int = 3,
     seed: int = 0,
     jitter_bps: int = 10,
@@ -637,6 +717,8 @@ def run_devnet(
     version = binary_version(binfo.ycashd)
     skew = check_skew(repo, binfo.commit or version.commit, commit, allow=allow_version_skew)
     result = RunResult("ok", run_dir, schedule, binfo, skew)
+    result.params = sp.params.to_dict()
+    result.replay_args = {"seed": seed, "jitter_bps": jitter_bps, "n_pools": n_pools}
     if not skew.ok:
         result.status, result.message = (
             "refused",
@@ -659,6 +741,7 @@ def run_devnet(
             run_dir,
             sp.node_args(),
             portseed=portseed,
+            port_base=port_base if port_base is not None else default_port_base(),
             n_pools=n_pools,
             dark_miner="dark_miner" in schedule.needs,
         )

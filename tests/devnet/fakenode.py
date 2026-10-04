@@ -128,7 +128,8 @@ class FakeChain:
             return {
                 "rpcversion": 3,
                 "network": "regtest",
-                "height": self.height,
+                # the index holds nothing below startHeight: a fresh chain reports -1 (as ycashd does)
+                "height": self.height if self.height >= 1 else -1,
                 "startHeight": 1,
                 "healthy": True,
                 "params": getinfo_params(self.params),
