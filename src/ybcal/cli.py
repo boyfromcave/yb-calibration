@@ -118,6 +118,9 @@ def _common_run_args(p: argparse.ArgumentParser, *, budget: bool = True) -> None
     p.add_argument("--seed", type=int, default=None, help="RNG seed (default: policy.seed)")
     p.add_argument("--data", action="append", default=[], metavar="FILE",
                    help="data file (repeatable); synthetic data is used when none is given")
+    p.add_argument("--window", default=None, metavar="WINDOW",
+                   help="restrict price data: full, last365, 2021-22, 2025-26, lastN or "
+                        "YYYY-MM-DD:YYYY-MM-DD (default full)")
 
 
 def _ycash6_args(p: argparse.ArgumentParser, *, required: bool = False) -> None:

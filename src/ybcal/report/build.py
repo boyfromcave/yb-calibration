@@ -122,15 +122,22 @@ def _iso(ts: Any) -> str:
         return "?"
 
 
-def load_data(files: Sequence[Path]) -> tuple[dict[str, Any], str, list[DataInfo]]:
+def load_data(
+    files: Sequence[Path], window: Any = None
+) -> tuple[dict[str, Any], str, list[DataInfo]]:
     """Load each file by sniffing its format: spreads log → ``spreads``, pool-share CSV →
-    ``pool_shares``, depth CSV → ``depth``, else a price series → ``price`` (an hourly real
-    :class:`PricePath`). Returns ``(env.data, provenance, infos)``."""
+    ``pool_shares``, depth CSV → ``depth``, else a price series. Price series are assigned a role by
+    their native granularity (:mod:`ybcal.data.inputs`): the finest → ``price``, a daily one next to
+    it → ``price_daily``; each is put on the hourly grid with its forward-fill mask. ``window`` (a
+    :class:`ybcal.data.inputs.Window`) restricts every price series first. Returns ``(env.data,
+    provenance, infos)``."""
+    from ybcal.data import inputs as IN
     from ybcal.data import loaders as L
     from ybcal.data import pricepath as PP
 
     data: dict[str, Any] = {}
     infos: list[DataInfo] = []
+    prices: list[tuple[Path, str, Any]] = []
     for f in files:
         sha = sha256_file(f)
         obj, kind = None, ""
@@ -161,6 +168,8 @@ def load_data(files: Sequence[Path]) -> tuple[dict[str, Any], str, list[DataInfo
         if obj is not None:
             continue
         if f.suffix.lower() == ".npz":
+            if "price" in data:
+                raise ValueError(f"{f}: a second price path (.npz) for role 'price'")
             pp = PP.load(f)
             data["price"] = pp
             infos.append(DataInfo(str(f), "price", sha, int(pp.prices.shape[-1]), "", "", "price"))
@@ -169,18 +178,37 @@ def load_data(files: Sequence[Path]) -> tuple[dict[str, Any], str, list[DataInfo
             ser = L.load_price_csv(f)
         except (L.DataFormatError, ValueError, KeyError, IndexError) as e:
             raise ValueError(f"{f}: not a recognised price / spreads / pool-share / depth file ({e})") from e
+        prices.append((f, sha, ser))
+    if prices and "price" in data:
+        raise ValueError("a price path (.npz) and a price CSV were both given; pass one")
+    roles = IN.assign_roles([s for _, _, s in prices])
+    by_ser = {id(s): (f, sha) for f, sha, s in prices}
+    latest = IN.latest_ts(roles) if roles else 0
+    for role in IN.PRICE_ROLES:
+        ser = roles.get(role)
+        if ser is None:
+            continue
+        f, sha = by_ser[id(ser)]
+        native = IN.native_step(ser)
+        win_txt = ""
+        if window is not None:
+            ser = IN.window_series(ser, *window.bounds(latest))
+            win_txt = f"; window {window.describe(latest)}"
         rs = L.resample_to_grid(ser, "hour")
-        data["price"] = rs.path
+        rs.path.meta.update({"role": role, "native_step_seconds": native})
+        if window is not None:
+            rs.path.meta["window"] = window.describe(latest)
+        data[role] = rs.path
         infos.append(
             DataInfo(
                 str(f),
-                "price",
+                f"price [{role}, native {IN.step_label(native)}]",
                 sha,
                 len(ser),
                 f"{_iso(ser.ts[0])} → {_iso(ser.ts[-1])}",
                 ser.gaps().summary().splitlines()[0] + f"; hourly grid forward-filled "
-                f"{rs.filled_fraction:.1%}",
-                "price",
+                f"{rs.filled_fraction:.1%}{win_txt}",
+                role,
             )
         )
     prov = "real-data" if any(i.kind for i in infos) else "synthetic"
@@ -954,6 +982,7 @@ class RecommendConfig:
     cache_dir: str | None = None
     title: str = "Ycash Yellowback (YED) parameter recommendation"
     mini: bool = False  #: restrict the report to ``groups`` (``ybcal study``)
+    window: str | None = None  #: price-data window (:func:`ybcal.data.inputs.parse_window`)
 
 
 @dataclass
@@ -981,6 +1010,7 @@ def default_out_dir(cfg: RecommendConfig, seed: int, data_hashes: Mapping[str, s
                 "p": cfg.policy.digest(),
                 "d": dict(data_hashes),
                 "g": cfg.groups,
+                "w": cfg.window,
             },
             sort_keys=True,
         ).encode()
@@ -1023,7 +1053,9 @@ def run_recommend(
     a study: a failing study is reported as not run."""
     t0 = time.perf_counter()
     say = on_event or (lambda msg: print(msg, file=sys.stderr, flush=True))
-    data, prov, infos = load_data(cfg.data_files)
+    from ybcal.data.inputs import parse_window
+
+    data, prov, infos = load_data(cfg.data_files, parse_window(cfg.window))
     seed = int(cfg.seed if cfg.seed is not None else cfg.policy.seed)
     hashes = {i.path: i.sha256 for i in infos}
     out = Path(cfg.out) if cfg.out else default_out_dir(cfg, seed, hashes)
@@ -1087,6 +1119,7 @@ def run_recommend(
     )
     man.extra["workers"] = cfg.workers
     man.extra["groups"] = cfg.groups
+    man.extra["window"] = cfg.window
     man.extra["python"] = sys.version.split()[0]
     man.extra["pid_cpu_count"] = os.cpu_count()
     ctx = ReportContext(
@@ -1131,6 +1164,7 @@ def reproduce_config(manifest_path: str | Path) -> dict[str, Any]:
         "policy": pol,
         "data_files": list(m.data_hashes),
         "groups": m.extra.get("groups"),
+        "window": m.extra.get("window"),
         "workers": m.extra.get("workers"),
         "problems": probs,
     }

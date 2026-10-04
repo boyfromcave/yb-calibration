@@ -111,6 +111,17 @@ def real_price(env: Env) -> PricePath | None:
     return None
 
 
+def long_price(env: Env) -> PricePath | None:
+    """The longest real history for long-horizon consumers (G3 class C terms, G4, drawdowns):
+    ``env.data["price_daily"]`` when a daily series was given next to the hourly one, else
+    :func:`real_price` (D-RD-INF-1). The daily series sits on the hourly grid with its ``filled``
+    mask, so fitting it (``synthetic.fit_returns_of``) uses daily observed-to-observed returns."""
+    p = env.data.get("price_daily") if isinstance(env.data, Mapping) else None
+    if isinstance(p, PricePath) and p.provenance == "real":
+        return p
+    return real_price(env)
+
+
 def provenance_of(env: Env) -> str:
     """``real-data`` when a real price path drives the run, else ``synthetic``."""
     return "real-data" if real_price(env) is not None else "synthetic"
@@ -121,7 +132,12 @@ def data_fingerprint(env: Env) -> str:
     p = real_price(env)
     if p is None:
         return "synthetic"
-    return hashlib.sha1(np.ascontiguousarray(p.prices).tobytes()).hexdigest()[:16]
+    h = hashlib.sha1(np.ascontiguousarray(p.prices).tobytes())
+    d = env.data.get("price_daily") if isinstance(env.data, Mapping) else None
+    if isinstance(d, PricePath):  # D-RD-INF-1: a long series changes long-horizon results
+        h.update(b"daily")
+        h.update(np.ascontiguousarray(d.prices).tobytes())
+    return h.hexdigest()[:16]
 
 
 def paths_for(budget: Budget) -> int:

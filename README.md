@@ -137,6 +137,18 @@ cp spreads.csv /path/to/yb-calibration/data/local/spreads.csv
 Optional: a pool-share series (`height,payout_key`, one row per block, ≥ 1 month) as
 `data/local/pool-shares.csv`, and order-book depth as `data/local/depth.csv`.
 
+**Several price files.** Give the hourly and the daily series together; each is assigned a role by
+its own native granularity, not by argument order: the finest series is `price` (every study), a
+daily one beside it is `price_daily` (the long history for long-horizon evidence). Two files of the
+same granularity are refused. `--window full|last365|2021-22|2025-26|lastN|YYYY-MM-DD:YYYY-MM-DD`
+restricts every price series to a date range (spreads, depth and pool shares are not windowed):
+
+```bash
+D=data/local
+ybcal recommend --budget quick --data $D/yec-hourly.csv --data $D/yec-daily.csv \
+    --data $D/spreads-reconstructed.csv --data $D/pool-shares.csv --data $D/depth.csv --window last365
+```
+
 **3. Import and inspect** (row counts, duplicates, gaps, fitted models):
 
 ```bash

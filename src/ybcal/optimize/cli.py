@@ -53,7 +53,9 @@ def cli_sensitivity(args: argparse.Namespace) -> int:
     try:
         base = load_set(args.paramset)
         files = [] if args.synthetic else expand_data_args(args.data)
-        data, prov, _ = load_data(files)
+        from ybcal.data.inputs import parse_window
+
+        data, prov, _ = load_data(files, parse_window(getattr(args, "window", None)))
     except (OSError, ValueError, KeyError) as e:
         print(f"ybcal sensitivity: {e}", file=sys.stderr)
         return 2

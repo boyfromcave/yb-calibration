@@ -74,6 +74,7 @@ def config_from_args(
     budget, seed, policy_path = args.budget, args.seed, args.policy
     files = data_files(args)
     workers = args.workers
+    window = getattr(args, "window", None)
     man = getattr(args, "manifest", None)
     if man:
         rc = reproduce_config(man)
@@ -83,7 +84,11 @@ def config_from_args(
         files = [Path(f) for f in rc["data_files"]]
         groups = rc["groups"] or groups
         workers = workers or rc["workers"]
+        window = window or rc.get("window")
     policy = Policy.load(policy_path)
+    from ybcal.data.inputs import parse_window
+
+    parse_window(window)  # fail early on a bad --window
     cfg = RecommendConfig(
         budget=Budget.named(budget),
         policy=policy,
@@ -102,6 +107,7 @@ def config_from_args(
         max_rounds=args.max_rounds,
         cache_dir=args.cache,
         mini=mini,
+        window=window,
     )
     if title:
         cfg.title = title

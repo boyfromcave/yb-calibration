@@ -133,6 +133,7 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-DEV-5](#d-rd-dev-5-2026-10-03-devnet--two-simulator-fixes-the-devnet-found-attestation-frame-dormancy-record) | devnet (M6) | two simulator fixes the devnet found (attestation frame, dormancy record) |
 | [D-RD-DEV-6](#d-rd-dev-6-2026-10-03-devnet--binaries-and-skew-for-the-2026-10-validation) | devnet (M6) | binaries and skew for the 2026-10 validation |
 | [D-RD-DEV-7](#d-rd-dev-7-2026-10-03-devnet--what-remains-unmodelled-and-which-studies-it-weakens) | devnet (M6) | what remains unmodelled, and which studies it weakens |
+| [D-RD-INF-1](#d-rd-inf-1-2026-10-03-infra--price-inputs-by-role-observed-to-observed-returns-everywhere) | infra (wave 2) | price inputs by role; observed-to-observed returns everywhere |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -1624,3 +1625,28 @@ mainnet set (`docs/devnet.md`).
 (L-2), abandonment/sweep timing (L-3). G1/G2 (oracle), G3/G4 (vault solvency, claims), G5
 (activation), G7 (supply) and G8 (attestation liveness, dormancy, PIN) rest on rules the devnet now
 matches exactly on both lines.
+
+## D-RD-INF-1 (2026-10-03, infra) — price inputs by role; observed-to-observed returns everywhere
+
+**Decision.** `load_data` no longer lets the last price file win. Every price CSV is read first and
+assigned a role by its **native granularity** (modal spacing of its own timestamps; ≥ 20 h is
+daily), never by `--data` order (`ybcal.data.inputs`): the finest series is `price` (what every
+study reads), a daily series next to it is `price_daily` (for long-horizon consumers: G3 class C
+5-year terms, G4, drawdown evidence; `g1_price_windows.long_price(env)` returns it, falling back to
+`price`). A single price file is `price` whatever its step. Two series competing for one role are
+an error. Both sit on the hourly grid with the loader's `filled` mask; the report's data table names
+the role and native step (`price [price_daily, native 1 d]`), and `data_fingerprint` hashes both.
+Two places that lost the mask are fixed: G3's `_real_hourly` rebuilt the path without it (so a daily
+series on the hourly grid showed 23 exact-zero returns a day, and `drop_stale_runs` emptied it —
+the `rd0` "empty return series" in G3/G4), and `pricepath.resample(→ block)` repeated the hour mask
+over all 48 blocks (so an hourly path on the block grid fitted 47 zero returns per hour and was
+emptied the same way); the 47 held blocks are now marked filled, and block → hour returns the
+original mask exactly.
+**Reason.** The wave-1 run passed `yec-hourly.csv` and `yec-daily.csv`; the daily file won, the
+stale-run filter emptied it, and G3/G4 did not run. Long-horizon studies want 6.5 years of daily
+history (σ ≈ 236 %/yr daily) next to the hourly microstructure (σ ≈ 444 %/yr hourly, lag-1 ac −0.2).
+**Consequence.** On the real files: `price` = 56,165 hourly returns, `price_daily` = 2,597 daily
+returns; per window (`--window`, D-RD-INF-5) last365 8,760 / 364, 2021-22 17,502 / 729, 2025-26
+14,516 / 605 — none empty. Studies that want the daily series opt in via `long_price`; until they
+do, results with and without `yec-daily.csv` differ only in cache keys.
+
