@@ -367,3 +367,22 @@ def test_top_risk_quotes_g3_study_not_fast_model():
     }
     assert g3_bad_debt_over(recs, Policy()) == ["C 20.43% vs 2.0%"]
     assert g3_bad_debt_over({}, Policy()) == []
+
+
+def test_neighbours_name_only_the_rules_own_constraints():
+    """D-RD-AUD-10: a neighbour failing only other rules' constraints is not reported as violating."""
+    from ybcal.report import explain as XX
+    from ybcal.studies.base import Recommendation
+
+    rec = Recommendation(
+        "emergencyRatioBps", 10500, 10500, "KEEP", "r", "b",
+        metrics={"constraints_current": {}},
+        sensitivity={"neighbours": [
+            {"value": 10400, "steps": -1, "primary": 0.3, "feasible": False,
+             "violated": ["bad_debt_B", "bad_debt_C"], "improvement": -0.1},
+        ]},
+    )
+    assert "violates" not in XX.neighbours_text(rec) and "worse" in XX.neighbours_text(rec)
+    rec.metrics = {"constraints_current": {"bad_debt_A": True}}
+    rec.sensitivity["neighbours"][0]["violated"] = ["bad_debt_A", "bad_debt_C"]
+    assert "violates bad_debt_A." in XX.neighbours_text(rec)

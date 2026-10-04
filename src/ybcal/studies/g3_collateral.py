@@ -1167,8 +1167,10 @@ class G3Study:
             values[f"viol.bad_debt_{name}"] = 0.0 if ok else (p / tol - 1 if np.isfinite(p) else 1e9)
             hmax = float(pol.class_heterogeneity_max)
             hv = values[f"het.{name}"]
-            cons[f"het_{name}"] = bool(not np.isfinite(hv) or hv <= hmax)
-            values[f"viol.het_{name}"] = 0.0 if cons[f"het_{name}"] else hv / hmax - 1
+            # heterogeneity triggers design note G3-DN6; it is not a constraint of any parameter's rule
+            # (D-RD-AUD-10), so it stays out of `cons` and cannot mark a candidate infeasible
+            het_ok = bool(not np.isfinite(hv) or hv <= hmax)
+            values[f"viol.het_{name}"] = 0.0 if het_ok else hv / hmax - 1
         values["het.max"] = float(np.nanmax(hets)) if np.isfinite(hets).any() else math.nan
         # claimant incentive
         depth = depth_p10_usd(env, float(pol.claimant_slippage_pctl))

@@ -160,17 +160,27 @@ def neighbours_text(rec: Recommendation) -> str:
             "No ±1-step neighbour was evaluated (the study fixes this value by a rule, or no admissible "
             "neighbour exists)."
         )
+    m = rec.metrics if isinstance(rec.metrics, Mapping) else {}
+    own_c = m.get("constraints_current")
+    own = set(own_c) if isinstance(own_c, Mapping) else None
     parts = []
     for q in pts:
         v = fmt_value(rec.param, q.get("value"))
         step = int(q.get("steps", 0))
         tag = f"{step:+d} step ({v})"
+        violated = list(q.get("violated") or [])
+        # D-RD-AUD-10: name only the constraints of this parameter's own rule; a neighbour that fails
+        # only other rules' constraints (e.g. another class's bad-debt bound) is not why it was not chosen
+        if own is not None and violated and not any(c in own for c in violated):
+            q = {**q, "feasible": True}
+        elif own is not None:
+            violated = [c for c in violated if c in own] or violated
         if q.get("rejected"):
             parts.append(f"{tag}: inadmissible ({', '.join(q['rejected'])})")
         elif q.get("primary") is None:
             parts.append(f"{tag}: not evaluated")
         elif not q.get("feasible", True):
-            parts.append(f"{tag}: violates {', '.join(q.get('violated') or ['a constraint'])}")
+            parts.append(f"{tag}: violates {', '.join(violated or ['a constraint'])}")
         else:
             imp = q.get("improvement")
             if imp is None or not math.isfinite(imp):
