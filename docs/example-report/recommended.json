@@ -1,6 +1,6 @@
 {
   "format": "ybcal-extract/1",
-  "ref": "ybcal-recommended@7bcd5263467d",
+  "ref": "ybcal-recommended@a8f8de578886",
   "commit": "7702d22606d1ec3edf0fca962573fba64dac3904",
   "fields": [
     "network",
@@ -127,10 +127,10 @@
       "startHeight": 3075000,
       "enforceUntilHeight": 3495480,
       "addressVersion": "1FE4",
-      "pFastWindow": 48,
+      "pFastWindow": 96,
       "pMidWindow": 1152,
       "pSlowWindow": 2016,
-      "pFastMinFill": 24,
+      "pFastMinFill": 48,
       "pMidMinFill": 768,
       "pSlowMinFill": 1344,
       "signalWindow": 2016,
@@ -143,7 +143,7 @@
       "abandonBlocks": 34560,
       "nReg": 576,
       "peerLag": 10,
-      "peerMin": 12,
+      "peerMin": 8,
       "deviationBps": 500,
       "accuracyBandBps": 100,
       "payeeWindow": 100,
@@ -151,10 +151,10 @@
       "feeBps": 10,
       "grace": 34560,
       "claimThresholdBps": 11000,
-      "supplyCapBps": 5000,
+      "supplyCapBps": 1500,
       "globalRatioHaltBps": 25000,
       "recapRatioBps": 50000,
-      "divergenceBps": 1000,
+      "divergenceBps": 1500,
       "classMin[0]": 34560,
       "classMin[1]": 103681,
       "classMin[2]": 420481,
@@ -164,11 +164,11 @@
       "baseRatioBps[0]": 72500,
       "baseRatioBps[1]": 70000,
       "baseRatioBps[2]": 60000,
-      "volWindow": 2880,
-      "volStep": 24,
-      "volPeriodsPerYear": 17520,
+      "volWindow": 2016,
+      "volStep": 48,
+      "volPeriodsPerYear": 8760,
       "sigmaRefBps": 7000,
-      "sigmaMultMaxBps": 30000,
+      "sigmaMultMaxBps": 42500,
       "minMint": 10000,
       "maxMint": 1000000,
       "minOutput": 100,
@@ -194,11 +194,11 @@
       "pinMinTags": 3,
       "pinMinBundles": 2,
       "divergeBpsAttest": 1100,
-      "emergencyRatioBps": 10900,
+      "emergencyRatioBps": 10500,
       "emergencyPersist": 48,
       "emergencyNoticeTtl": 1152,
       "residualMinZat": 100000,
-      "attestFeeBps": 3500,
+      "attestFeeBps": 4500,
       "bondMin": 3000000000000,
       "bondMinLock": 420480,
       "bondMaturity": 16128,
@@ -216,10 +216,10 @@
       "startHeight": 0,
       "enforceUntilHeight": 0,
       "addressVersion": "2007",
-      "pFastWindow": 48,
+      "pFastWindow": 96,
       "pMidWindow": 1152,
       "pSlowWindow": 2016,
-      "pFastMinFill": 24,
+      "pFastMinFill": 48,
       "pMidMinFill": 768,
       "pSlowMinFill": 1344,
       "signalWindow": 2016,
@@ -232,7 +232,7 @@
       "abandonBlocks": 34560,
       "nReg": 576,
       "peerLag": 10,
-      "peerMin": 12,
+      "peerMin": 8,
       "deviationBps": 500,
       "accuracyBandBps": 100,
       "payeeWindow": 100,
@@ -240,10 +240,10 @@
       "feeBps": 10,
       "grace": 34560,
       "claimThresholdBps": 11000,
-      "supplyCapBps": 5000,
+      "supplyCapBps": 1500,
       "globalRatioHaltBps": 25000,
       "recapRatioBps": 50000,
-      "divergenceBps": 1000,
+      "divergenceBps": 1500,
       "classMin[0]": 34560,
       "classMin[1]": 103681,
       "classMin[2]": 420481,
@@ -253,11 +253,11 @@
       "baseRatioBps[0]": 72500,
       "baseRatioBps[1]": 70000,
       "baseRatioBps[2]": 60000,
-      "volWindow": 2880,
-      "volStep": 24,
-      "volPeriodsPerYear": 17520,
+      "volWindow": 2016,
+      "volStep": 48,
+      "volPeriodsPerYear": 8760,
       "sigmaRefBps": 7000,
-      "sigmaMultMaxBps": 30000,
+      "sigmaMultMaxBps": 42500,
       "minMint": 10000,
       "maxMint": 1000000,
       "minOutput": 100,
@@ -283,11 +283,11 @@
       "pinMinTags": 3,
       "pinMinBundles": 2,
       "divergeBpsAttest": 1100,
-      "emergencyRatioBps": 10900,
+      "emergencyRatioBps": 10500,
       "emergencyPersist": 48,
       "emergencyNoticeTtl": 1152,
       "residualMinZat": 100000,
-      "attestFeeBps": 3500,
+      "attestFeeBps": 4500,
       "bondMin": 3000000000000,
       "bondMinLock": 420480,
       "bondMaturity": 16128,
@@ -394,17 +394,9 @@
     "kind": "recommended",
     "base_commit": "7702d22606d1ec3edf0fca962573fba64dac3904",
     "changes": {
-      "pFastWindow": {
-        "current": 96,
-        "recommended": 48
-      },
       "pMidWindow": {
         "current": 576,
         "recommended": 1152
-      },
-      "pFastMinFill": {
-        "current": 48,
-        "recommended": 24
       },
       "pMidMinFill": {
         "current": 384,
@@ -412,7 +404,7 @@
       },
       "peerMin": {
         "current": 5,
-        "recommended": 12
+        "recommended": 8
       },
       "deviationBps": {
         "current": 1000,
@@ -426,13 +418,9 @@
         "current": 25,
         "recommended": 10
       },
-      "supplyCapBps": {
-        "current": 1500,
-        "recommended": 5000
-      },
       "divergenceBps": {
         "current": 2000,
-        "recommended": 1000
+        "recommended": 1500
       },
       "baseRatioBps[0]": {
         "current": 50000,
@@ -446,21 +434,13 @@
         "current": 30000,
         "recommended": 60000
       },
-      "volWindow": {
-        "current": 2016,
-        "recommended": 2880
-      },
-      "volStep": {
-        "current": 48,
-        "recommended": 24
-      },
-      "volPeriodsPerYear": {
-        "current": 8760,
-        "recommended": 17520
-      },
       "sigmaRefBps": {
         "current": 10000,
         "recommended": 7000
+      },
+      "sigmaMultMaxBps": {
+        "current": 30000,
+        "recommended": 42500
       },
       "nPenalty": {
         "current": 288,
@@ -478,13 +458,9 @@
         "current": 1500,
         "recommended": 1100
       },
-      "emergencyRatioBps": {
-        "current": 10500,
-        "recommended": 10900
-      },
       "attestFeeBps": {
         "current": 2500,
-        "recommended": 3500
+        "recommended": 4500
       },
       "bondMin": {
         "current": 2000000000000,
@@ -510,7 +486,7 @@
       "volStep": "PROVISIONAL",
       "volPeriodsPerYear": "PROVISIONAL",
       "sigmaRefBps": "PROVISIONAL",
-      "sigmaMultMaxBps": "BLOCKED",
+      "sigmaMultMaxBps": "PROVISIONAL",
       "signalWindow": "KEEP",
       "activationThreshold": "KEEP",
       "participationFloor": "KEEP",
@@ -584,7 +560,7 @@
       "startHeight": "KEEP",
       "enforceUntilHeight": "KEEP"
     },
-    "policy_hash": "b510b66ce59d5f364052bba47b96a0a5941d799a17e80af8e70779a63eb37abe",
+    "policy_hash": "24a0b7ebfacf1b67e17b83ad4caad925d23fbeeb522c2f78db3804f0862c86e8",
     "seed": 20261003,
     "budget": "quick",
     "provenance": "synthetic"

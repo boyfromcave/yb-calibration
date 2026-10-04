@@ -1,8 +1,8 @@
 # Example report — quick budget, synthetic data
 
-Output of `ybcal recommend --budget quick --synthetic --workers 4` at ycash6 `7702d22`, run on
-2026-10-03 (9 min 52 s on 4 cores). Kept as a reference for what the tool produces; **every value
-rests on synthetic placeholder data and is not a recommendation to lock** (lock-ready: no).
+Output of `ybcal recommend --budget quick --synthetic --workers 5` at ycash6 `7702d22`, re-run on
+2026-10-03 after the methodology audit (D-RD-AUD-1..12; 6 min 59 s). Kept as a reference for what
+the tool produces; **every value rests on synthetic placeholder data and is not a recommendation to lock** (lock-ready: no).
 The self-contained `report.html` and the `evidence/` figures are not committed (regenerate with
 `make quick`).
 
