@@ -50,6 +50,9 @@ def test_every_param_recommended_with_full_fields(tiny_run):
         assert r.evidence and all(p.exists() for p in r.evidence)
         assert str(r.evidence[0]).startswith(str(out / "g7"))
         assert isinstance(r.metrics["design_notes"], list)
+        if r.param == "supplyCapBps":  # owner-pinned (W20, D-RD-INF-2): KEEP whatever the data
+            assert r.verdict == "KEEP" and r.metrics["owner_pin"]["ref"].startswith("W20")
+            continue
         assert r.provenance == "synthetic" and r.verdict in ("PROVISIONAL", "BLOCKED")
     assert by["recapRatioBps"].recommended == 2 * by["globalRatioHaltBps"].recommended
     assert by["globalRatioHaltBps"].recommended < 30_000

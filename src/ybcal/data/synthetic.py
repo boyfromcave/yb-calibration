@@ -777,6 +777,38 @@ class BlockBootstrap(PriceModel):
 
 
 # ---------------------------------------------------------------------------------------------------
+# Centred wrapper (D-RD-INF-5)
+
+
+@dataclass
+class Centred(PriceModel):
+    """Another model with its expected log drift removed (the median path is flat), so a fitted
+    regime-switch or GARCH model can stand in for the demeaned block bootstrap of real data."""
+
+    inner: PriceModel = field(default_factory=lambda: GBM())
+    demean: bool = True  #: always centred; settable so callers that set it on a bootstrap still work
+    meta: dict[str, Any] = field(default_factory=dict, compare=False)
+    name: ClassVar[str] = "centred"
+
+    def params(self) -> dict[str, Any]:
+        return {"inner": self.inner.name, **self.inner.params()}
+
+    def expected_log_drift(self) -> float:
+        return 0.0
+
+    def annual_vol(self) -> float:
+        from ybcal.sim.drift import annual_vol
+
+        return annual_vol(self.inner)
+
+    def log_returns(
+        self, n_paths: int, n_steps: int, dt: float | str, rng: np.random.Generator
+    ) -> np.ndarray:
+        d = as_dt(dt)
+        return self.inner.log_returns(n_paths, n_steps, d, rng) - self.inner.expected_log_drift() * d
+
+
+# ---------------------------------------------------------------------------------------------------
 # Registry
 
 

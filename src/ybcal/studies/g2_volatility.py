@@ -123,7 +123,7 @@ def ensemble_prices(env: Env, kind: str, P: int, n: int) -> tuple[np.ndarray, st
     if kind == "realised":
         real = G1.real_price(env)
         if real is not None:
-            bb = SY.BlockBootstrap.fit(real)
+            bb = G1.real_model(env, real)
             bb.demean = True
             r = bb.log_returns(P, n, "block", rng)[:, : n - 1]
             label = "block bootstrap of the real price"

@@ -58,6 +58,7 @@ The fastest way to see how much a key matters is to rerun one group with a chang
 | `term_distribution` | `"uniform"` | enum: uniform, short-heavy, long-heavy | How lock terms are spread within each class when P(bad debt) is averaged over terms. | G3, G4, joint pass (top-risk model), agents | Use real wallet data if any exists. `long-heavy` is the conservative choice (long terms carry most drawdown). |
 | `sigma_mult_at` | `"median"` | enum: median, p90 | The σ multiplier assumed when sizing base ratios: the path's median or its 90th percentile. | G3, G4 | `median` matches what a typical mint pays. `p90` credits the multiplier more and so recommends lower base ratios; use it only if you trust the σ multiplier to be high when it matters. |
 | `price_drift` | `"centred"` | enum: centred, martingale, model | Drift convention of the long-horizon solvency price paths (the G3/G4 hour ensemble and the joint top-risk model; every other study is centred, D-WP2-5). `centred`: expected log drift 0 (the median price is flat). `martingale`: expected price flat, so the log price bleeds σ²/2 a year (−72 %/yr at 120 % vol). `model`: each preset's own drift, and a real bootstrap's sample drift (D-RD-AUD-1). | G3, G4, joint pass | `centred` takes no view on direction. `martingale` is a stress: at YEC-like volatility it makes multi-year classes look near-certain to fail whatever the ratio. Never use `model` with real data: one year's drift (+176 %/yr to 2026-10) would decide the ratios. |
+| `real_price_model` | "bootstrap" | name | How studies model real price data: `bootstrap` = demeaned stationary block bootstrap of the hourly series (default); `regime` / `garch` = that model fitted on the longest real series (`price_daily` when given) and centred. Synthetic runs ignore it. | G1, G2, G3, G4, G6, joint risk model (`g1_price_windows.real_model`) | The robustness harness (`ybcal robust --models`) varies it; a lock-grade value should not depend on it (D-RD-INF-5). |
 
 ## `[claims]` — claimant incentive (G3)
 
@@ -75,7 +76,6 @@ The fastest way to see how much a key matters is to rerun one group with a chang
 | `attack_moved_tol` | 0.05 | fraction of attack blocks | Largest share of attack blocks in which a coalition at `attack_share_min` moves the harmful price by half its bias (D-WP7a-2). | G1 | 0.05 accepts rare, brief nudges. Use 0.01 for a strict reading of "cannot move". |
 | `pool_outage_rate_per_day` | 0.0333 (1 per 30 days) | events/day per pool | Per-pool feed outage frequency used for NO_PRICE availability and the σ cap trap (D-WP7a-3). | G1, G2 | Measure from `spreads.py` logs or pool operators' history. Placeholder until then. |
 | `pool_outage_mean_hours` | 4.0 | hours | Mean length of a per-pool feed outage. | G1, G2 | As above. Long outages hurt availability and K12 much more than frequent short ones. |
-| `tagging_pools` | [] | payout-key prefixes | Pools assumed to write price quotes when a real pool-share log is loaded: their blocks carry quote tags, every other block does not. Empty = the largest pools, in order, until `expected_enforcing_share` is reached. | G1, G2 | Who tags sets the medians' fill (NO_PRICE) and who can control a median; the real-data policy names the three identified pools (D-RD-ORA-1). |
 | `pump_overpricing_lambda` | 0.5 | weight | Weight of pump overpricing (mint at the top) relative to crash-lag CVaR in G1's objective. | G1 | Higher favours longer windows (slower to follow a rally). 0 cares only about crash tracking. |
 | `crash_lag_cvar_alpha` | 0.95 | quantile level | CVaR level of the pClaim crash tracking lag in G1's objective. | G1 | 0.95 averages the worst 5 % of crash paths. 0.99 is more tail-focused but noisier at quick budget. |
 | `max_sigma_lag_blocks` | 4032 | blocks (2 × 2,016) | Longest time the σ multiplier may take to reach 90 % of a new regime, and to recover from a feed-outage cap trap (K12). | G2 | Shorter forces shorter `volWindow` (noisier σ̂). About one to two weeks is the plan's range. |
@@ -96,6 +96,10 @@ The fastest way to see how much a key matters is to rerun one group with a chang
 | `operator_upgrade_window_blocks` | 2016 | blocks | `activationDelay` must be at least this (time for operators to upgrade after lock-in). | G5 | Ask pool operators how long an upgrade takes; one week is common. |
 | `orphan_rate` | 0.005 | fraction of blocks | Natural orphan rate, used for valve false trips and for VOID risk of `DEFAULT_REF_LAG`. | G5, G9 | Measure from a node's stale-block count. |
 | `max_valve_false_trips_per_year` | 1.0 | trips/year | Tolerated natural false trips of the work valve (`valveBlocks`, excluded / node-local). | G5 | The valve is local, so a trip costs one node; one a year is mild. |
+| `enforcing_pools` | [] | payout-key prefixes | The operators expected to enforce, matched against the pool-share log's payout keys; G5 replays their real per-block signal sequence (`ybcal.sim.landscape`). Empty: the largest operators in order until their share reaches `expected_enforcing_share`. | G5 | Name the operators who have committed (D-RD-ACT-1). The auto rule can pick a key that leaves the chain mid-sample. |
+| `activation_reach_days` | 0.0 | days | `activation_reliability` is the probability of lock-in within this many days of the start height (on the real landscape: the bootstrapped signal sequence). 0 = at the first eligible height (the original rule). | G5 | A launch window: how long the owner will wait for lock-in after the start height (D-RD-ACT-3). |
+| `max_spurious_lock_prob` | 1.0 | probability | With a pool-share log: the largest probability that a coalition of the largest operators whose mean share is below 60 % (it cannot hold the floors once ACTIVE) locks in within the reach (e.g. a multi-day hop of an auto-switching pool). 1 = not a constraint. | G5 | A launch-safety tolerance; ACT-2 is a single-window test, so only a longer window lowers it (D-RD-ACT-4). |
+| `valve_attack_days` | 0.0 | days | With a pool-share log: `valve_minority_trip_max` bounds the probability that a sustained ACT-7 race attack (a rule-breaking transaction kept in every stock mempool, races back to back) trips the work valve within this many days, on the real block sequence. 0 = per race (gambler's ruin). | G5 | The attacker's patience; a matured-vault owner can keep a sweep in stock mempools for free (D-RD-ACT-5). |
 
 ## `[abandonment]` — abandonment window and release cadence (G4, R)
 
@@ -182,6 +186,31 @@ The fastest way to see how much a key matters is to rerun one group with a chang
 |---|---|---|---|---|---|
 | `max_rounds_joint` | 3 | rounds | Coordinate-descent rounds in the joint pass; `--max-rounds` overrides. | joint pass, optimizer runner, CLI | 1 halves the quick run (couplings then reported as not iterated). 3 matches the plan. |
 | `insensitive_total_order` | 0.01 | Sobol index | Total-order index below which a parameter is labelled *insensitive*. The label never changes a verdict (D-WP8-3). | joint sensitivity | Presentation threshold; 0.01 = under 1 % of output variance. |
+
+## `[owner_pinned]` — owner decisions (D-RD-INF-2)
+
+| Key | Default | Unit | Meaning | Read by | How to choose |
+|---|---|---|---|---|---|
+| `owner_pinned` | 17 parameters (below) | param → decision reference | Parameters whose value the owner fixed by decision. The study still runs and its evidence is kept, but the value is **kept**: verdict `KEEP (owner decision <ref>)`, never CHANGE, never in `params.cpp.patch`; the group's other parameters are decided with the pin held (the joint pass treats it as fixed). Where the evidence points elsewhere, the executive summary and the parameter section say "evidence points to X because …; risk of keeping: …". | optimizer runner (`optimize/pins.py`), report, lock-readiness | Remove a line to let the study move that value; add one (a tunable registry name) when the owner decides another. A value may be `{ ref = "L3", of = "signalWindow" }`: the shipped *fraction* of the parent is kept, so the value follows the parent (the decision fixes a share, not a count). |
+
+The shipped pins, with their plan citations (workspace `docs/plans/`; "proposal" =
+`docs/reference/yellowback-price-attestation.md`):
+
+| Parameter | Value | Decision | Where |
+|---|---|---|---|
+| abandonBlocks | 34,560 (30 d) | W21 / D-R-12 (2026-10-02) | v3 §2 W21, §3.1, §6.2 |
+| grace | 34,560 (30 d) | D-R-6 (2026-09-21), reaffirmed in revision 4 / W21 | v3 §0 rev. 4, §6.2 |
+| classMin[0..2], classMax[0..2] | 30–90 d, 90–365 d, 1–5 y | D-R-6 / W21: "GRACE and the lock classes stay as they are" | v3 §0 rev. 4, §6.2 D-R-12 |
+| supplyCapBps | 1,500 | W20 / D-R-11: stays 1,500, soft above `RECAP_RATIO_BPS` | v3 §2 W20, §3.1, §6.2 |
+| attestFeeBps | 2,500 | D-3: additive, 25 % of `feeZat` | proposal §16, v3 §3.1 |
+| attestArmMin, attestArmDelay | 5, 1,152 | D-4: automatic arming, 5 ELIGIBLE attestors then one day | proposal §16, v3 §1 item 5, §3.1 |
+| activationThreshold, participationFloor | 75 %, 60 % of `signalWindow` (1,512, 1,210 of 2,016) | L3: "the mint halt keeps 60 % / 75 %" — pinned as fractions | v2 §0 revision 4 |
+| enforcementFloor, enforcementResume | 50 %, 60 % of `signalWindow` (1,008, 1,210 of 2,016) | L3: suspend below 50 %, resume at 60 % — pinned as fractions | v2 §0 revision 4 |
+| valveBlocks | 6 | L7: work valve at 6 blocks | v2 §0 revision 5 |
+
+Owner decisions on values that are not tunable registry fields are honoured by derivation, not
+pinned: `recapRatioBps` = 2 × `globalRatioHaltBps` (W16 / D-R-3, the owner chose 2×), the window
+minimum fills ⌈W/2⌉ and ⌈2W/3⌉ (L9), the sunset span ≈ 420,480 blocks (L8, release study).
 
 ## `[studies_g5_g8]` — G5/G8 assumptions (D-WP7c-2)
 

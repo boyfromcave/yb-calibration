@@ -255,14 +255,14 @@ def test_pool_landscape_tagging_selection():
     land = G.pool_landscape(env)
     assert land is not None and land.keys == ("A", "B", "C", "D")
     assert land.tagging == (True, True, True, False)  # 45 + 27 < 80 → C tags too
-    env2 = SimpleNamespace(policy=Policy(tagging_pools=("B", "D")), data={"pool_shares": log})
+    env2 = SimpleNamespace(policy=Policy(enforcing_pools=("B", "D")), data={"pool_shares": log})
     land2 = G.pool_landscape(env2)
     assert land2.tagging == (False, True, False, True)
     assert abs(land2.tagging_share - 4 / 11) < 1e-9
     cfg = G.oracle_config(env2)
     assert [p.tags for p in cfg.pools] == [False, True, False, True]
     assert abs(cfg.tagging_share - 4 / 11) < 1e-9
-    env3 = SimpleNamespace(policy=Policy(tagging_pools=("Z",)), data={"pool_shares": log})
+    env3 = SimpleNamespace(policy=Policy(enforcing_pools=("Z",)), data={"pool_shares": log})
     assert "matched no key" in G.pool_landscape(env3).selection
     assert G.pool_landscape(SimpleNamespace(policy=Policy(), data={})) is None
 
@@ -283,7 +283,7 @@ def test_landscape_metrics_single_pool_majority():
     from types import SimpleNamespace
 
     log = _log("AAAAABBBCCD", 600)
-    env = SimpleNamespace(policy=Policy(tagging_pools=("A", "B")), data={"pool_shares": log})
+    env = SimpleNamespace(policy=Policy(enforcing_pools=("A", "B")), data={"pool_shares": log})
     lm = G.landscape_metrics(G.pool_landscape(env), mainnet())
     assert lm["top_pool_quote_share"] == pytest.approx(5 / 8)
     assert lm["top_pool_control_min"] > 0.95 and lm["attack_env_blocked"] == 1.0
@@ -346,7 +346,7 @@ def test_rogue_majority_pool_captures_every_median():
     """D-RD-ORA-4: a pool with most of the quotes moves every median by its bias (the windows only
     delay it) and, withholding, leaves the medians undefined."""
     log = _log("AAAAAAABBC", 2000)  # A 70 % of blocks
-    env = Env(Policy(tagging_pools=("A", "B")), TINY, seed=7, data={"pool_shares": log})
+    env = Env(Policy(enforcing_pools=("A", "B")), TINY, seed=7, data={"pool_shares": log})
     G.clear_caches()
     m = G.rogue_metrics(env, mainnet())
     assert m["rogue_attack_days"] == pytest.approx(20.0, abs=0.01)

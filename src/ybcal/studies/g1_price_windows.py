@@ -111,6 +111,43 @@ def real_price(env: Env) -> PricePath | None:
     return None
 
 
+def long_price(env: Env) -> PricePath | None:
+    """The longest real history for long-horizon consumers (G3 class C terms, G4, drawdowns):
+    ``env.data["price_daily"]`` when a daily series was given next to the hourly one, else
+    :func:`real_price` (D-RD-INF-1). The daily series sits on the hourly grid with its ``filled``
+    mask, so fitting it (``synthetic.fit_returns_of``) uses daily observed-to-observed returns."""
+    p = env.data.get("price_daily") if isinstance(env.data, Mapping) else None
+    if isinstance(p, PricePath) and p.provenance == "real":
+        return p
+    return real_price(env)
+
+
+_MODELS: dict[tuple, Any] = {}
+
+
+def real_model(env: Env, pp: PricePath | None = None) -> Any:
+    """The price model of real data (policy ``real_price_model``, D-RD-INF-5): ``bootstrap`` = the
+    demeaned block bootstrap of ``pp`` (default :func:`real_price`); ``regime`` / ``garch`` = that model
+    fitted on :func:`long_price` (the daily series when given) and centred. Memoised per data and kind."""
+
+    kind = str(getattr(env.policy, "real_price_model", "bootstrap") or "bootstrap")
+    src = pp if pp is not None else real_price(env)
+    if src is None:
+        raise ValueError("real_model needs a real price path")
+    if kind == "bootstrap":
+        return SY.BlockBootstrap.fit(src)
+    if kind not in ("regime", "garch"):
+        raise ValueError(f"real_price_model must be bootstrap, regime or garch (got {kind!r})")
+    lp = long_price(env) or src
+    key = (kind, hashlib.sha1(np.ascontiguousarray(lp.prices).tobytes()).hexdigest()[:16])
+    hit = _MODELS.get(key)
+    if hit is None:
+        inner = SY.MODELS[kind].fit(lp)
+        hit = SY.Centred(inner, meta=dict(getattr(inner, "meta", {}) or {}, centred=True))
+        _MODELS[key] = hit
+    return hit
+
+
 def provenance_of(env: Env) -> str:
     """``real-data`` when a real price path drives the run, else ``synthetic``."""
     return "real-data" if real_price(env) is not None else "synthetic"
@@ -121,7 +158,15 @@ def data_fingerprint(env: Env) -> str:
     p = real_price(env)
     if p is None:
         return "synthetic"
-    return hashlib.sha1(np.ascontiguousarray(p.prices).tobytes()).hexdigest()[:16]
+    h = hashlib.sha1(np.ascontiguousarray(p.prices).tobytes())
+    d = env.data.get("price_daily") if isinstance(env.data, Mapping) else None
+    if isinstance(d, PricePath):  # D-RD-INF-1: a long series changes long-horizon results
+        h.update(b"daily")
+        h.update(np.ascontiguousarray(d.prices).tobytes())
+    kind = str(getattr(env.policy, "real_price_model", "bootstrap") or "bootstrap")
+    if kind != "bootstrap":  # D-RD-INF-5: the model of the data changes every memoised ensemble
+        h.update(kind.encode())
+    return h.hexdigest()[:16]
 
 
 def paths_for(budget: Budget) -> int:
@@ -279,7 +324,7 @@ LANDSCAPE_TOP, LANDSCAPE_MIN_SHARE = 8, 0.01
 @dataclass(frozen=True)
 class PoolLandscape:
     """The real pool landscape of a pool-share log: named keys, their block shares, which of them tag
-    quotes (policy ``tagging_pools``, else the largest until ``expected_enforcing_share``), and the
+    quotes (policy ``enforcing_pools``, else the largest until ``expected_enforcing_share``), and the
     real block-by-block miner sequence (index into ``keys``; −1 = a key below the cut)."""
 
     keys: tuple[str, ...]
@@ -310,11 +355,11 @@ class PoolLandscape:
 
 
 def _tagging_flags(keys: tuple[str, ...], shares: tuple[float, ...], policy) -> tuple[tuple[bool, ...], str]:
-    pref = tuple(getattr(policy, "tagging_pools", ()) or ())
+    pref = tuple(getattr(policy, "enforcing_pools", ()) or ())
     if pref:
         flags = tuple(any(k.startswith(p) for p in pref) for k in keys)
         if any(flags):
-            return flags, "policy tagging_pools"
+            return flags, "policy enforcing_pools"
     target = float(policy.expected_enforcing_share)
     out, acc = [], 0.0
     for sh in shares:
@@ -322,7 +367,7 @@ def _tagging_flags(keys: tuple[str, ...], shares: tuple[float, ...], policy) -> 
         out.append(on)
         acc += sh if on else 0.0
     why = "largest keys until expected_enforcing_share"
-    return tuple(out), (why + " (tagging_pools matched no key)" if pref else why)
+    return tuple(out), (why + " (enforcing_pools matched no key)" if pref else why)
 
 
 def pool_landscape(env: Env) -> PoolLandscape | None:
@@ -382,7 +427,7 @@ def real_miners(env: Env, land: PoolLandscape | None, P: int, n: int, *keys: obj
 
 def oracle_config(env: Env) -> O.OracleConfig:
     """Pools for the G1/G2 oracle. With a real pool-share log: its keys (≥ 1 %, largest 8) at their
-    real shares, tagging as :func:`pool_landscape` says (policy ``tagging_pools``, else the largest
+    real shares, tagging as :func:`pool_landscape` says (policy ``enforcing_pools``, else the largest
     until ``expected_enforcing_share``), and :func:`realise` replays the real miner sequence.
     Without one: ``expected_pool_count`` equal pools sharing ``expected_enforcing_share``. Background
     NO_PRICE is set by who tags against the ⌈2W/3⌉ fill, so the landscape matters more than the
@@ -455,7 +500,7 @@ def realise(
         # a window of the real history in order (D-RD-ORA-4); without real data the fallback model
         run = scen.generate(rng, P, data=real, resolution="block", horizon_days=h)
     elif real is not None:
-        model = SY.BlockBootstrap.fit(real)
+        model = real_model(env, real)
         model.demean = True
         n = scen.n_steps("block", h)
         base = model.simulate(P, n, "block", env.rng_for("G1G2", "bootstrap", name, P, h), p0=scen.p0)
