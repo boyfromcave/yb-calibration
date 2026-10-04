@@ -178,6 +178,7 @@ grace = "D-R-6 (reaffirmed W21)"                                 # v3 §6.2 D-R-
 "classMax[1]" = "D-R-6 (lock classes stay, reaffirmed W21)"
 "classMax[2]" = "D-R-6 (lock classes stay, reaffirmed W21)"
 supplyCapBps = "W20 (D-R-11)"                                    # v3 §2 W20, §6.2 D-R-11: SUPPLY_CAP_BPS stays 1,500, soft above RECAP_RATIO_BPS
+globalRatioHaltBps = "W16 (D-R-3) + W20 (D-R-11)"                # v3 W16: RECAP_RATIO_BPS = 2 x halt (owner chose 2x); W20 pins that gate at 500 % -> halt 250 % (D-RD-ORA-7)
 attestFeeBps = "D-3"                                             # proposal §16 D-3: additive, 25 % of feeZat (v3 §3.1 ATTEST_FEE_BPS 2,500)
 attestArmMin = "D-4"                                             # proposal §16 D-4: automatic arming, 5 ELIGIBLE attestors ...
 attestArmDelay = "D-4"                                           # ... then one day (ATTEST_ARM_DELAY 1,152)

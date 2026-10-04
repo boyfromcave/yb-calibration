@@ -146,6 +146,7 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-ORA-5](#d-rd-ora-5-2026-10-04-oracle--g2-on-real-data-daily-regime-fit-cap-need-on-the-real-history) | oracle (wave 2) | G2 on real data: daily regime fit; cap need on the real history |
 | [D-RD-ORA-6](#d-rd-ora-6-2026-10-04-oracle--halt-3-availability-read-on-the-real-history) | oracle (wave 2) | HALT-3 availability read on the real history |
 | [D-RD-ORA-7](#d-rd-ora-7-2026-10-04-oracle--globalratiohaltbps-is-owner-pinned-in-effect) | oracle (wave 2) | globalRatioHaltBps is owner-pinned in effect |
+| [D-RD-ORA-8](#d-rd-ora-8-2026-10-04-oracle--final-values-for-g1-g2-and-g7s-halts-and-how-they-were-tested) | oracle (wave 2) | final values for G1, G2 and G7's halts, and how they were tested |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -2071,3 +2072,33 @@ owner decision D-R-3) would move the 500 % soft-cap gate W20 pinned (D-R-11) to 
 **Decision.** `[owner_pinned] globalRatioHaltBps = "W16 (D-R-3) + W20 (D-R-11)"` in the real-data
 policy: KEEP 25,000 with the exposure in a design note; `halt.p_sys_bad_real` added beside the
 bootstrap figure.
+
+## D-RD-ORA-8 (2026-10-04, oracle) — final values for G1, G2 and G7's halts, and how they were tested
+
+| Parameter | Shipped | Final | Verdict | Evidence |
+|---|---|---|---|---|
+| `pFastWindow` | 96 | 96 | KEEP (env, G1-ENV-1/2) | quick robust 24/36 (last365 window and seed 20261004 pick 48) |
+| `pMidWindow` | 576 | **1,152** | CHANGE (env) | quick robust 33/36 across windows × models × seeds (the rest 864); NO_PRICE frontier on the real sequence (docs/studies/g1.md) |
+| `pSlowWindow` | 2,016 | 2,016 | KEEP (env) | 33/36 |
+| `volWindow` / `volStep` | 2,016 / 48 | 2,016 / 48 | KEEP | standard seeds 1–3: KEEP / KEEP; quick robust 36/36 and 27/36 |
+| `sigmaRefBps` | 10,000 | **18,000** | CHANGE | standard seeds 1–3: 17,500 / 18,000 / 18,500 (the median); real-history replay median σ̂ 161 % (log-linear) – 174 % (bridge); by window (quick, bootstrap): last365 15,000–23,000, 2021-22 24,500–29,500, 2025-26 17,500–19,500; regime model 10,000–19,000 (no hourly noise: not like for like). The shipped 10,000 is outside the M14 band in every run but 5/36 (regime) |
+| `sigmaMultMaxBps` | 30,000 | **47,500** | CHANGE | standard seeds 1–3: 47,500 ×3 (need 4.52–4.71× = despiked full-history p99 σ̂ ≈ 830 % / ref); by window the need is 3× (2021-22) to > 5× (2025-26, CoinGecko's prints: 50,000-bound BLOCKED) |
+| `divergenceBps` | 2,000 | **2,750** | CHANGE | standard seeds 1, 2: 2,750; seed 3: BLOCKED (2,750 meets availability 5.1 h/yr but synthetic recall 0.863 < 0.9; 2,500 fails availability 8.8 h/yr) — 2,750 is feasible in 2/3 and the least-violating in the third. Real-history frontier (both landscapes, pMid 576 and 1,152): worst-era false HALT-3 hours 2.3–5.0 at 2,750 vs 10.9–12.2 at 2,500; real-fall recall ~0.50 at 2,750, ~0.45 at 3,000. The quick grid (500-bps steps) cannot express 2,750 |
+| `globalRatioHaltBps` | 25,000 | 25,000 | KEEP (pin W16 + W20) | P(system under water within grace) 2.5 % (real hourly) / 4.3 % (real daily) / 6.4 % (bootstrap) vs 1.6 %; ~300 % would meet it (D-RD-ORA-7) |
+| `supplyCapBps` | 1,500 | 1,500 | KEEP (pin W20) | evidence only, unchanged by this work |
+
+`emergencyPersist` is G8's (attestation), not G7's: not studied here.
+
+**Devnet (both node lines).** The final set (mainnet-scale overlay pMidWindow 1,152,
+sigmaRefBps 18,000, sigmaMultMaxBps 47,500, divergenceBps 2,750; scaled ×31.5, terms ×1,440) was
+built for ycash6 at the pin (7702d22) and ycash-dd HEAD, and `ybcal devnet validate` passed all 8
+scenarios on both (VALIDATED; 355–601 heights × 13 fields, vault rows, claimability, bundles): HALT-3
+(DIVERGENCE) 31 blocks in crash-70, NO_PRICE through the feed outage (239 vs 143 warm-up blocks), the
+σ multiplier at the 47,500 cap in K12 traps and 5 distinct values in the crash, HALT-2 296 blocks in
+vault-cycle, identical on both lines. A run of the sharpest real one-day crash (CoinGecko, −51 % on
+2025-10-10, 240 hourly prices) through `devnet run` + `devnet diff`: PASS on both lines (471 heights
+× 13 fields), HALT-3 17 blocks, 39 distinct σ multipliers reaching the cap.
+
+**Not done (handed over).** G1 at the standard budget (one seed ran > 1 h on the shared machine and
+was stopped) and the standard robust matrix (36 runs): `.work/runs/robust-standard.sh` in this
+worktree, resumable.
