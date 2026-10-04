@@ -259,6 +259,12 @@ def figure_style():
     }
 
 
+def _mid_factor(r: ResultRow) -> float:
+    v = r.metrics.values
+    low = float(v.get("fee.pool_usd_month", math.nan))
+    return float(v.get("fee.pool_usd_month_mid", math.nan)) / low if low else math.nan
+
+
 def least_violating(rows: list[ResultRow], cons: tuple[str, ...], dist) -> ResultRow:
     """The row with the smallest sum of relative violations ``viol.<constraint>`` (ties → closest to
     the current set): the BLOCKED fallback the plan asks for."""
@@ -1311,6 +1317,52 @@ class G6Study(FamilyStudy):
         d = decide_with_materiality(sub, policy)
         if d.verdict != "BLOCKED":
             return d.row, d.verdict, d.reason
+        # D-RD-ATT-8: at YEC's adoption the attestor revenue floor and the fee-share cap cannot both hold
+        # with AFEE-1 pinned at 25 % (D-3): keep the user-protecting cap and the pool floor, and pay
+        # attestors as much as the cap allows (least harm). Recorded as an environment limit (D-RD-INF-3)
+        ok = [r for r in sub if r.metrics.constraints.get("fee_share", True)
+              and r.metrics.constraints.get("pool_revenue", True)]
+        if ok and not any(r.metrics.constraints.get("attestor_revenue", True) for r in ok):
+            def att(r: ResultRow) -> float:
+                return float(r.metrics.values.get("fee.attestor_usd_month", math.nan))
+
+            best = max(ok, key=lambda r: (att(r), -sub.distance(r)))
+            cur = sub.current()
+            verdict = "KEEP" if best is cur else "CHANGE"
+            v = best.metrics.values
+            exposure = (
+                f"attestor ${att(best):.0f}/month per seat vs the "
+                f"${float(v.get('fee.attestor_required_usd', math.nan)):.0f} floor; bondMin opportunity "
+                f"cost "
+                f"${float(v.get('fee.bond_cost_usd_month', math.nan)):.0f}/month; revenue scales with "
+                f"adoption "
+                f"(mid ×{_mid_factor(best):.0f})"
+            )
+            self._fee_env = {
+                "constraints": ["attestor_revenue"],
+                "note": "G6-ENV-1",
+                "notes": ["G6-ENV-1"],
+                "why": ("at the policy adoption case AFEE-1 (25 % of FEE-1, owner-pinned D-3, over nSlots "
+                        "seats) "
+                        "reaches the attestor revenue floor only above the minMint fee-share cap"),
+                "exposure": exposure,
+                "harm_metric": "fee.attestor_usd_month",
+                "harm_minimize": False,
+                "harm_at_choice": att(best),
+                "harm_at_current": att(cur) if cur is not None else math.nan,
+                "harm_best": att(best),
+                "titles": ["Attestor revenue floor vs fee-share cap at YEC's adoption"],
+                "fixes": ["adoption above the low case, or the owner setting the floor to the bond's "
+                          "opportunity cost"],
+                "decision": "environment-limited (attestor_revenue): the most attestor revenue under the "
+                            "cap",
+            }
+            return best, verdict, (
+                "the attestor revenue floor cannot hold together with the fee-share cap at the policy "
+                "adoption "
+                f"case (AFEE-1 pinned, D-3): the largest attestor revenue under the cap is chosen "
+                f"({exposure})"
+            )
         row = least_violating(list(sub), fam.constraints, sub.distance)
         vv = row.metrics.values
         return (
@@ -1349,10 +1401,15 @@ class G6Study(FamilyStudy):
         return changes
 
     def decide(self, results: ResultTable, policy) -> list[Recommendation]:
+        from ybcal.studies.envlimit import attach_environment
+
+        self._fee_env = None
         recs = super().decide(results, policy)
         notes = design_notes(results, policy)
         for r in recs:
             r.metrics["design_notes"] = list(notes)
+            if r.param == "feeBps" and self._fee_env:
+                attach_environment(r, self._fee_env)
         return recs
 
     def extra_notes(self, fam: Family, param: str, cur: ResultRow, best: ResultRow) -> list[str]:

@@ -309,3 +309,20 @@ def test_peer_min_must_hold_at_the_participation_floor():
     d = G6.floor_density(0.8, ps, pol)
     assert G6._p_bin_below(12, 19, d) > pol.max_not_evaluated_prob
     assert G6._p_bin_below(7, 19, d) <= pol.max_not_evaluated_prob
+
+
+def test_fees_attestor_floor_environment_limited():
+    """D-RD-ATT-8: when only the attestor floor is unmeetable, pay attestors the most the cap allows."""
+    base = mainnet()
+    t = ResultTable(base)
+    bad = {"fee_share": False, "pool_revenue": True, "attestor_revenue": False}
+    _row(t, base, {"fee.share_minmint": 0.028, "fee.attestor_usd_month": 45}, bad)
+    for fb, share, att in ((10, 0.011, 25), (15, 0.017, 37)):
+        _row(t, base.replace({"feeBps": fb}), {"fee.share_minmint": share, "fee.attestor_usd_month": att},
+             {"fee_share": True, "pool_revenue": True, "attestor_revenue": False})
+    _row(t, base.replace({"feeBps": 20}), {"fee.share_minmint": 0.0225, "fee.attestor_usd_month": 50},
+         {"fee_share": False, "pool_revenue": True, "attestor_revenue": True})
+    st = G.make_study()
+    row, verdict, reason = st.decide_family(t, _fam("fees"), Policy())
+    assert verdict == "CHANGE" and row.params["feeBps"] == 15 and row.params["attestFeeBps"] == 2500
+    assert st._fee_env["note"] == "G6-ENV-1" and "attestor revenue floor" in reason
