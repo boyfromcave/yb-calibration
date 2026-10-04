@@ -519,6 +519,9 @@ def blocked_rows(joint: JointResult, sections: Mapping[str, X.ParamSection]) -> 
         for x in (r.binding, str(m.get("decision") or "")):
             for y in str(x or "").split("; "):
                 y = y.strip()
+                head, sep, tail = y.partition(": ")
+                if sep and tail.startswith(head):  # "A: A (detail)" → "A (detail)"
+                    y = tail
                 # de-duplicate, also a part contained in an earlier one (the rd2 "no candidate
                 # satisfies the policy: no candidate satisfies …" repetition, D-RD-INF-6)
                 if y and y != "—" and not any(y in q or q in y for q in parts):

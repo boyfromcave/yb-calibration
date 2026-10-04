@@ -117,17 +117,25 @@ def _fmt(x: Any) -> str:
 
 
 def _risk(
-    table: ResultTable, base: ParamSet, evidence: Mapping[str, Any], keys: Sequence[str]
+    table: ResultTable,
+    evidence: Mapping[str, Any],
+    keys: Sequence[str],
+    ev_rec: Recommendation | None = None,
 ) -> tuple[str, list[str], dict[str, Any]]:
     """(text, constraints failing at the kept value, metrics) — the risk of keeping the pinned
-    values against the evidence's set."""
+    values against the evidence's set. Constraints are those of the parameter's own rule
+    (``constraints_current`` of the evidence Recommendation) when the study reports them; the
+    study's own current-vs-recommended metrics are quoted where they differ."""
     cur = table.current(keys)
     ev = _row_for(table, evidence, keys)
     parts: list[str] = []
     failing: list[str] = []
     mets: dict[str, Any] = {}
+    m = ev_rec.metrics if ev_rec is not None and isinstance(ev_rec.metrics, Mapping) else {}
+    cc = m.get("constraints_current")
+    own = set(cc) if isinstance(cc, Mapping) else set()
     if cur is not None:
-        failing = list(cur.metrics.violated)
+        failing = [c for c in cur.metrics.violated if not own or c in own]
         mets["primary"] = cur.metrics.primary
         mets["primary_at_kept"] = cur.metrics.primary_value
         if failing:
@@ -138,15 +146,22 @@ def _risk(
             cur.metrics.primary_value, ev.metrics.primary_value, minimize=cur.metrics.minimize
         )
         mets["evidence_improvement"] = imp
-        parts.append(
-            f"{cur.metrics.primary} is {_fmt(cur.metrics.primary_value)} at the kept value vs "
-            f"{_fmt(ev.metrics.primary_value)} at the evidence value"
-            + (f" ({imp:+.1%})" if imp == imp and abs(imp) != float("inf") else "")
-        )
+        if cur.metrics.primary_value != ev.metrics.primary_value and cur.metrics.primary != "zero":
+            parts.append(
+                f"{cur.metrics.primary} is {_fmt(cur.metrics.primary_value)} at the kept value vs "
+                f"{_fmt(ev.metrics.primary_value)} at the evidence value"
+                + (f" ({imp:+.1%})" if imp == imp and abs(imp) != float("inf") else "")
+            )
         newly = [c for c in failing if ev.metrics.constraints.get(c, False)]
         if newly:
             mets["met_at_evidence"] = newly
             parts.append(f"the evidence value meets {', '.join(newly)}")
+    a, b = m.get("current"), m.get("recommended")
+    if isinstance(a, Mapping) and isinstance(b, Mapping):
+        diff = [f"{k} {_fmt(a[k])} → {_fmt(b[k])}" for k in a if k in b and a[k] != b[k]
+                and not isinstance(a[k], Mapping)][:4]
+        if diff:
+            parts.append("the study's metrics, kept → evidence: " + ", ".join(diff))
     return ("; ".join(parts) or "no measurable difference in this study"), failing, mets
 
 
@@ -184,7 +199,6 @@ def apply_owner_pins(
                 f"{e}); the other parameters keep the unpinned decision"
             )
             final = recs
-    risk_txt, failing, risk_m = _risk(table, base, ev_values, list(names))
     fin = {**base.to_dict(), **{r.param: r.recommended for r in final}}
     out: list[Recommendation] = []
     for r in final:
@@ -199,6 +213,7 @@ def apply_owner_pins(
             out.append(r)
             continue
         ev = evidence.get(r.param, r)
+        risk_txt, failing, risk_m = _risk(table, ev_values, list(names), ev)
         pin = pins[r.param]
         ref = pin.label
         kept = pin.target(fin, base)
