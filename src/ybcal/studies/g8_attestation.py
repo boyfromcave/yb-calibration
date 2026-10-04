@@ -422,6 +422,7 @@ def emergency_metrics(env: Env, persist: int, ratio_bps: int, max_age: int) -> d
 MINT10_SCENARIOS: tuple[str, ...] = ("calm-90d", "crash-70-1d", "pump-dump-3x")
 #: Bundle size of the MINT-10 model (mSelect + kSlack at the current set; every selected attestor live).
 MINT10_STRIDE = 4  # sample every 4th height (300 s, the spreads.py cadence)
+MINT10_KEEP = 20_001
 
 
 def mint10_gaps(env: Env, cand, scenario: str, venue: int | None = None) -> np.ndarray:
@@ -432,7 +433,6 @@ def mint10_gaps(env: Env, cand, scenario: str, venue: int | None = None) -> np.n
     venues; or venue ``venue``'s 15-minute TWAP alone: a mis-configured attestor set) cited
     ``U{1..attestInterval}`` blocks before R, times the pool agents' per-quote noise. Heights without
     pFast or without ``mSelect`` attestations are skipped (no mint is built there)."""
-    from ybcal.sim.oracle import price_series
     from ybcal.studies import g6_miners_fees as G6
 
     keys = ("pFastWindow", "pFastMinFill", "pMidWindow", "pMidMinFill", "pSlowWindow", "pSlowMinFill",
@@ -450,7 +450,7 @@ def mint10_gaps(env: Env, cand, scenario: str, venue: int | None = None) -> np.n
         if feed is None:
             return np.zeros(0)
         params = {k: int(cand[k]) for k in keys}
-        pf = price_series(params, st.tag_price).p_fast
+        pf = _p_fast(env, scenario, params["pFastWindow"], params["pFastMinFill"])
         P, n = feed.shape
         vk = venue if venue is not None else -1
         rng = np.random.default_rng([stable_seed(GROUP, "mint10", scenario, vk, *sig), env.seed])
@@ -467,10 +467,26 @@ def mint10_gaps(env: Env, cand, scenario: str, venue: int | None = None) -> np.n
         a_mint = np.take_along_axis(srt, idx[:, :, None], axis=2)[:, :, 0]
         x = pf[:, cols].astype(np.float64)
         ok = (x > 0) & (cnt >= params["mSelect"]) & np.isfinite(a_mint)
-        gap = np.abs(x - a_mint) * 10_000 / np.minimum(x, a_mint)
-        return np.sort(gap[ok])
+        with np.errstate(invalid="ignore"):
+            gap = np.sort((np.abs(x - a_mint) * 10_000 / np.minimum(x, a_mint))[ok])
+        if len(gap) > MINT10_KEEP:  # keep 20,001 order statistics (refusal rates to 5·10⁻⁵; memory)
+            gap = np.quantile(gap, np.linspace(0.0, 1.0, MINT10_KEEP))
+        return gap.astype(np.float32)
 
     return _cached(_ekey(env, "mint10", scenario, venue, sig, G6._data_ids(env)), run)
+
+
+def _p_fast(env: Env, scenario: str, window: int, fill: int) -> np.ndarray:
+    """PRICE-1's pFast of a G6 judgement stream (lower median over ``window``, undefined below
+    ``fill``), memoised: it depends on neither the attestation parameters nor the candidate."""
+    from ybcal.model.vkernels import RollingMedian
+    from ybcal.studies import g6_miners_fees as G6
+
+    def run() -> np.ndarray:
+        st = G6.judge_stream(env, scenario)
+        return RollingMedian(st.tag_price).median(window, fill)
+
+    return _cached(_ekey(env, "pfast", scenario, window, fill, G6._data_ids(env)), run)
 
 
 def refusal_rate(sorted_gaps: np.ndarray, div_bps: int) -> float:

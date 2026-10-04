@@ -242,6 +242,30 @@ def _attestor_outage(params: ParamSet, rng: random.Random, price: int) -> list[R
     return out
 
 
+def _attestor_dormancy(params: ParamSet, rng: random.Random, price: int) -> list[ReplayStep]:
+    """Dormancy at the set's own timing (D-RD-ATT-12): seats arm the layer, node 0 mints every
+    ``attestInterval + 2`` blocks, and seat 0's agent stops for ``dormancyBlocks + 4·dormancyCheck``
+    blocks — long enough for the window to fill with rows that select it and for a check height to
+    eject it (``attestor-outage-1`` stops a seat for a third of two slow windows, shorter than the
+    scaled mainnet ``dormancyBlocks``) — then restarts (DORMANT is final until REV-1)."""
+    arm = int(params["bondMaturity"]) + int(params["attestArmDelay"]) + 4
+    every = int(params["attestInterval"]) + 2
+    down_for = int(params["dormancyBlocks"]) + 4 * int(params["dormancyCheck"])
+    n = down_for + 2 * int(params["dormancyCheck"]) + 8
+    lock = int(params["classMin[2]"])
+    cents = int(params["minMint"])
+    reg = _registrations(params)
+    prices = _walk(rng, price, arm + n, 50)
+    out = [ReplayStep(prices[0], 1, actions=reg, label="register seats")]
+    out += steps_from_prices(prices[1:arm], 1, "maturity + arming")
+    for i, p in enumerate(prices[arm:]):
+        acts = ({"op": "mint", "node": 0, "cents": cents, "lock": lock},) if i % every == 0 else ()
+        down = (0,) if i < down_for else ()
+        label = "seat 0 dark" if down else "after"
+        out.append(ReplayStep(p, 1, attestors_down=down, label=label, actions=acts))
+    return out
+
+
 def _pin(params: ParamSet, rng: random.Random, price: int) -> list[ReplayStep]:
     """PIN-1 then PIN-2 on real nodes (D-RD-DEV-4). Seats arm the layer and node 0 mints every
     ``attestInterval`` blocks, so every pin window holds bundles. Phase 1: pool 1's feed freezes
@@ -371,6 +395,11 @@ SCENARIOS: dict[str, tuple[ScenarioFn, frozenset[str], str]] = {
         _attestor_outage,
         frozenset({"attestors"}),
         "three seats arm the layer, mints draw bundles, seat 0's agent stopped for the middle third",
+    ),
+    "attestor-dormancy": (
+        _attestor_dormancy,
+        frozenset({"attestors"}),
+        "seats arm the layer, mints draw bundles, seat 0 dark for dormancyBlocks + 4 checks (DORMANT)",
     ),
     "oracle-attack-34": (
         _oracle_attack,
