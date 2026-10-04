@@ -149,6 +149,48 @@ def test_cap_rule(tmp_path):
     assert any("K12 trap" in n for n in r.notes) and any("single jumps" in n for n in r.notes)
 
 
+def test_cap_rule_reads_the_real_history_when_replayed(tmp_path):
+    """D-RD-ORA-5: with replay metrics the cap need is the despiked full-history p99 σ̂, not the
+    turbulent ensemble's; the replay medians appear as the reference's cross-check."""
+    base = mainnet()
+    t = ResultTable(base)
+    m = _m(0.15, p50=18600.0, p99t=80000.0, out=str(tmp_path))
+    vals = dict(m.values)
+    vals.update(
+        {
+            "replay_despiked_sigma_hat_p99_full": 83000.0,
+            "replay_sigma_hat_p99_full": 94000.0,
+            "replay_sigma_hat_p50_full": 16200.0,
+            "replay_sigma_hat_p50_2021-22": 25300.0,
+            "replay_true_vol_step_bps_full": 44000.0,
+            "replay_true_vol_day_bps_full": 23500.0,
+        }
+    )
+    t.add(base, Metrics(vals, m.primary, True, dict(m.constraints), "real-data", dict(m.meta)))
+    recs = G.make_study().decide(t, Policy())
+    r = _rec(recs, "sigmaMultMaxBps")
+    assert r.recommended == 45000  # 83,000 / 18,500 = 4.49× → 45,000 (ensemble 80,000 would give 45,000 too)
+    assert any("D-RD-ORA-5" in n for n in r.notes)
+    ref = _rec(recs, "sigmaRefBps")
+    assert ref.recommended == 18500 and any("2021-22 25,300 bps (1.37×)" in n for n in ref.notes)
+    vals["replay_despiked_sigma_hat_p99_full"] = 60000.0
+    t2 = ResultTable(base)
+    t2.add(base, Metrics(vals, m.primary, True, dict(m.constraints), "real-data", dict(m.meta)))
+    assert _rec(G.make_study().decide(t2, Policy()), "sigmaMultMaxBps").recommended == 32500
+
+
+def test_daily_view_fits_daily_returns():
+    from datetime import UTC, datetime
+
+    from ybcal.data.synthetic import DT_HOUR, fit_returns_of
+    from ybcal.types import PricePath
+
+    prices = np.arange(1, 24 * 30 + 1)[None, :] * 1000
+    pp = PricePath(datetime(2024, 1, 1, tzinfo=UTC), "hour", prices, "real")
+    _, dt = fit_returns_of(G.daily_view(pp))
+    assert dt == pytest.approx(24 * DT_HOUR)
+
+
 def test_synthetic_is_provisional(tmp_path):
     t = _table(tmp_path, [({}, dict(cv=0.15, p50=7240.0))], prov="synthetic")
     assert {r.verdict for r in G.make_study().decide(t, Policy())} == {"PROVISIONAL"}
