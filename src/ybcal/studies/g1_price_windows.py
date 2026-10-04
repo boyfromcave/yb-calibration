@@ -268,6 +268,30 @@ def _marks(scen: SC.Scenario, n: int, schedules: Mapping[str, np.ndarray]) -> di
     return out
 
 
+def oracle_config(env: Env) -> O.OracleConfig:
+    """Honest pools for the G1/G2 oracle: the tagging pools of a real pool-share log when one is
+    loaded (``g6.pool_model``, as G6 and G8 use), else ``expected_pool_count`` equal pools sharing
+    ``expected_enforcing_share`` (the policy). Background NO_PRICE is set by the largest pool's share
+    against the ⌈2W/3⌉ fill, so the real pool landscape matters more than the windows (D-RD-AUD-9).
+    Outages follow the policy's per-pool rate and mean length either way."""
+    pol = env.policy
+    kw = dict(
+        outage_rate_per_day=float(getattr(pol, "pool_outage_rate_per_day", POOL_OUTAGE_RATE_PER_DAY)),
+        outage_mean_hours=float(getattr(pol, "pool_outage_mean_hours", POOL_OUTAGE_MEAN_HOURS)),
+        outage_mode="signal",
+    )
+    from ybcal.studies.g6_miners_fees import pool_model  # local: g6 imports this module
+
+    pm, prov = pool_model(env)
+    if prov == "real-data":
+        shares = [float(sh) for sh, t in zip(pm.shares, pm.tagging, strict=True) if t and sh > 0]
+        if shares and sum(shares) <= 1 + 1e-9:
+            top = shares[: O.MAX_POOLS]
+            pools = tuple(O.Pool(share=sh, name=f"pool{i}", **kw) for i, sh in enumerate(top))
+            return O.OracleConfig(pools, meta={"source": "pool-share log"})
+    return O.OracleConfig.from_policy(pol, **kw)
+
+
 def realise(
     env: Env,
     name: str,
@@ -287,6 +311,7 @@ def realise(
     P = int(n_paths or paths_for(env.budget))
     h = float(horizon if horizon is not None else horizon_days(scen, env.budget))
     pol = env.policy
+    cfg0 = oracle_config(env)
     key = (
         int(env.seed),
         name,
@@ -295,6 +320,7 @@ def realise(
         data_fingerprint(env),
         float(pol.expected_enforcing_share),
         int(pol.expected_pool_count),
+        tuple(round(p.share, 9) for p in cfg0.pools),
         attack,
         label,
     )
@@ -316,12 +342,7 @@ def realise(
     n = true.shape[1]
     sched = {k: np.asarray(v, dtype=float) for k, v in run.schedules.items()}
     marks = _marks(scen, n, sched)
-    cfg = O.OracleConfig.from_policy(
-        pol,
-        outage_rate_per_day=float(getattr(pol, "pool_outage_rate_per_day", POOL_OUTAGE_RATE_PER_DAY)),
-        outage_mean_hours=float(getattr(pol, "pool_outage_mean_hours", POOL_OUTAGE_MEAN_HOURS)),
-        outage_mode="signal",
-    )
+    cfg = cfg0
     tagging = cfg.tagging_share
     if attack is not None:
         share, bias = attack

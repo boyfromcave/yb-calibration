@@ -473,9 +473,10 @@ def _fams() -> tuple[Family, ...]:
             "cap",
             ("supplyCapBps",),
             ("supplyCapBps",),
-            "supplyCapBps: the cap (step 250) that admits the most class-B/C mint attempts (primary: the "
-            "share refused by the cap in the first year, ties toward the current value — a larger cap is "
-            "a benefit only when it admits demand, D-RD-AUD-5) among caps whose cap-bound (classes below recapRatioBps) "
+            "supplyCapBps: the cap (step 250) that admits the most class-B/C mint attempts (primary: "
+            "the share refused by the cap in the first year, ties toward the current value — a larger "
+            "cap is a benefit only when it admits demand, D-RD-AUD-5) among caps whose cap-bound "
+            "(classes below recapRatioBps) "
             "liquidation demand on the worst day of the worst crash (p95 over paths) stays ≤ "
             "max_depth_fraction × the p10 daily YEC volume, counted only where at least half of the "
             "cap-bound debt opens its claim path inside the book (else the bound is unverified, "

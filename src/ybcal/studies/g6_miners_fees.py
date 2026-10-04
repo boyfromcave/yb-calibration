@@ -487,6 +487,14 @@ class JudgeSummary:
     n_tags: int
 
 
+def floor_density(dens: float, params: Mapping, policy) -> float:
+    """Quote-tag density at the participation floor: the calm stream's density (tagging at the
+    expected enforcing share) scaled to ``participationFloor / signalWindow`` of the blocks."""
+    share = float(policy.expected_enforcing_share)
+    floor = int(params["participationFloor"]) / max(1, int(params["signalWindow"]))
+    return float(dens) * min(1.0, floor / share) if share > 0 else float(dens)
+
+
 def judge_summary(env: Env, name: str, lag: int, peer_min: int) -> JudgeSummary:
     def build() -> JudgeSummary:
         s = judge_stream(env, name)
@@ -656,9 +664,10 @@ def _fams() -> tuple[Family, ...]:
             ("peerLag",),
             "peerLag: minimise the honest p99 REG-4 deviation (worst scenario of calm-90d, crash-70-1d, "
             "pump-dump-3x, stale-pools) subject to P(not evaluated) ≤ max_not_evaluated_prob at the current "
-            "peerMin and honest false penalties ≤ max_false_penalty_rate; KEEP unless > materiality.",
+            "peerMin (at the expected share and at the participation floor, D-RD-AUD-8) and honest false "
+            "penalties ≤ max_false_penalty_rate; KEEP unless > materiality.",
             primary="judge.honest_p99",
-            constraints=("not_evaluated", "false_penalty"),
+            constraints=("not_evaluated", "not_evaluated_floor", "false_penalty"),
             report=judge,
             provenance_key="judge_provenance",
         ),
@@ -667,12 +676,13 @@ def _fams() -> tuple[Family, ...]:
             ("peerMin",),
             ("peerMin",),
             "peerMin: the largest value with P(fewer than peerMin peers → not evaluated) ≤ "
-            "max_not_evaluated_prob at the expected pool count (PLAN §5.6); KEEP unless the gain is > "
-            "materiality.",
+            "max_not_evaluated_prob at the expected pool count (PLAN §5.6) and also at the quote density "
+            "of the participation floor, the lowest share at which minting still runs (analytic binomial, "
+            "D-RD-AUD-8); KEEP unless the gain is > materiality.",
             primary="judge.peer_min",
             minimize=False,
-            constraints=("not_evaluated",),
-            report=("judge.not_evaluated", "judge.not_evaluated_analytic"),
+            constraints=("not_evaluated", "not_evaluated_floor"),
+            report=("judge.not_evaluated", "judge.not_evaluated_analytic", "judge.not_evaluated_floor"),
             sens_metric="judge.not_evaluated",
             provenance_key="judge_provenance",
         ),
@@ -891,6 +901,11 @@ class G6Study(FamilyStudy):
         dens = judge_stream(env, "calm-90d").info["quote_density"]
         v["judge.quote_density"] = dens
         v["judge.not_evaluated_analytic"] = _p_bin_below(pmin, 2 * lag - 1, dens)
+        # D-RD-AUD-8: judgement must keep working at the lowest share at which minting still runs
+        # (participationFloor of the signal window), not only at the expected share
+        dens_floor = floor_density(dens, cand, pol)
+        v["judge.quote_density_floor"] = dens_floor
+        v["judge.not_evaluated_floor"] = _p_bin_below(pmin, 2 * lag - 1, dens_floor)
         bias = int(judgement(pol, "liar_bias_bps"))
         for b in (500, 1000, 2000):
             v[f"judge.liar_detect_{b}"] = liar_detection(env, lag, pmin, dev_bps, b)
@@ -918,6 +933,7 @@ class G6Study(FamilyStudy):
         )
         mx_fp = float(pol.max_false_penalty_rate)
         c["not_evaluated"] = v["judge.not_evaluated"] <= float(pol.max_not_evaluated_prob)
+        c["not_evaluated_floor"] = v["judge.not_evaluated_floor"] <= float(pol.max_not_evaluated_prob)
         c["false_penalty"] = v["judge.false_penalty"] <= mx_fp
         stale_fp = v["judge.false_penalty_stale"]
         c["false_penalty_stale"] = (not math.isfinite(stale_fp)) or stale_fp <= mx_fp
@@ -925,6 +941,7 @@ class G6Study(FamilyStudy):
         c["liar_detect"] = v["judge.liar_detect"] >= judgement(pol, "min_liar_detection")
         meta["quote_density"] = dens
         meta["max_not_evaluated_prob"] = float(pol.max_not_evaluated_prob)
+        meta["quote_density_floor"] = dens_floor
         meta["stale_pools"] = judge_stream(env, "stale-pools").info["stale_pools"]
         meta["frozen_pools"] = judge_stream(env, "stale-pools").info["frozen_pools"]
 
@@ -1089,7 +1106,7 @@ class G6Study(FamilyStudy):
         if "peerLag" not in changes:
             return changes
         row = chosen_rows["peerMin"][1]
-        dens = float(row.metrics.meta.get("quote_density", 0.0))
+        dens = float(row.metrics.meta.get("quote_density_floor", row.metrics.meta.get("quote_density", 0.0)))
         cap = float(row.metrics.meta.get("max_not_evaluated_prob", 0.05))
         lag = int(changes["peerLag"])
         pmin = int(changes.get("peerMin", base["peerMin"]))

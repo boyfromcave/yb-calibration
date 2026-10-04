@@ -143,7 +143,10 @@ def test_cap_rule(tmp_path):
     assert r.recommended == 37500 and r.verdict == "CHANGE"
     # beyond the 50,000 bound → BLOCKED
     t = _table(tmp_path, [({}, dict(cv=0.15, p50=10000.0, p99t=60000.0))])
-    assert _rec(G.make_study().decide(t, Policy()), "sigmaMultMaxBps").verdict == "BLOCKED"
+    r = _rec(G.make_study().decide(t, Policy()), "sigmaMultMaxBps")
+    # D-RD-AUD-7: the least-violating value of a BLOCKED cap is the bound, not the current value
+    assert r.verdict == "BLOCKED" and r.recommended == 50000
+    assert any("K12 trap" in n for n in r.notes) and any("single jumps" in n for n in r.notes)
 
 
 def test_synthetic_is_provisional(tmp_path):

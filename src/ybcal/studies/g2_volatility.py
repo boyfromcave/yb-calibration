@@ -486,10 +486,15 @@ def decide_g2(results: ResultTable, policy: Policy) -> list[Recommendation]:
     covers = cap_cur >= need
     crel = (cap_cur - cap_rule) / cap_cur
     if cap_blocked:
+        # least violating = the bound (the cap closest to covering the percentile), as for every other
+        # BLOCKED rule (D-RD-AUD-7); the report shows it as the owner's fallback, not a recommendation
         cap_v, cap_rec, cap_why = (
             "BLOCKED",
-            cap_cur,
-            (f"p{pct} turbulent multiplier {need / BPS:.2f}× exceeds the search bound {cspec.bounds[1]:,}"),
+            int(cspec.bounds[1]),
+            (
+                f"p{pct} turbulent multiplier {need / BPS:.2f}× exceeds the search bound "
+                f"{cspec.bounds[1]:,}; least violating: the bound"
+            ),
         )
     elif covers and crel <= mat:
         cap_v, cap_rec, cap_why = (
@@ -508,6 +513,25 @@ def decide_g2(results: ResultTable, policy: Policy) -> list[Recommendation]:
             else f"rule value {cap_rule:,} is {crel:.0%} below the current cap > {mat:.0%}"
         )
 
+    # what moves the cap's need (D-RD-AUD-7): the windows (σ̂ noise grows as pFastWindow, volWindow
+    # and volStep shrink) and single jumps — one 40 % jump in a 2-day window alone reads as σ̂ ≈ 480 %
+    cur_q = float(cur.metrics.values.get(f"sigma_hat_p{pct}_turbulent", math.nan))
+    cap_notes = [
+        f"p{pct} turbulent σ̂: {cur_q:,.0f} bps at the current windows (volWindow "
+        f"{cur.params.as_int('volWindow')}, volStep {cur.params.as_int('volStep')}, pFastWindow "
+        f"{cur.params.as_int('pFastWindow')}) vs {turb_q:,.0f} bps at the chosen ones; the need is "
+        f"σ̂/sigmaRefBps = {need / BPS:.2f}× at the recommended reference {ref_rec:,}",
+        "The turbulent ensemble is a placeholder Merton process (12 jumps/yr, N(−2 %, 20 %)); its p99 σ̂ "
+        "is set by single jumps inside the volWindow, so the cap need is a statement about jump size, "
+        "not about sustained volatility (docs/studies/g2.md, Assumptions).",
+    ]
+    if cap_blocked:
+        cap_notes.append(
+            "A cap at the bound turns every K12 trap (an undefined sample) into a mint requirement of "
+            f"{cspec.bounds[1] / BPS:.0f}× the base ratio; at the current cap it is "
+            f"{cap_cur / BPS:.0f}× (cap_undefined_h_per_year_realised = "
+            f"{float(cur.metrics.values.get('cap_undefined_h_per_year_realised', math.nan)):.1f} h/yr)."
+        )
     evidence = write_evidence(results, ws, cur, chosen, out)
     keys_ws = (
         "sigma_hat_cv_calm",
@@ -648,7 +672,7 @@ def decide_g2(results: ResultTable, policy: Policy) -> list[Recommendation]:
             prov,
             list(evidence),
             GROUP,
-            [f"underlying verdict before the provenance rule: {cap_v}"],
+            [f"underlying verdict before the provenance rule: {cap_v}", *cap_notes],
         )
     )
     return recs

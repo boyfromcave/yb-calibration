@@ -279,3 +279,19 @@ def test_determinism():
             assert math.isnan(b[k])
         else:
             assert a[k] == b[k], k
+
+
+def test_peer_min_must_hold_at_the_participation_floor():
+    """D-RD-AUD-8: the quote density at the participation floor (60 % of the window, expected 80 %)
+    is 3/4 of the calm stream's, and peerMin must leave P(not evaluated) within policy there too."""
+    from ybcal.params.paramset import mainnet
+    from ybcal.studies import g6_miners_fees as G6
+
+    ps, pol = mainnet(), Policy()
+    assert G6.floor_density(0.8, ps, pol) == pytest.approx(0.8 * (1210 / 2016) / 0.8)
+    fam = next(f for f in G6.make_study().families() if f.name == "peer_min")
+    assert "not_evaluated_floor" in fam.constraints
+    # at density 0.8 → floor 0.60, 19 peers: peerMin 12 fails at the floor, 7 passes
+    d = G6.floor_density(0.8, ps, pol)
+    assert G6._p_bin_below(12, 19, d) > pol.max_not_evaluated_prob
+    assert G6._p_bin_below(7, 19, d) <= pol.max_not_evaluated_prob

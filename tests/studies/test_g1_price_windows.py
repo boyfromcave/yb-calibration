@@ -233,3 +233,25 @@ def test_determinism_per_seed():
     c = st.evaluate(base, env_for(seed=12)).values
     assert a == b
     assert a != c
+
+
+def test_oracle_config_reads_a_real_pool_share_log():
+    """D-RD-AUD-9: with a pool-share log loaded, G1's oracle uses its tagging pools (not equal ones)."""
+    from types import SimpleNamespace
+
+    from ybcal.config import Policy as _P
+    from ybcal.studies import g1_price_windows as _G1
+    from ybcal.studies import g6_miners_fees as _G6
+
+    env = SimpleNamespace(policy=_P(), data={})
+    eq = _G1.oracle_config(env)
+    assert len(eq.pools) == 6 and abs(eq.tagging_share - 0.8) < 1e-9
+    assert len({round(p.share, 9) for p in eq.pools}) == 1
+    orig = _G6.pool_model
+    try:
+        pm = SimpleNamespace(shares=(0.4, 0.3, 0.1), tagging=(True, True, False))
+        _G6.pool_model = lambda e: (pm, "real-data")
+        cfg = _G1.oracle_config(env)
+        assert [p.share for p in cfg.pools] == [0.4, 0.3]
+    finally:
+        _G6.pool_model = orig

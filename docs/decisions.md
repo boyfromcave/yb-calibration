@@ -115,6 +115,9 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-AUD-4](#d-rd-aud-4-2026-10-03-audit--a-red-4b-closure-counts-only-when-the-exit-pays) | audit | a RED-4(b) closure counts only when the exit pays |
 | [D-RD-AUD-5](#d-rd-aud-5-2026-10-03-audit--supplycapbps-moves-only-for-admitted-demand-and-an-evidenced-depth-bound) | audit | `supplyCapBps` moves only for admitted demand and an evidenced depth bound |
 | [D-RD-AUD-6](#d-rd-aud-6-2026-10-03-audit--halt-3-calm-hours-share-the-availability-budget) | audit | HALT-3 calm hours share the availability budget |
+| [D-RD-AUD-7](#d-rd-aud-7-2026-10-03-audit--a-blocked-sigmamultmaxbps-reports-the-bound-and-what-drives-the-need) | audit | a BLOCKED `sigmaMultMaxBps` reports the bound and what drives the need |
+| [D-RD-AUD-8](#d-rd-aud-8-2026-10-03-audit--peermin-must-hold-at-the-participation-floor) | audit | `peerMin` must hold at the participation floor |
+| [D-RD-AUD-9](#d-rd-aud-9-2026-10-03-audit--forced-moves-are-minimal-g1-reads-real-pool-shares) | audit | forced moves are minimal; G1 reads real pool shares |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -1316,4 +1319,56 @@ budget. The recall definition is kept (catching the downward jumps of a slow cra
 **Consequence.** No change on synthetic data (0 h/yr at every value); with real data the calm base
 becomes a bootstrap of real returns (G1 `realise`) and the constraint can bind. The synthetic
 recommendation (1,500) stays PROVISIONAL and rests on the 60 %-vol calm placeholder.
+
+## D-RD-AUD-7 (2026-10-03, audit) — a BLOCKED `sigmaMultMaxBps` reports the bound and what drives the need
+
+**Finding.** The synthetic report's BLOCKED cap ("p99 turbulent multiplier 5.28× exceeds the search
+bound 50,000") listed the *current* 30,000 as the least-violating value, unlike every other BLOCKED
+rule. The need itself was a joint-pass artefact: standalone (pFastWindow 96, volStep 48) the p99
+turbulent multiplier is 4.19× (→ CHANGE 42,500); after G1 moved pFastWindow to 48 and G2 volStep to
+24 the noisier σ̂ read 5.28×. In the placeholder turbulent Merton process one 40 % jump inside a
+2-day window alone reads as σ̂ ≈ 480 %, so the p99 measures jump size, not sustained volatility.
+**Decision.** Keep the PLAN §5.2 rule; a BLOCKED cap recommends the bound (50,000) as the least
+violating value, and the recommendation's notes state the p99 σ̂ at the current vs chosen windows,
+the single-jump caveat and the K12 cost of a high cap (an undefined sample sets the multiplier to
+the cap, so every K12 trap then asks for cap × base ratio).
+**Consequence.** With D-RD-AUD-9 the joint pass keeps pFastWindow at 96, so the synthetic need is
+back to ≈ 4.2× (CHANGE to 42,500, PROVISIONAL). Real data decides: the turbulent σ comes from a
+regime fit to real returns.
+
+## D-RD-AUD-8 (2026-10-03, audit) — `peerMin` must hold at the participation floor
+
+**Finding.** `peerMin` = "the largest value with P(not evaluated) ≤ 5 %" at the expected 80 %
+tagging share moved 5 → 12 (19 peer blocks at peerLag 10, quote density ≈ 0.8). Minting keeps
+running down to the participation floor (`participationFloor/signalWindow` = 60 %); there the
+density is 0.6 and P(Bin(19, 0.6) < 12) ≈ 42 %: REG-4 would stop judging most tags exactly when
+participation is weakest.
+**Decision.** New constraint `not_evaluated_floor` on the `peer_min` and `peer_lag` families: the
+analytic P(not evaluated) at the density scaled to the participation floor
+(`floor_density = density · min(1, floor/expected_enforcing_share)`) must also be ≤
+`max_not_evaluated_prob`; `adjust_changes` re-checks peerMin at that density when peerLag moves.
+**Consequence.** quick/synthetic: peerMin 5 → 7 (PROVISIONAL) instead of 12. A real pool-share log
+sets the density; few pools with one dominant change the picture further (a dominant pool's own tags
+fill its peer window — modelling limitation, see the audit report).
+
+## D-RD-AUD-9 (2026-10-03, audit) — forced moves are minimal; G1 reads real pool shares
+
+**Finding.** G1 moved `pFastWindow` 2 h → 1 h *and* `pMidWindow` 12 h → 1 d because the current set
+violated `max_no_price_hours` (20.5 h/yr vs 6) and `decide_with_materiality` then jumped to the
+best-J feasible set. Only pMid fixes the violation: (96, 1,152, 2,016) has 2.2 h/yr and J 1.50 vs
+the best (48, 1,152, 2,016) at 4.2 h/yr and J 1.28 — within materiality, so the extra pFast move
+rested on a 15 % J gain that would not have cleared materiality on its own, and it is what pushed
+G2's σ̂ cap need to 5.28× (D-RD-AUD-7). Separately, G1/G2 always used `expected_pool_count` equal
+pools even when a pool-share log was loaded, although background NO_PRICE is set by the largest
+pool's share against the ⌈2W/3⌉ fill: with the G6 placeholder shares (25/20/15/10/6/4 %) no window
+set reaches 6 h/yr (best 18 h/yr at 192/1,152/3,024; shipped 46 h/yr).
+**Decision.** (1) `decide_with_materiality`: a violating current moves to the feasible row closest
+to current among those within materiality of the best feasible primary (minimal change, PLAN §2.3).
+(2) `g1_price_windows.oracle_config` uses the tagging pools of a real pool-share log when one is
+loaded (`g6.pool_model`), else the policy's equal pools; `realise` is keyed on the pool shares.
+**Consequence.** quick/synthetic G1: pFastWindow KEEP 96, pMidWindow 576 → 1,152 (PROVISIONAL). The
+longer pMid is robust across tagging shares 0.76–0.90 (it rides out single-pool feed outages); its
+cost is slower recovery after an all-feeds outage (26.5 h vs 16.5 h per 6-hour outage). With a
+concentrated real pool landscape G1 may turn BLOCKED on `max_no_price_hours`: that is a real
+availability risk (the largest pool's feed uptime), not a window choice.
 
