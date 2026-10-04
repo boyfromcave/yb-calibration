@@ -18,6 +18,7 @@ require_real_data_for_lock = true  # lock-readiness needs real-data provenance f
 class_heterogeneity_max = 0.50     # max relative spread of P(bad debt) within one class before a split/merge is suggested (§5.3)
 term_distribution = "uniform"      # lock-term distribution within each class: "uniform" | "short-heavy" | "long-heavy" (§5.3)
 sigma_mult_at = "median"           # σ multiplier assumed when sizing base ratios: "median" | "p90" (§5.3)
+price_drift = "centred"            # drift of long-horizon solvency price paths: "centred" (median flat) | "martingale" (E[p] flat, −σ²/2 bleed) | "model" (D-RD-AUD-1)
 
 [risk.max_bad_debt_prob]           # max P(collateral < debt when the claim path opens), per term class (§5.3, §12.1)
 A = 0.005

@@ -351,3 +351,19 @@ def test_end_to_end_with_merged_studies(tmp_path):
     html = (tmp_path / "e2e" / "report.html").read_text()
     assert not re.search(r"""(src|href)\s*=\s*["']?(https?:)?//""", html)
     assert mainnet().check() == []
+
+
+def test_top_risk_quotes_g3_study_not_fast_model():
+    """D-RD-AUD-2: the solvency risk line quotes G3's aggregate P(bad debt) at the recommended ratio."""
+    from types import SimpleNamespace
+
+    from ybcal.config import Policy
+    from ybcal.report.build import g3_bad_debt_over
+
+    recs = {
+        "baseRatioBps[0]": SimpleNamespace(metrics={"recommended": {"pbad.A": 0.004}}),
+        "baseRatioBps[2]": SimpleNamespace(metrics={"recommended": {"pbad.C": 0.2043}}),
+        "feeBps": SimpleNamespace(metrics={}),
+    }
+    assert g3_bad_debt_over(recs, Policy()) == ["C 20.43% vs 2.0%"]
+    assert g3_bad_debt_over({}, Policy()) == []

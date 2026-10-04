@@ -109,6 +109,10 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-WP8-10](#d-wp8-10-2026-10-03-wp-8--rich-design-notes-blocked-rendering-late-round-failures) | WP-8 | rich design notes, BLOCKED rendering, late-round failures (G6 bug fixed in the last note) |
 | [note](#g6-undefined-honest-p99-2026-10-03-integrator) | integrator | G6 undefined honest p99 |
 | [D-WP10-1](#d-wp10-1-2026-10-03-wp-10--documentation-integration-policy-reference-is-tested) | WP-10 | documentation integration; policy reference is tested |
+| [D-RD-AUD-1](#d-rd-aud-1-2026-10-03-audit--one-drift-convention-for-solvency-ensembles-centred) | audit | one drift convention for solvency ensembles (centred) |
+| [D-RD-AUD-2](#d-rd-aud-2-2026-10-03-audit--the-summary-quotes-g3s-pbad-debt-not-the-fast-model) | audit | the summary quotes G3's P(bad debt), not the fast model |
+| [D-RD-AUD-3](#d-rd-aud-3-2026-10-03-audit--pbad-debt-at-claim-opening-stays-the-constraint-severity-and-reach-are-evidence) | audit | P(bad debt) at claim opening stays the constraint; severity and reach are evidence |
+| [D-RD-AUD-4](#d-rd-aud-4-2026-10-03-audit--a-red-4b-closure-counts-only-when-the-exit-pays) | audit | a RED-4(b) closure counts only when the exit pays |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -1205,3 +1209,75 @@ on `math.ceil(nan)`; this was the round-2 joint-pass failure reported in WP-8.
   `KERNEL_TOLERANCE_P95_BPS` (same value) is what the kernel tests use.
 - CI does not run `recommend --budget quick --synthetic` (PLAN §8); `make quick` is the manual
   smoke run.
+
+## D-RD-AUD-1 (2026-10-03, audit) — one drift convention for solvency ensembles (centred)
+
+**Finding.** The G3/G4 hour ensemble mixed drift conventions: `gbm`, `merton` and `regime` are
+martingales (expected log drift −0.72, −0.69, −0.72 a year: the median price falls ~50 % a year),
+`garch` is centred (0), and a real-data block bootstrap kept the sample's own drift (the year to
+2026-10-04 on Coinpaprika: $0.062 → $0.361, +1.77 a year of log drift, 200 % daily volatility).
+D-WP2-5 had removed exactly this bleed from every scenario base ("an uncentred 120 %-vol GBM adds
+−72 %/yr of log drift, which would turn every scenario into a bleed"), and G1/G2/G6/G7 all centre,
+but G3 called `SY.preset(name).simulate` directly. Over 1–5-year terms the drift, not the
+dispersion, decided the class ratios: class C P(bad debt) at 600 % was 53 % martingale vs 20 %
+centred (quick, seed 20261003); with real data the bootstrap's +177 %/yr would have driven every
+ratio to its lower bound.
+**Decision.** New policy key `price_drift` (`"centred"` default | `"martingale"` | `"model"`),
+implemented in `ybcal.sim.drift` as a deterministic shift of each member's log returns (same draws,
+so common random numbers and `"model"` reproduce the old paths exactly). G3/G4's ensemble and the
+joint top-risk model read it; the real `history` member keeps its realised drift (it is what
+happened, not a model). Default **centred**: a probability of a log-price threshold should not
+embed a directional view, and the project convention (D-WP2-5) is centred. `martingale` is kept as a
+stress run; at YEC-like volatility it makes every multi-year class look near-certain to fail.
+**Consequence.** Verdicts are unchanged in kind — B and C stay BLOCKED, A moves to ≈ 725 % — but the
+numbers shown to the owner are no longer an artefact: C at 600 % is 20 % (centred) instead of 53 %.
+The worst member for class A is now the regime switch (its turbulent state carries −3.5/yr of log
+drift by design: a crash regime).
+
+## D-RD-AUD-2 (2026-10-03, audit) — the summary quotes G3's P(bad debt), not the fast model
+
+**Finding.** The executive summary's second risk quoted the joint pass's top-risk model ("class C
+9.47 % vs 2.0 %") while the BLOCKED box above it showed G3's 47.8 % for the same class at the same
+ratio: the fast model uses one GARCH-t member (centred), four terms and a thinner start grid.
+**Decision.** `report.build.top_risks` quotes G3's aggregate `pbad.{c}` at the recommended ratio
+(`g3_bad_debt_over`) and names its source; the fast model is the fallback only when G3 did not run,
+and is then labelled "GARCH-t only".
+
+## D-RD-AUD-3 (2026-10-03, audit) — P(bad debt) at claim opening stays the constraint; severity and reach are evidence
+
+**Question.** Is "P(collateral < debt when the claim path opens)" the right bad-debt definition?
+Checked against ycash6 `a862a8a06`: the vault script (`script.cpp:79-93`) is `IF <lockHeight> CLTV
+<owner> CHECKSIG ELSE <lockHeight + grace> CLTV TRUE ENDIF` and RED-2 (`state.cpp:515-517`) makes
+every spend burn the full debt, so (1) nobody — owner or claimant — can act before `lockHeight`,
+and no claimant before `lockHeight + grace`; (2) a vault under water is never claimed (the
+claimant would burn more YED than the collateral is worth) and its owner walks away; (3) HALT-2
+(`state.cpp:1237`) and the soft supply cap (MINT-6, W20) only stop *new* mints — no rule pools
+collateral across vaults or lets a YED holder redeem against the system. So the YED behind a bad
+vault has no burner: holders bear the gap through the peg.
+**Decision.** Keep the policy's definition as the constraint: it is the first moment any rule could
+act and the event after which the gap is the holders'. It is pessimistic in one way (a bad vault
+stays claimable and can recover) and optimistic in another (it ignores severity). Both are now
+reported: `es.{c}` = E[max(0, 1 − value/debt)] at claim opening (severity; `FastBadDebt.shortfall`)
+and `tmax_ok_days.{c}` = the longest grid term within tolerance (how far the class reaches at that
+ratio). G3-DN1 quotes both at the upper ratio bound: at quick/synthetic, B and C meet their
+tolerance for **no** grid term even at 700 %/600 %, A only up to 71 days, and a bad C vault is short
+by 58 % of its debt. That is a real property of the design (no liquidation during the term on a
+100–200 %-volatility collateral), not a modelling artefact; the levers are the owner's: relax
+`max_bad_debt_prob` for B/C, shorten `classMax[1]`/`classMax[2]` (parameters), or a rule change.
+
+## D-RD-AUD-4 (2026-10-03, audit) — a RED-4(b) closure counts only when the exit pays
+
+**Finding.** The emergency study counted every RED-4(b) trigger as a closure "by a YED holder exiting
+at par" (D-WP4-6), although RED-5 under (b) pays that claimant the debt's worth at pClaim, the
+higher price in a crash (mean loss 2,134 bps of the debt), and the policy's own market assumption
+is a working peg (`yed_premium_bps = 0`). Crediting closures nobody would execute made the uncovered
+debt fall monotonically in `emergencyRatioBps`, so the rule always picked the top of its range
+(10,900, one step under θ).
+**Decision.** A (b) closure happens at the first persisted trigger hour at which
+`(1 − true/pClaim)·10⁴ + claimant_slippage_bps ≤ −yed_premium_bps`. The same metric under a 20 %
+YED discount (`emergency_stress_premium_bps` = −2,000, a JUDGEMENT constant) is reported as
+`emerg.shortfall_stress`.
+**Consequence.** At the default policy (b) changes the uncovered debt by < 1 pp at any e, so
+`emergencyRatioBps` is KEEP 10,500 (PROVISIONAL); the owner sees the depeg case beside it. G3-DN4
+already records the rule-level fix (pay (b) at pEmerg or with a bounty).
+

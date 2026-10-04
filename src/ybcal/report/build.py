@@ -302,6 +302,23 @@ def lock_readiness(
     return items
 
 
+def g3_bad_debt_over(recs: Mapping[str, Any], policy: Policy) -> list[str]:
+    """Classes whose G3 aggregate P(bad debt at claim opening) at the recommended ratio exceeds the
+    policy, as ``"C 20.43% vs 2.0%"`` (D-RD-AUD-2: the summary quotes the study that sets the ratio,
+    not the joint pass's thinner fast model, which used one GARCH-t member and four terms)."""
+    out = []
+    for i, c in enumerate("ABC"):
+        r = recs.get(f"baseRatioBps[{i}]")
+        m = getattr(r, "metrics", None)
+        if not isinstance(m, Mapping):
+            continue
+        at = m.get("recommended") if isinstance(m.get("recommended"), Mapping) else {}
+        p = at.get(f"pbad.{c}")
+        if isinstance(p, int | float) and math.isfinite(p) and p > policy.max_bad_debt(c):
+            out.append(f"{c} {p:.2%} vs {policy.max_bad_debt(c):.1%}")
+    return out
+
+
 def top_risks(
     joint: JointResult,
     sens: SensitivityResult | None,
@@ -321,21 +338,22 @@ def top_risks(
                 f"{', '.join(blocked[:6])}{' …' if len(blocked) > 6 else ''}.",
             )
         )
-    if sens is not None:
-        over = []
+    over, source = g3_bad_debt_over(recs, policy), "the G3 study (worst ensemble member)"
+    if not over and sens is not None and not any(f"baseRatioBps[{i}]" in recs for i in range(3)):
+        # no G3 result: fall back to the joint pass's fast model (one GARCH-t member, thin grid)
+        source = "the joint pass's fast model (GARCH-t only)"
         for c in "ABC":
             p = sens.base_metrics.get(f"bad_debt_prob_{c}")
             if p is not None and math.isfinite(p) and p > policy.max_bad_debt(c):
                 over.append(f"{c} {p:.2%} vs {policy.max_bad_debt(c):.1%}")
-        if over:
-            risks.append(
-                (
-                    1,
-                    "At the recommended set the fast solvency model puts P(bad debt at claim opening) "
-                    f"above the policy for class {', '.join(over)} — no liquidation before claimHeight "
-                    "(fact 1.5-1).",
-                )
+    if over:
+        risks.append(
+            (
+                1,
+                f"At the recommended set {source} puts P(bad debt at claim opening) above the policy "
+                f"for class {', '.join(over)} — no liquidation before claimHeight (fact 1.5-1).",
             )
+        )
     bad = [g for g, o in joint.outcomes.items() if o.status != "ok"]
     if bad:
         n = sum(1 for k, s in REGISTRY.items() if s.tunable and s.group in bad)
