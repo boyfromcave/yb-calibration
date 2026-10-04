@@ -2171,7 +2171,14 @@ griefing only over-collateralises new mints.
 blocks, seat 0 is dark for `dormancyBlocks + 4·dormancyCheck` blocks. `attestor-outage-1` stops a seat
 for a third of two slow windows — shorter than the scaled mainnet `dormancyBlocks` (512) — so DORMANT
 was never reached at mainnet timing.
-**Result.** Scaled final set (factor 31.5, terms 1,440): VALIDATED on ycash6 (`7702d22` + overlay) and
-ycash-dd (`f78a5f8` + overlay): `pin` 355 heights, 14 bundles; `attestor-outage-1` 411, 22;
-`attestor-dormancy` 815 heights, 89 bundles, node and simulator equal block by block; seat 0 never
-signs again after its outage (DORMANT is final until REV-1).
+**Result.** The final G6/G8 set (`docs/attest-wave2/recommended-g6g8.json`: mainnet + peerMin 12,
+deviationBps 1,700, accuracyBandBps 100, payeeWindow 200, feeMin 0.2 YEC, feeBps 15,
+dormancyMinBundles 15), scaled ×31.5 with terms ×1,440, overlay-built at ycash6 `7702d22` and ycash-dd
+`f78a5f8`: the full suite **VALIDATED on both lines, 9/9 scenarios** — calm 423, crash-70 426,
+hashrate-drop 487, attestor-outage-1 411 (22 bundles), oracle-attack-34 395, feed-outage 450,
+vault-cycle 601 (3 vaults, 990 claimable rows), pin 355 (14 / 16 bundles), attestor-dormancy 815 heights
+(89 bundles) — node and simulator equal block by block. In attestor-dormancy seat 0 never signs again
+after its outage (DORMANT is final until REV-1); in attestor-outage-1 it returns. Counts are scaled by
+the tool's floors (`dormancyMinBundles` 15 → 2 at regtest scale), so the devnet confirms the rules'
+timing and arithmetic at the scaled set, not the mainnet count itself. Reports:
+`.work/devnet/validate3-{y6,dd}.json` in this worktree.
