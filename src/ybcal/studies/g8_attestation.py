@@ -418,6 +418,184 @@ def emergency_metrics(env: Env, persist: int, ratio_bps: int, max_age: int) -> d
     return _cached(_ekey(env, "em", persist, ratio_bps, max_age), run)
 
 
+#: Scenarios of the aggregated-feed MINT-10 model (G6's judgement streams: the same pools, venues, agents).
+MINT10_SCENARIOS: tuple[str, ...] = ("calm-90d", "crash-70-1d", "pump-dump-3x")
+#: Bundle size of the MINT-10 model (mSelect + kSlack at the current set; every selected attestor live).
+MINT10_STRIDE = 4  # sample every 4th height (300 s, the spreads.py cadence)
+
+
+def mint10_gaps(env: Env, cand, scenario: str, venue: int | None = None) -> np.ndarray:
+    """|pFast(R) − aMint|·10⁴/min (MINT-10's form, state.cpp:371-377) at every 4th height of a G6
+    judgement stream: pFast = PRICE-1's lower median of the pools' quote tags over pFastWindow
+    (``oracle.price_series``); aMint = the qLow weighted quantile (equal weights, math.h:228-245) of
+    ``m + k`` attestations, each the shipped agent's price (``ybcal.sim.feeds.agent_quotes`` on the same
+    venues; or venue ``venue``'s 15-minute TWAP alone: a mis-configured attestor set) cited
+    ``U{1..attestInterval}`` blocks before R, times the pool agents' per-quote noise. Heights without
+    pFast or without ``mSelect`` attestations are skipped (no mint is built there)."""
+    from ybcal.sim.oracle import price_series
+    from ybcal.studies import g6_miners_fees as G6
+
+    keys = ("pFastWindow", "pFastMinFill", "pMidWindow", "pMidMinFill", "pSlowWindow", "pSlowMinFill",
+            "divergenceBps", "attestInterval", "mSelect", "kSlack", "qLowBps")
+    sig = tuple(int(cand[k]) for k in keys)
+
+    def run() -> np.ndarray:
+        st = G6.judge_stream(env, scenario)
+        if venue is None:
+            feed = st.agent
+        else:
+            if st.venue_twap is None:
+                return np.zeros(0)
+            feed = st.venue_twap[:, venue, :].astype(np.int64)
+        if feed is None:
+            return np.zeros(0)
+        params = {k: int(cand[k]) for k in keys}
+        pf = price_series(params, st.tag_price).p_fast
+        P, n = feed.shape
+        vk = venue if venue is not None else -1
+        rng = np.random.default_rng([stable_seed(GROUP, "mint10", scenario, vk, *sig), env.seed])
+        cols = np.arange(max(64, params["attestInterval"] + 1), n, MINT10_STRIDE)
+        nb = max(params["mSelect"], params["mSelect"] + params["kSlack"])
+        ages = rng.integers(1, max(1, params["attestInterval"]) + 1, size=(P, len(cols), nb))
+        at = np.clip(cols[None, :, None] - ages, 0, n - 1).reshape(P, -1)
+        src = np.take_along_axis(feed, at, axis=1).reshape(P, len(cols), nb).astype(np.float64)
+        noise = float(np.mean(G6.pool_model(env)[0].noise_bps)) / 1e4
+        att = np.where(src > 0, src * np.exp(noise * rng.standard_normal(src.shape)), np.nan)
+        cnt = np.sum(np.isfinite(att), axis=2)
+        srt = np.sort(att, axis=2)  # NaN last
+        idx = np.maximum(0, -((-cnt * params["qLowBps"]) // 10_000) - 1)
+        a_mint = np.take_along_axis(srt, idx[:, :, None], axis=2)[:, :, 0]
+        x = pf[:, cols].astype(np.float64)
+        ok = (x > 0) & (cnt >= params["mSelect"]) & np.isfinite(a_mint)
+        gap = np.abs(x - a_mint) * 10_000 / np.minimum(x, a_mint)
+        return np.sort(gap[ok])
+
+    return _cached(_ekey(env, "mint10", scenario, venue, sig, G6._data_ids(env)), run)
+
+
+def refusal_rate(sorted_gaps: np.ndarray, div_bps: int) -> float:
+    """Share of the gaps MINT-10 refuses (``gap > divergeBpsAttest``; the rule is ``≤``)."""
+    if not len(sorted_gaps):
+        return math.nan
+    return float(1.0 - np.searchsorted(sorted_gaps, float(div_bps), side="right") / len(sorted_gaps))
+
+
+def agent_refresh_per_block(env: Env) -> float:
+    """Refresh rate of an honest pool's published quote: ``−ln P(unchanged between consecutive
+    blocks)`` of the shipped agent's price in the calm stream (D-RD-ATT-1; the WP-7c model used the
+    slowest single venue)."""
+    from ybcal.sim.feeds import unchanged_share
+    from ybcal.studies import g6_miners_fees as G6
+
+    def run() -> float:
+        st = G6.judge_stream(env, "calm-90d")
+        if st.agent is None:
+            return math.nan
+        same = unchanged_share(st.agent)
+        same = min(max(same if math.isfinite(same) else 0.0, 1e-9), 0.999)
+        return -math.log(same)
+
+    return _cached(_ekey(env, "agent_refresh"), run)
+
+
+def bond_year_paths(env: Env) -> tuple[np.ndarray, str]:
+    """One-year hourly YEC/USD paths from the reference price (G6's ``hour_prefix``: a demeaned block
+    bootstrap of the real hourly returns, or the GARCH placeholder): the bond's USD value over its
+    minimum lock (bondMinLock = one year)."""
+    from ybcal.studies import g6_miners_fees as G6
+
+    def build():
+        n = max(16, min(256, env.budget.paths))
+        return G6.hour_prefix(env, n, 365, "G8bond"), ("real-data" if _real_price(env) is not None
+                                                          else "synthetic")
+
+    return _cached(_ekey(env, "bondyear"), build)
+
+
+def capture_at_capital(env: Env, cand, p_ref_usd: float) -> dict[str, float]:
+    """``attestor-capture-capital`` (D-RD-ATT-9): for each ``capital_usd`` level, the adversary's best
+    split of its YEC into ``j`` aged bonds of at least bondMin (``j`` ≤ max_split_seats) against
+    ``nSlots − j`` honest seats at bondMin (equal age): the probability a bundle's aMint moves up 10 %
+    (harm) and down 10 % (grief), exact kernels (``attest.capture_probability``)."""
+    from ybcal.data import scenarios as SC
+    from ybcal.sim.attest import capture_probability
+
+    try:
+        sc = SC.get("attestor-capture-capital")
+    except KeyError:  # pragma: no cover
+        return {}
+    levels = [float(x) for x in sc.constants.get("capital_usd", [])]
+    max_j = int(sc.constants.get("max_split_seats", 6))
+    N, m, k, ql = (int(cand[x]) for x in ("nSlots", "mSelect", "kSlack", "qLowBps"))
+    B = int(cand["bondMin"]) / COIN
+    sig = (N, m, k, ql, int(cand["bondMin"]), round(p_ref_usd, 6), tuple(levels), max_j)
+
+    def run() -> dict[str, float]:
+        out: dict[str, float] = {}
+        nd = 300 if env.budget.name == "quick" else 1500
+        seed = stable_seed(GROUP, "capcap", env.seed)
+        kw = dict(m_select=m, k_slack=k, q_low_bps=ql, q_high_bps=10_000 - ql, move_bps=1000, n_draws=nd,
+                  seed=seed)
+        for c in levels:
+            yec = c / max(p_ref_usd, 1e-9)
+            best = {"harm": 0.0, "grief": 0.0}
+            for j in range(1, min(max_j, N) + 1):
+                if yec / j < B:
+                    break
+                w = [round(yec / j * 1000)] * j + [round(B * 1000)] * (N - j)
+                adv = [True] * j + [False] * (N - j)
+                best["harm"] = max(best["harm"], capture_probability(w, adv, direction="a_mint_up", **kw))
+                best["grief"] = max(best["grief"], capture_probability(w, adv, direction="a_mint_down", **kw))
+            out[f"capcap.{int(c)}.harm"] = best["harm"]
+            out[f"capcap.{int(c)}.grief"] = best["grief"]
+            out[f"capcap.{int(c)}.yec"] = yec
+        return out
+
+    return _cached(_ekey(env, "capcap", sig), run)
+
+
+#: P(a bundle's aMint moves) at which a seat set counts as captured (bond security test, D-RD-ATT-4).
+CAPTURE_SEATS_PROB = 0.5
+
+
+def seats_to_capture(env: Env, n_slots: int, m: int, k: int, q_low: int) -> dict[str, float]:
+    """The fewest seats ``j`` an adversary must hold — each a bond one zat heavier than an honest
+    minimum bond, aged alike — for P(aMint moves up 10 %) (harm) and P(down 10 %) (grief) to reach
+    ``CAPTURE_SEATS_PROB`` (exact kernels, W9 selection). Splitting is the cheap attack: one huge seat is
+    selected in only (m + k)/nSlots of bundles. ``inf`` when even every seat but one is not enough."""
+    from ybcal.sim.attest import capture_probability
+
+    def run() -> dict[str, float]:
+        nd = 400 if env.budget.name == "quick" else 2000
+        seed = stable_seed(GROUP, "seats", env.seed)
+        kw = dict(m_select=m, k_slack=k, q_low_bps=q_low, q_high_bps=10_000 - q_low, move_bps=1000,
+                  n_draws=nd, seed=seed)
+        out = {"harm": math.inf, "grief": math.inf, "harm_p": 0.0, "grief_p": 0.0}
+        for j in range(1, n_slots):
+            w = [1_000_001] * j + [1_000_000] * (n_slots - j)
+            adv = [True] * j + [False] * (n_slots - j)
+            for d, key in (("a_mint_up", "harm"), ("a_mint_down", "grief")):
+                if math.isfinite(out[key]):
+                    continue
+                pr = capture_probability(w, adv, direction=d, **kw)
+                if pr >= CAPTURE_SEATS_PROB:
+                    out[key], out[f"{key}_p"] = float(j), pr
+        return out
+
+    return _cached(_ekey(env, "seats", n_slots, m, k, q_low), run)
+
+
+def cap_headroom_yec(cand) -> float:
+    """YEC of collateral-value the MINT-6 cap admits after one year from startHeight: supplyCapBps ×
+    the subsidy issued since startHeight (issuedZat, state.cpp:1224) — the YED a captured price could
+    mint under the cap, in YEC at whatever price (a price-invariant yardstick for the bond)."""
+    from ybcal.sim.supply import issued_between
+
+    start = int(cand["startHeight"])
+    issued = issued_between(start, start + BLOCKS_PER_YEAR - 1)
+    return issued * int(cand["supplyCapBps"]) / 10_000 / COIN
+
+
 def bond_prices(env: Env) -> tuple[np.ndarray, str]:
     """µUSD YEC price paths over a year (real: the given history; else YEC-like GBM from $0.40)."""
 
@@ -485,10 +663,15 @@ def _fams() -> tuple[Family, ...]:
             "dorm.expected_rows_in_window")
     return (
         Family("diverge", ("divergeBpsAttest",), ("divergeBpsAttest",),
-               "spreads.py (proposal §16 measurement 1): divergeBpsAttest = diverge_spread_multiplier × the "
-               "worst source pair's p95 spread (|a − b|·10⁴/min), rounded up to 100 bps; KEEP when the "
-               "current value is within materiality of it.", kind="rule", target="div.target",
-               report=("div.target", "div.worst_p95", "div.refusal_calm", "div.refusal_crash"),
+               "divergeBpsAttest (D-RD-ATT-3): the smallest value, rounded up to 100 bps, at which MINT-10 "
+               "refuses at most max_mint10_refusal_prob of honest mints in calm — the gap between the pools' "
+               "pFast and the attestors' aMint, both built by the shipped agents (median of the venues) on "
+               "the real venue disagreement; KEEP when the current value is within materiality of it. The "
+               "proposal's spreads.py rule (diverge_spread_multiplier × the worst venue pair's p95) is "
+               "reported as div.target_spreads.", kind="rule", target="div.target",
+               report=("div.target", "div.target_spreads", "div.worst_p95", "div.refusal_calm",
+                       "div.refusal_crash", "div.refusal_pump", "div.gap_p99.calm-90d",
+                       "div.refusal_calm_single_venue_max", "div.refusal_calm_venues"),
                sens_metric="div.refusal_calm", provenance_key="spreads_provenance"),
         Family("pin_delta", ("pinDeltaBps",), ("pinDeltaBps",),
                "pinrate.py (proposal §16 measurement 2): the PIN-1 arming rate over rolling pinWindow "
@@ -535,18 +718,22 @@ def _fams() -> tuple[Family, ...]:
                "yields more than m + k entries, so the value is otherwise inert.",
                kind="verify", constraints=("unavail",), report=("live.bundle_bytes",)),
         Family("qlow", ("qLowBps", "qHighBps"), ("qLowBps",),
-               "qLowBps (qHighBps = 10⁴ − qLow): verify the proposal §7.2 rule at bundle level — an entity "
-               "holding max_single_entity_weight_share of the seated weight must neither move aMint up "
-               "(theft, ≤ capture_prob_max) nor span qLow of a bundle (griefing, ≤ grief_prob_max); "
-               "else the nearest qLow that passes.",
-               kind="verify", constraints=("harm_capture", "grief_capture"), report=cap,
-               sens_metric="cap.grief_prob"),
+               "qLowBps (qHighBps = 10⁴ − qLow), D-RD-ATT-11: verify — theft stays expensive: an entity "
+               "holding max_single_entity_weight_share of the seated weight cannot move aMint up (≤ "
+               "capture_prob_max), and an adversary splitting its YEC into seats of just over bondMin needs "
+               "at least min_harm_capture_seats_share of the seats to move aMint up with probability ½; "
+               "else the nearest qLow that passes. Griefing (the proposal §7.2 rule: the entity spans qLow "
+               "of a bundle and moves aMint down, ≤ grief_prob_max) is reported: no qLow meets both, and "
+               "griefing only over-collateralises new mints.",
+               kind="verify", constraints=("harm_capture", "harm_seats"),
+               report=(*cap, "cap.harm_seats", "cap.grief_seats"), sens_metric="cap.grief_prob"),
         Family("interval", ("attestInterval", "attestMaxAge"), ("attestInterval",),
                "attestInterval k (attestMaxAge = 2k): verify — relay load 1/k ≤ attest_relay_budget_per_"
-               "block, the p99 price move over attestMaxAge ≤ divergeBpsAttest/3 and liveness; else "
-               "the nearest k that passes. A k change moves the locked attestMaxAge (D-3).",
+               "block, honest calm MINT-10 refusals with attestations up to k blocks old ≤ "
+               "max_mint10_refusal_prob (D-RD-ATT-5) and liveness; else the nearest k that passes. A k "
+               "change moves the locked attestMaxAge (D-3).",
                kind="verify", constraints=("relay", "staleness", "unavail"),
-               report=("k.stale_p99_bps", "k.relay", *live), sens_metric="k.stale_p99_bps",
+               report=("k.refusal_calm", "k.stale_p99_bps", "k.relay", *live), sens_metric="k.refusal_calm",
                provenance_key="vol_provenance"),
         Family("arm_min", ("attestArmMin",), ("attestArmMin",),
                "attestArmMin: verify — an equal-weight founding set of that size gives no single "
@@ -575,12 +762,20 @@ def _fams() -> tuple[Family, ...]:
                "dormancyCheck: verify — the false-ejection and dead-detection budgets hold.", kind="verify",
                constraints=("false_eject", "dead_detect"), report=dorm, sens_metric="dorm.dead_detect_p95"),
         Family("bond", ("bondMin",), ("bondMin",),
-               "bondMin: maximise the griefing capital (USD, p05 of the worst price over a year) subject "
-               "to an honest bond's monthly opportunity cost (bond_opportunity_cost_apr) ≤ "
+               "bondMin (D-RD-ATT-4): the smallest bond — the least capital an honest attestor must lock, "
+               "so the most independent attestors can afford a seat — whose harmful-capture capital (one "
+               "adversary's seats of just over bondMin, as many as it takes for P(aMint up 10 %) ≥ 1/2) "
+               "covers "
+               "min_bond_cap_years of the MINT-6 cap's growth (supplyCapBps × the subsidy issued since "
+               "startHeight; both in YEC, so the test does not move with the YEC price), subject to an "
+               "honest bond's monthly opportunity cost at the reference price ≤ "
                "attestor_min_monthly_revenue_usd; KEEP unless > materiality.",
-               primary="bond.grief_capital_usd_p05", minimize=False, constraints=("bond_affordable",),
+               primary="bond.seated_total_yec", minimize=True, constraints=("bond_secure", "bond_affordable"),
                report=("bond.grief_capital_usd_p05", "bond.opportunity_usd_month", "bond.usd_at_start",
-                       "bond.seq_exhaustion_usd"), provenance_key="price_provenance"),
+                       "bond.usd_1y_p10", "bond.usd_1y_p90", "bond.harm_seats", "bond.harm_capital_usd",
+                       "bond.grief_capital_usd", "bond.harm_to_cap_ratio",
+                       "bond.seated_total_yec", "bond.seq_exhaustion_usd"),
+               provenance_key="price_provenance"),
         Family("bond_lock", ("bondMinLock",), (),
                "bondMinLock: fixed at BLOCKS_PER_YEAR (§1.4 invariant) — verified, not tuned.",
                kind="verify"),
@@ -706,6 +901,9 @@ class G8Study(FamilyStudy):
         v["cap.bundle_share_when_selected"] = cp["bundle_share_when_selected"]
         c["harm_capture"] = cp["harm"] <= judgement(pol, "capture_prob_max")
         c["grief_capture"] = cp["grief"] <= judgement(pol, "grief_prob_max")
+        sts = seats_to_capture(env, N, m, k, q_low)
+        v["cap.harm_seats"], v["cap.grief_seats"] = sts["harm"], sts["grief"]
+        c["harm_seats"] = sts["harm"] >= float(getattr(pol, "min_harm_capture_seats_share", 0.75)) * N
         c["slots_ge_arm"] = int(P["attestArmMin"]) <= N
 
         # interval k / attestMaxAge
@@ -713,8 +911,12 @@ class G8Study(FamilyStudy):
         v["k.relay"] = 1.0 / k_int
         v["k.stale_p99_bps"] = 2.326 * vol * math.sqrt(max_age / BLOCKS_PER_YEAR) * 1e4
         c["relay"] = v["k.relay"] <= float(pol.attest_relay_budget_per_block)
-        stale_max = JUDGEMENT["stale_share_of_diverge"] * int(P["divergeBpsAttest"])
-        c["staleness"] = v["k.stale_p99_bps"] <= stale_max
+        # D-RD-ATT-5: staleness is judged where it bites — MINT-10 refusals of honest calm mints with
+        # attestations up to k blocks old (the aggregated-feed model below); the closed form
+        # 2.326·σ·√(maxAge) at YEC's hourly σ (440 %/yr, inflated by the hourly points' noise) is reported
+        v["k.refusal_calm"] = refusal_rate(mint10_gaps(env, cand, "calm-90d"), int(P["divergeBpsAttest"]))
+        tol = float(getattr(pol, "max_mint10_refusal_prob", 0.01))
+        c["staleness"] = math.isfinite(v["k.refusal_calm"]) and v["k.refusal_calm"] <= tol
         meta["vol_provenance"] = "real-data" if vprov == "real-data" else "judgement"
 
         # arming
@@ -737,8 +939,29 @@ class G8Study(FamilyStudy):
         v["div.target"] = float(tgt) if tgt is not None else math.nan
         p95s = [s["p95"] for s in sp["res"]["stats"].values() if s["p95"] is not None]
         v["div.worst_p95"] = float(max(p95s)) if p95s else math.nan
-        v["div.refusal_calm"] = float((sp["calm"] > div).mean()) if len(sp["calm"]) else math.nan
-        v["div.refusal_crash"] = float((sp["crash"] > div).mean()) if len(sp["crash"]) else math.nan
+        v["div.target_spreads"] = v["div.target"]
+        v["div.refusal_calm_venues"] = float((sp["calm"] > div).mean()) if len(sp["calm"]) else math.nan
+        v["div.refusal_crash_venues"] = float((sp["crash"] > div).mean()) if len(sp["crash"]) else math.nan
+        # D-RD-ATT-3: MINT-10 compares two *aggregates* (the pools' pFast and the attestors' aMint, each a
+        # median of agents that each take the median of the venues), not two venues
+        gaps = {sc: mint10_gaps(env, cand, sc) for sc in MINT10_SCENARIOS}
+        for sc, g in gaps.items():
+            v[f"div.refusal.{sc}"] = refusal_rate(g, div)
+            v[f"div.gap_p99.{sc}"] = float(np.percentile(g, 99)) if len(g) else math.nan
+        v["div.refusal_calm"] = v["div.refusal.calm-90d"]
+        v["div.refusal_crash"] = v["div.refusal.crash-70-1d"]
+        v["div.refusal_pump"] = v["div.refusal.pump-dump-3x"]
+        mixed = [refusal_rate(mint10_gaps(env, cand, "calm-90d", venue=j), div) for j in range(3)]
+        fin = [x for x in mixed if math.isfinite(x)]
+        v["div.refusal_calm_single_venue_max"] = float(max(fin)) if fin else math.nan
+        tol = float(getattr(pol, "max_mint10_refusal_prob", 0.01))
+        g = gaps["calm-90d"]
+        lo_b, hi_b = REGISTRY["divergeBpsAttest"].bounds
+        if len(g):
+            need = float(np.quantile(g, 1.0 - tol))
+            v["div.target"] = float(min(hi_b, max(lo_b, math.ceil(need / 100) * 100)))
+        else:
+            v["div.target"] = math.nan
         meta["spreads_provenance"] = sp["provenance"]
 
         # PIN (ported pinrate.py + false-pin / detection models)
@@ -762,7 +985,13 @@ class G8Study(FamilyStudy):
         v["pin.bundle_window_prob"] = pbw
         p_arm = (arm_rate if math.isfinite(arm_rate) else 0.0) * pbw
         share = _small_pool_share(env)
-        v["pin.false_pin_per_day"] = false_pin_per_day(env, pw, mt, p_arm, share, sp["refresh_per_block"])
+        rpb = agent_refresh_per_block(env)
+        if not math.isfinite(rpb):
+            rpb = sp["refresh_per_block"]
+        v["pin.feed_refresh_per_block"] = rpb
+        v["pin.false_pin_per_day"] = false_pin_per_day(env, pw, mt, p_arm, share, rpb)
+        v["pin.false_pin_per_day_single_venue"] = false_pin_per_day(env, pw, mt, p_arm, share,
+                                                                    sp["refresh_per_block"])
         v["pin.detect_blocks"] = pin_detect_blocks(pw, mt, max(2, mb), share, bpb)
         c["false_pin"] = v["pin.false_pin_per_day"] <= float(pol.max_false_pin_prob)
         c["pin_bundles_meaningful"] = mb >= 2
@@ -785,14 +1014,40 @@ class G8Study(FamilyStudy):
 
         # bonds
         bmin = int(P["bondMin"])
-        prices, bprov = bond_prices(env)
-        need = int(q_low / max(1, 10_000 - q_low) * (min(N, m + k) - 1) * bmin)
+        # D-RD-ATT-4: the bond is priced at the reference price (the last real price, as G6's fee test)
+        # over one-year paths *from* it; the WP-7c code priced it at the first row of the loaded history
+        # (2020-03, $0.075) and took the worst price of the whole 6.5-year history
+        prices, bprov = bond_year_paths(env)
+        sel_n = min(N, m + k)
+        need = int(q_low / max(1, 10_000 - q_low) * (sel_n - 1) * bmin)
         g = griefing_cost_usd(need, prices)
         v["bond.grief_capital_usd_p05"] = float(g["min_capital_quantiles"]["q5"])
-        p0_usd = float(np.median(prices[:, 0])) / MICRO_USD_PER_USD
-        v["bond.usd_at_start"] = bmin / COIN * p0_usd
-        v["bond.opportunity_usd_month"] = v["bond.usd_at_start"] * float(pol.bond_opportunity_cost_apr) / 12
+        p_ref = float(np.median(prices[:, 0])) / MICRO_USD_PER_USD
+        v["bond.ref_price_usd"] = p_ref
+        v["bond.usd_at_start"] = bmin / COIN * p_ref
+        p_end = prices[:, -1].astype(float) / MICRO_USD_PER_USD
+        v["bond.usd_1y_p10"] = bmin / COIN * float(np.quantile(p_end, 0.10))
+        v["bond.usd_1y_p90"] = bmin / COIN * float(np.quantile(p_end, 0.90))
+        apr = float(pol.bond_opportunity_cost_apr)
+        v["bond.opportunity_usd_month"] = v["bond.usd_at_start"] * apr / 12
         v["bond.seq_exhaustion_usd"] = SEQ_SPACE * v["bond.usd_at_start"]
+        # harmful capture (aMint up) needs > 1 − qLow of a bundle's weight. The cheap way is many seats
+        # of just over bondMin (W9 selects m + k of nSlots), not one heavy seat: capital = seats × bondMin
+        st = seats_to_capture(env, N, m, k, q_low)
+        v["bond.harm_seats"] = st["harm"]
+        v["bond.grief_seats"] = st["grief"]
+        v["bond.harm_one_seat_yec"] = (10_000 - q_low) / max(1, q_low) * (sel_n - 1) * bmin / COIN
+        harm_yec = st["harm"] * bmin / COIN
+        v["bond.harm_capital_yec"] = harm_yec
+        v["bond.harm_capital_usd"] = harm_yec * p_ref
+        v["bond.grief_capital_yec"] = st["grief"] * bmin / COIN
+        v["bond.grief_capital_usd"] = v["bond.grief_capital_yec"] * p_ref
+        v["bond.seated_total_yec"] = N * bmin / COIN
+        cap_yec = cap_headroom_yec(cand)
+        v["bond.cap_first_year_yec"] = cap_yec
+        v["bond.harm_to_cap_ratio"] = harm_yec / cap_yec if cap_yec > 0 else math.inf
+        c["bond_secure"] = v["bond.harm_to_cap_ratio"] >= float(getattr(pol, "min_bond_cap_years", 2.0))
+        v.update(capture_at_capital(env, cand, p_ref))
         c["bond_affordable"] = v["bond.opportunity_usd_month"] <= float(pol.attestor_min_monthly_revenue_usd)
         meta["price_provenance"] = hprov if hprov == "real-data" else bprov
 
@@ -866,7 +1121,11 @@ class G8Study(FamilyStudy):
                 "the "
                 "rule for the *selected* attestors). Griefing only (aMint down → over-collateralisation); "
                 f"theft (aMint up) needs > {1 - int(cur.params['qLowBps']) / 1e4:.0%}: "
-                f"P = {mv['cap.harm_prob']:.3f}.")
+                f"P = {mv['cap.harm_prob']:.3f}. A seat-splitting adversary (seats of just over bondMin) "
+                f"moves aMint up with P ≥ ½ from {mv.get('cap.harm_seats', math.nan):.0f} of "
+                f"{int(cur.params['nSlots'])} seats and down from {mv.get('cap.grief_seats', math.nan):.0f}; "
+                "any qLow above one third lets 6 of 9 seats steal (D-RD-ATT-11), so griefing resistance "
+                "is not bought with cheaper theft.")
         if fam.name == "diverge":
             notes.append(f"Ported spreads.py on {md.get('spreads_rows')} rows "
                          f"({md.get('spreads_coverage_days', 0):.1f} days, {md.get('spreads_provenance')}); "
@@ -987,15 +1246,17 @@ def g8_figures(table: ResultTable, chosen: ParamSet, out: Path, fams) -> list[Pa
     xd = [int(r.params["divergeBpsAttest"]) for r in drows]
     a2.plot(xd, [100 * r.metrics.values["div.refusal_calm"] for r in drows], color=blue, lw=2, label="calm")
     a2.plot(xd, [100 * r.metrics.values["div.refusal_crash"] for r in drows], color=orange, lw=2,
-            label="crash ramp")
+            label="crash-70-1d")
+    a2.plot(xd, [100 * r.metrics.values["div.refusal_calm_venues"] for r in drows], color=muted, lw=1,
+            ls="--", label="venue pairs (spreads.py)")
     tgt = cur.metrics.values.get("div.target")
     if tgt is not None and math.isfinite(tgt):
         a2.axvline(tgt, color=ink, lw=1, ls="--")
         a2.text(tgt, 1, " target", color=ink, fontsize=8)
     a2.axvline(int(table.base["divergeBpsAttest"]), color=muted, lw=1, ls=":")
     a2.set_xlabel("divergeBpsAttest", color=ink)
-    a2.set_ylabel("ticks with worst-pair spread above (%)", color=ink)
-    a2.set_title("Source spreads vs MINT-10 threshold (spreads.py port)", color=ink, fontsize=10)
+    a2.set_ylabel("honest mints refused (%)", color=ink)
+    a2.set_title("MINT-10: pFast vs aMint (aggregated feeds)", color=ink, fontsize=10)
     a2.legend(frameon=False, fontsize=8)
     fig.tight_layout()
     p = out / "g8_ported_measurements.png"

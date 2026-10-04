@@ -1,0 +1,19 @@
+# Attestor capture priced in money at the real YEC price (D-RD-ATT-9): an adversary with C USD of YEC
+# registers bonds (one seat, or split across up to six seats of at least bondMin each), ages them to
+# ageCap and faces nine honest seats at bondMin with full age — the cheapest seated set the rules
+# allow. G8 reports, per capital level, the probability that a bundle's aMint moves up 10 % (harmful:
+# with the pools' xMint pushed up as well, an under-collateralised mint) or down 10 % (griefing).
+name = "attestor-capture-capital"
+description = "an adversary with C USD of YEC bonds against nine minimum honest seats (best split)"
+stresses = "bondMin, qLowBps, mSelect, kSlack, nSlots at the real price (cost of capture vs gain)"
+tags = ["attest", "adversarial", "real-landscape"]
+horizon_days = 30
+resolution = "block"
+p0_usd = 0.36
+
+[base]
+model = "flat"
+
+[constants]
+capital_usd = [10000, 25000, 50000, 100000, 250000, 500000]
+max_split_seats = 6

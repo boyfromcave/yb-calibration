@@ -54,12 +54,16 @@ def test_every_param_recommended_with_full_fields(tiny_run):
     # synthetic-only evidence is provisional
     for p in ("divergeBpsAttest", "pinDeltaBps", "emergencyPersist"):
         assert by[p].provenance == "synthetic" and by[p].verdict in ("PROVISIONAL", "BLOCKED")
-    # the ported spreads rule: 3 × worst p95 rounded up to 100
+    # the ported spreads rule (reported): 3 × worst p95 rounded up to 100; the decision target is the
+    # aggregated-feed MINT-10 refusal rule (D-RD-ATT-3)
     cur = run.table.current().metrics.values
-    assert cur["div.target"] == max(300, math.ceil(3 * cur["div.worst_p95"] / 100) * 100)
-    # bundle-level griefing finding (qLow 3333 vs a 25 % entity among 9 seats)
+    assert cur["div.target_spreads"] == max(300, math.ceil(3 * cur["div.worst_p95"] / 100) * 100)
+    assert cur["div.refusal_calm"] <= 0.01 or cur["div.target"] > 1500
+    # bundle-level griefing finding (qLow 3333 vs a 25 % entity among 9 seats) is reported; theft by a
+    # seat-splitting adversary needs 7 of 9 seats at 3333 and 6 above it, so qLow is kept (D-RD-ATT-11)
     assert cur["cap.bundle_share_when_selected"] > 0.3333 and cur["cap.harm_prob"] == 0.0
-    assert by["qLowBps"].recommended > 3333 and by["qLowBps"].verdict == "CHANGE"
+    assert cur["cap.harm_seats"] == 7
+    assert by["qLowBps"].recommended == 3333
 
 
 def test_simulation_confirms_liveness_and_dormancy(tiny_run):
@@ -95,7 +99,7 @@ def test_real_spreads_log_reproduces_the_port(tmp_path):
     want = P.analyze_spreads(P.read_log(io.StringIO(text)), 300)["recommended_bps"]
     env = env_for(data={"spreads": load_spreads_csv(io.StringIO(text))})
     m = load_study("G8").evaluate(mainnet(), env)
-    assert m.values["div.target"] == want and m.meta["spreads_provenance"] == "real-data"
+    assert m.values["div.target_spreads"] == want and m.meta["spreads_provenance"] == "real-data"
 
 
 def test_real_hourly_price_reproduces_pinrate():
@@ -122,16 +126,16 @@ def test_verify_family_moves_to_nearest_feasible():
     fam = next(f for f in st.families() if f.name == "qlow")
     base = mainnet()
     t = ResultTable(base)
-    for q, grief in ((3333, False), (3400, False), (3500, True), (3600, True), (3000, False)):
+    for q, seats in ((3333, False), (3400, False), (3200, True), (3100, True), (3600, False)):
         ps = base if q == 3333 else base.replace(qLowBps=q)
-        t.add(ps, _m({}, {"harm_capture": True, "grief_capture": grief}))
+        t.add(ps, _m({}, {"harm_capture": True, "harm_seats": seats, "grief_capture": False}))
     row, verdict, _ = st.decide_family(t, fam, Policy())
-    assert verdict == "CHANGE" and row.params["qLowBps"] == 3500 and row.params["qHighBps"] == 6500
-    # all feasible: KEEP
+    assert verdict == "CHANGE" and row.params["qLowBps"] == 3200 and row.params["qHighBps"] == 6800
+    # griefing is reported, not a constraint: the current value passing the theft tests is kept
     t2 = ResultTable(base)
-    for q in (3333, 3500):
-        ok = {"harm_capture": True, "grief_capture": True}
-        t2.add(base if q == 3333 else base.replace(qLowBps=q), _m({}, ok))
+    for q, seats in ((3333, True), (3500, False)):
+        cons = {"harm_capture": True, "harm_seats": seats, "grief_capture": q == 3500}
+        t2.add(base if q == 3333 else base.replace(qLowBps=q), _m({}, cons))
     assert st.decide_family(t2, fam, Policy())[1] == "KEEP"
 
 

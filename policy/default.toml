@@ -72,6 +72,10 @@ k_dev = 1.5                        # deviationBps >= k_dev × p99 honest deviati
 max_not_evaluated_prob = 0.05      # max P(fewer than peerMin peers) at the expected pool count (§5.6)
 expected_pool_count = 6            # tagging pools expected on mainnet (§5.6)
 max_false_penalty_rate = 0.01      # max fraction of honest pool-blocks judged bad (§5.6)
+pool_feed = "agent"                # honest pool quote model: "agent" = the shipped agent's median of the venues; "venue" = one venue per pool (D-RD-ATT-1)
+agent_min_sources = 3              # agent min_sources (both sample configs ship 3; fail closed below)
+agent_outlier_bps = 1000           # agent outlier filter, bps from the median (yellowback_price.py OUTLIER_BPS)
+attest_price_model = "bootstrap"  # G6/G8 model of the real price: "bootstrap" (demeaned hourly) | "regime" (fitted on daily) | "gbm" (driftless, the martingale stress) (D-RD-ATT-10)
 
 [fees]
 max_fee_share_small = 0.02         # max total fee as a share of a minMint vault's value (§5.6, §5.9)
@@ -99,6 +103,9 @@ attestor_outage_correlation = 0.10 # pairwise correlation of attestor outages (�
 max_attest_unavailability = 0.01   # max P(minting refuses for want of a bundle) (§5.8)
 max_single_entity_weight_share = 0.25   # largest attestor weight share one entity is assumed to hold; qLowBps must exceed it (§1.4, §5.8)
 diverge_spread_multiplier = 3.0    # divergeBpsAttest = this × worst-pair p95 spread (§5.8, proposal §16)
+max_mint10_refusal_prob = 0.01    # max share of honest calm mints MINT-10 refuses (pFast vs aMint, aggregated feeds; D-RD-ATT-3)
+min_bond_cap_years = 2.0          # bondMin: harmful-capture capital >= this many years of MINT-6 cap growth, in YEC (D-RD-ATT-4)
+min_harm_capture_seats_share = 0.75  # qLowBps: a seat-splitting adversary needs >= this share of the seats to move aMint up (D-RD-ATT-11)
 pin_low_move_fraction = 0.05       # if fewer windows than this have a pinDelta move, lower pinDeltaBps (§5.8)
 max_false_pin_prob = 0.01          # max P(an honest pool/attestor is marked pinned) per day (§5.8)
 max_false_ejection_prob = 0.01     # max P(honest attestor ejected for dormancy) per year (§5.8)

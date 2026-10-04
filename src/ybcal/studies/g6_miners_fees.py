@@ -108,12 +108,33 @@ POLICY_KEYS: dict[str, str] = {
 
 #: Scenarios of the judgement metrics (``stale-pools`` adds honest-but-slow and frozen pools).
 SCENARIOS: tuple[str, ...] = ("calm-90d", "crash-70-1d", "pump-dump-3x", "stale-pools")
+#: Adversarial / real-landscape scenarios (D-RD-ATT-6): reported, never part of the honest p99.
+ADV_SCENARIOS: tuple[str, ...] = (
+    "rogue-major-pool-15",
+    "rogue-major-pool-5",
+    "major-pool-offline",
+    "venue-pool",
+)
 #: Days of the fee-revenue book from startHeight.
 REVENUE_DAYS = 365
 #: G8's provisional bondMin recommendation (D-WP7c), reported as a sensitivity of the attestor test.
 G8_BOND_MIN_YEC = 30_000
 #: The crash used for the "fee at crash prices" report line.
 CRASH_FRACTION = 0.70
+
+
+#: Parameters the owner fixed by decision (never CHANGEd by this study; evidence only).
+OWNER_PINNED: dict[str, str] = {
+    "attestFeeBps": "D-3 (v3 plan, 2026-09-13): the attestor fee is additive, 25 % of feeZat",
+}
+
+
+def owner_pinned(policy) -> set[str]:
+    """``OWNER_PINNED`` plus the policy's ``owner_pinned`` list when the policy carries one."""
+    extra = getattr(policy, "owner_pinned", None) or ()
+    if isinstance(extra, Mapping):
+        extra = extra.keys()
+    return set(OWNER_PINNED) | {str(x) for x in extra}
 
 
 def judgement(policy, key: str) -> float:
@@ -174,6 +195,38 @@ def reference_price(env: Env) -> int:
     return int(DEFAULT_P0)
 
 
+PRICE_MODELS = ("bootstrap", "regime", "gbm")
+
+
+def real_price_model(env: Env):
+    """The price model G6/G8 fit to the real hourly series (policy ``attest_price_model``, D-RD-ATT-10):
+    ``bootstrap`` (default) — a demeaned block bootstrap of the hourly returns; ``regime`` — the
+    two-state regime switch fitted on the **daily** series (no intraday noise; drift neutralised);
+    ``gbm`` — a driftless GBM at the hourly series' volatility (the martingale stress). ``None`` without
+    a real price."""
+    from ybcal.data import pricepath as PP
+    from ybcal.data import synthetic as SY
+
+    real = G1.real_price(env)
+    if real is None:
+        return None
+    name = str(getattr(env.policy, "attest_price_model", "bootstrap"))
+    if name not in PRICE_MODELS:
+        raise ValueError(f"attest_price_model must be one of {PRICE_MODELS}, got {name!r}")
+
+    def build():
+        hourly = real if real.resolution == "hour" else PP.resample(real, "hour")
+        if name == "bootstrap":
+            m = SY.BlockBootstrap.fit(hourly)
+            m.demean = True
+            return m
+        if name == "regime":
+            return SY.fit("regime", PP.resample(hourly, "day"), drift="zero")
+        return SY.fit("gbm", hourly, drift="zero")
+
+    return _cached(_ekey(env, "real_model", name), build)
+
+
 def book_paths(budget: Budget) -> int:
     """Hour-mode book paths: ``budget.paths // 4`` (quick 16, standard 100, deep 500), at least 4."""
     return max(4, int(budget.paths) // 4)
@@ -209,9 +262,7 @@ def hour_prefix(env: Env, n_paths: int, days: float, tag: str) -> np.ndarray:
     real = G1.real_price(env)
     if real is not None:
         try:
-            hourly = real if real.resolution == "hour" else PP.resample(real, "hour")
-            model = SY.BlockBootstrap.fit(hourly)
-            model.demean = True
+            model = real_price_model(env)
             return np.asarray(model.simulate(n_paths, n, "hour", rng, p0=p0).prices, dtype=np.int64)
         except Exception:  # pragma: no cover - a real file too short to bootstrap → placeholder
             pass
@@ -262,12 +313,16 @@ class JudgeStream:
 
     name: str
     tag_price: np.ndarray  #: int64 µUSD, 0 = no quote tag
-    kind: np.ndarray  #: int8: -1 no quote, 0 normal honest pool, 1 stale (honest, slow), 2 frozen
+    #: int8: -1 no quote, 0 normal honest, 1 stale (honest, slow), 2 frozen, 3 rogue, 4 one-venue
+    kind: np.ndarray
     pool: np.ndarray  #: int16 miner pool id (n_pools = untagged "other")
     true: np.ndarray  #: int64 true price
     n_pools: int
     shares: tuple[float, ...]
     info: dict[str, Any] = field(default_factory=dict)
+    #: int32 (P, sources, n): each venue's 15-min TWAP (single-venue pools; calm only)
+    venue_twap: np.ndarray | None = None
+    agent: np.ndarray | None = None  #: int64 (P, n): the shipped agent's price per block (0 = fails closed)
 
 
 def spread_model(env: Env):
@@ -281,6 +336,48 @@ def spread_model(env: Env):
         except Exception:  # pragma: no cover - too few rows
             pass
     return SpreadModel(), "synthetic"
+
+
+POOL_FEEDS = ("agent", "venue")
+
+
+def pool_feed_mode(policy) -> str:
+    """How an honest pool builds its quote (policy ``pool_feed``, D-RD-ATT-1): ``"agent"`` (default) —
+    the shipped agent's median of the venues (yellowback_price.py ``PriceFeed.aggregate``); ``"venue"`` —
+    the WP-7d model, pool ``i`` reading venue ``i mod 3`` alone (kept as a sensitivity)."""
+    m = str(getattr(policy, "pool_feed", "agent"))
+    if m not in POOL_FEEDS:
+        raise ValueError(f"pool_feed must be one of {POOL_FEEDS}, got {m!r}")
+    return m
+
+
+def venue_quotes(env: Env, true: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Per-venue quotes ``(P, sources, n)`` around block-resolution true prices: the real venue
+    disagreement replayed from ``env.data["spreads"]`` (:class:`ybcal.sim.feeds.VenueReplay`) when a log
+    is loaded, else the placeholder :class:`SpreadModel`."""
+    from ybcal.sim.feeds import VenueReplay
+
+    log = env.data.get("spreads") if isinstance(env.data, Mapping) else None
+    if log is not None and hasattr(log, "prices"):
+        try:
+            return VenueReplay.from_log(log).generate(true, rng, step_seconds=75)
+        except ValueError:  # pragma: no cover - too few rows
+            pass
+    sm, _ = spread_model(env)
+    return sm.generate(true, rng, step_seconds=75).quotes
+
+
+def agent_feed(policy, sq: np.ndarray) -> np.ndarray:
+    """The shipped agent's price per block from venue quotes (``ybcal.sim.feeds.agent_quotes``) with the
+    policy's ``agent_min_sources`` / ``agent_outlier_bps`` (defaults: the sample configs, 3 and 1,000)."""
+    from ybcal.sim import feeds as F
+
+    return F.agent_quotes(
+        sq,
+        min_sources=int(getattr(policy, "agent_min_sources", F.AGENT_MIN_SOURCES)),
+        outlier_bps=int(getattr(policy, "agent_outlier_bps", F.AGENT_OUTLIER_BPS)),
+        min_venues=min(F.AGENT_MIN_VENUES, int(getattr(policy, "agent_min_sources", F.AGENT_MIN_SOURCES))),
+    )
 
 
 def pool_model(env: Env):
@@ -327,7 +424,7 @@ def judge_stream(env: Env, name: str) -> JudgeStream:
     """The scenario's REG-4 tag stream (memoised per process; see the module docstring)."""
 
     def build() -> JudgeStream:
-        from ybcal.data.synthetic import BlockBootstrap, renewal_outages
+        from ybcal.data.synthetic import renewal_outages
 
         scen = G1.scenario(env, name)
         h = G1.horizon_days(scen, env.budget)
@@ -335,8 +432,7 @@ def judge_stream(env: Env, name: str) -> JudgeStream:
         rng = env.rng_for("G6", "true", name, P, h)
         real = G1.real_price(env)
         if real is not None:
-            model = BlockBootstrap.fit(real)
-            model.demean = True
+            model = real_price_model(env)
             base = model.simulate(
                 P, scen.n_steps("block", h), "block", env.rng_for("G6", "boot", name, P, h), p0=scen.p0
             )
@@ -345,20 +441,55 @@ def judge_stream(env: Env, name: str) -> JudgeStream:
             run = scen.generate(rng, P, resolution="block", horizon_days=h)
         true = np.asarray(run.paths.prices, dtype=np.int64)
         n = true.shape[1]
-        sm, _ = spread_model(env)
         pm, _ = pool_model(env)
         k = pm.n_pools
         srng = env.rng_for("G6", "sources", name, P, h)
-        sq = sm.generate(true, srng, step_seconds=75).quotes  # (P, ns, n)
+        sq = venue_quotes(env, true, srng)  # (P, ns, n)
         ns = sq.shape[1]
+        mode = pool_feed_mode(env.policy)
+        agent_all = agent_feed(env.policy, sq)  # attestors always run the agent (G8 MINT-10 model)
+        agent = agent_all if mode == "agent" else None
         prng = env.rng_for("G6", "pools", name, P, h)
-        miner = pm.assign(P, n, prng)  # (P, n), k = other
-        outage = renewal_outages(P, k, n, 75, pm.outage_per_day, pm.outage_mean_hours, prng)
         sched = {
             key: np.broadcast_to(np.asarray(v, dtype=float), (P, n)) if np.ndim(v) else None
             for key, v in run.schedules.items()
         }
         shares = {i: float(pm.shares[i]) for i in range(k)}
+
+        def _on(key: str) -> tuple[float, np.ndarray]:
+            a = sched.get(key)
+            if a is None:
+                return 0.0, np.zeros((P, n), bool)
+            return float(np.max(a)), a > 0
+
+        # D-RD-ATT-6 adversarial pools: a rogue coalition (attacker_share, attacker_bias_bps), pools
+        # that go offline (offline_pool_share: their hash leaves, the rest mine every block), and a
+        # pool whose agent reads one venue only (venue_pool_share, constants.venue_pool_source)
+        off_share, off_on = _on("offline_pool_share")
+        off_ids = _subset_closest(shares, off_share) if off_share > 0 else ()
+        if off_ids:
+            day = BLOCKS_PER_HOUR * 24
+            T = -(-n // day)
+            rows = np.tile(np.asarray(pm.shares, dtype=np.float64), (P, T, 1))
+            on_day = off_on[:, ::day][:, :T]
+            left = 1.0 - sum(shares[i] for i in off_ids)
+            for i in range(k):
+                rows[:, :, i] = np.where(on_day, 0.0 if i in off_ids else shares[i] / left, shares[i])
+            miner = pm.assign(P, n, prng, shares=rows, shares_step_blocks=day)
+        else:
+            miner = pm.assign(P, n, prng)  # (P, n), k = other
+        outage = renewal_outages(P, k, n, 75, pm.outage_per_day, pm.outage_mean_hours, prng)
+        rogue_share, rogue_on = _on("attacker_share")
+        rogue_ids = _subset_closest(shares, rogue_share) if rogue_share > 0 else ()
+        rogue_bias = sched.get("attacker_bias_bps")
+        venue_share, venue_on = _on("venue_pool_share")
+        venue_ids: tuple[int, ...] = ()
+        if venue_share > 0:
+            cand_ids = [i for i in shares if i not in rogue_ids]
+            venue_ids = (min(cand_ids, key=lambda i: abs(shares[i] - venue_share)),)
+        vname = str(scen.constants.get("venue_pool_source", "safetrade"))
+        vnames = _venue_names(env, ns)
+        vsrc = vnames.index(vname) if vname in vnames else 1
         stale_share = (
             float(np.max(sched["stale_pool_share"])) if sched.get("stale_pool_share") is not None else 0.0
         )
@@ -387,7 +518,12 @@ def judge_stream(env: Env, name: str) -> JudgeStream:
             mine = miner == i
             if not mine.any():
                 continue
-            tw = _twap_valid(sq[:, i % ns, :], int(pm.twap_blocks))  # (P, n)
+            if agent is not None:
+                tw = agent.astype(np.float64)  # every pool runs the shipped agent (median of the venues)
+            else:
+                tw = _twap_valid(sq[:, i % ns, :], int(pm.twap_blocks))  # (P, n): one venue per pool
+            if i in venue_ids:
+                tw = np.where(venue_on, _twap_valid(sq[:, vsrc, :], int(pm.twap_blocks)), tw)
             lag = np.full((P, n), int(pm.lag_blocks[i]), dtype=np.int64)
             st = stale_on & (i in stale_ids)
             lag = np.where(st, np.maximum(lag, stale_lag), lag)
@@ -395,6 +531,8 @@ def judge_stream(env: Env, name: str) -> JudgeStream:
             base = np.take_along_axis(tw, src_t, axis=1)
             q = base * np.exp(float(pm.bias_bps[i]) / 1e4 + float(pm.noise_bps[i]) / 1e4 * z)
             q = np.where(base > 0, q, 0.0)
+            if i in rogue_ids and rogue_bias is not None:
+                q = np.where(rogue_on, q * (1.0 + rogue_bias / BPS), q)
             if i in frozen_ids and frozen_on.any():
                 for p in range(P):
                     on = np.flatnonzero(frozen_on[p])
@@ -408,6 +546,10 @@ def judge_stream(env: Env, name: str) -> JudgeStream:
             kd = np.where(st, 1, 0).astype(np.int8)
             if i in frozen_ids:
                 kd = np.where(frozen_on, 2, kd).astype(np.int8)
+            if i in rogue_ids:
+                kd = np.where(rogue_on, 3, kd).astype(np.int8)
+            if i in venue_ids:
+                kd = np.where(venue_on, 4, kd).astype(np.int8)
             kind = np.where(tagged, kd, kind)
         info = {
             "scenario": name,
@@ -415,9 +557,22 @@ def judge_stream(env: Env, name: str) -> JudgeStream:
             "horizon_days": h,
             "stale_pools": list(stale_ids),
             "frozen_pools": list(frozen_ids),
+            "rogue_pools": list(rogue_ids),
+            "offline_pools": list(off_ids),
+            "venue_pools": list(venue_ids),
             "quote_density": float((quote > 0).mean()),
+            "pool_feed": mode,
+            "agent_fail_closed": float((agent <= 0).mean()) if agent is not None else 0.0,
         }
-        return JudgeStream(name, quote, kind, miner, true, k, tuple(float(s) for s in pm.shares), info)
+        venue_tw = None
+        if name == "calm-90d":  # the single-venue pool overlay is measured in calm only (memory)
+            venue_tw = np.stack(
+                [_twap_valid(sq[:, j, :], int(pm.twap_blocks)) for j in range(ns)], axis=1
+            ).astype(np.int32)
+        info["agent_fail_closed_all"] = float((agent_all <= 0).mean())
+        return JudgeStream(
+            name, quote, kind, miner, true, k, tuple(float(s) for s in pm.shares), info, venue_tw, agent_all
+        )
 
     return _cached(_ekey(env, "judge_stream", name), build)
 
@@ -485,6 +640,9 @@ class JudgeSummary:
     frozen: np.ndarray  #: … of a frozen pool
     not_eval: float  #: share of judged quote tags with fewer than peerMin peers
     n_tags: int
+    rogue: np.ndarray = field(default_factory=lambda: np.zeros(0, np.int32))  #: … of a rogue pool (kind 3)
+    #: … of a one-venue pool (kind 4)
+    venue: np.ndarray = field(default_factory=lambda: np.zeros(0, np.int32))
 
 
 def floor_density(dens: float, params: Mapping, policy) -> float:
@@ -509,6 +667,8 @@ def judge_summary(env: Env, name: str, lag: int, peer_min: int) -> JudgeSummary:
             np.sort(a.dev[ev & (s.kind == 2)]),
             not_eval,
             nq,
+            np.sort(a.dev[ev & (s.kind == 3)]),
+            np.sort(a.dev[ev & (s.kind == 4)]),
         )
 
     return _cached(_ekey(env, "summary", name, int(lag), int(peer_min)), build)
@@ -539,6 +699,40 @@ def liar_detection(env: Env, lag: int, peer_min: int, dev_bps: int, bias_bps: in
     up = np.floor(np.abs(q * (1 + bias_bps / BPS) - m) * BPS / m) > dev_bps
     dn = np.floor(np.abs(q * (1 - bias_bps / BPS) - m) * BPS / m) > dev_bps
     return float(0.5 * (up.mean() + dn.mean()))
+
+
+def venue_pool_penalty(env: Env, lag: int, peer_min: int, dev_bps: int) -> dict[str, float]:
+    """Calm: share of a *single-venue* pool's tags REG-4 penalises, per venue — an honest tag's quote
+    replaced by that venue's 15-minute TWAP (the pool's agent configured with one source, or a pool
+    quoting a stale venue) against the same peers. The share it is in the accuracy band is reported
+    too (``<venue>.in_band`` needs ``accuracyBandBps``; filled by the caller)."""
+    s = judge_stream(env, "calm-90d")
+    if s.venue_twap is None:
+        return {}
+    a = lag_arrays(env, "calm-90d", lag)
+    ev = (a.dev >= 0) & a.judged & (a.cnt >= int(peer_min)) & (s.kind == 0)
+    names = _venue_names(env, s.venue_twap.shape[1])
+    out: dict[str, float] = {}
+    for j, nm in enumerate(names):
+        q = s.venue_twap[:, j, :][ev].astype(np.float64)
+        m = a.med[ev].astype(np.float64)
+        ok = q > 0
+        if not ok.any():
+            continue
+        d = np.floor(np.abs(q[ok] - m[ok]) * BPS / m[ok])
+        out[nm] = float((d > dev_bps).mean())
+        out[f"{nm}.p50"] = float(np.percentile(d, 50))
+    return out
+
+
+def _venue_names(env: Env, ns: int) -> list[str]:
+    log = env.data.get("spreads") if isinstance(env.data, Mapping) else None
+    names = list(getattr(log, "names", ())) if log is not None else []
+    if len(names) != ns:
+        from ybcal.data.synthetic import SpreadModel
+
+        names = list(SpreadModel().names)[:ns]
+    return names
 
 
 def pool_accuracies(env: Env, lag: int, peer_min: int, band: int) -> dict[int, float]:
@@ -644,6 +838,13 @@ def _fams() -> tuple[Family, ...]:
         "judge.liar_detect_1000",
         "judge.liar_detect_2000",
         "judge.frozen_penalised",
+        "judge.venue_penalised_max",
+        "judge.agent_fail_closed",
+        "adv.rogue_major_pool_15.honest_fp",
+        "adv.rogue_major_pool_15.rogue_penalised",
+        "adv.rogue_major_pool_5.honest_fp",
+        "adv.major_pool_offline.not_evaluated",
+        "adv.venue_pool.venue_penalised",
     )
     fees = (
         "fee.share_minmint",
@@ -769,7 +970,7 @@ def _fams() -> tuple[Family, ...]:
             "≥ min_liar_exclusion of the time; KEEP unless > materiality.",
             primary="pen.honest_excluded",
             constraints=("liar_excluded", "honest_excluded"),
-            report=("pen.honest_excluded", "pen.liar_excluded"),
+            report=("pen.honest_excluded", "pen.honest_excluded_stress", "pen.liar_excluded"),
             sens_metric="pen.liar_excluded",
             provenance_key="judge_provenance",
         ),
@@ -914,6 +1115,28 @@ class G6Study(FamilyStudy):
             if bias in (500, 1000, 2000)
             else liar_detection(env, lag, pmin, dev_bps, bias)
         )
+        # D-RD-ATT-6: adversarial / real-landscape scenarios (reported; not part of the honest p99)
+        for sc in ADV_SCENARIOS:
+            try:
+                sm = judge_summary(env, sc, lag, pmin)
+            except KeyError:  # pragma: no cover - scenario file missing
+                continue
+            key = sc.replace("-", "_")
+            v[f"adv.{key}.honest_fp"] = _rate_above(sm.honest, dev_bps)
+            v[f"adv.{key}.not_evaluated"] = sm.not_eval
+            if len(sm.rogue):
+                v[f"adv.{key}.rogue_penalised"] = _rate_above(sm.rogue, dev_bps)
+            if len(sm.venue):
+                v[f"adv.{key}.venue_penalised"] = _rate_above(sm.venue, dev_bps)
+                v[f"adv.{key}.venue_in_band"] = 1.0 - _rate_above(sm.venue, band)
+        vp = venue_pool_penalty(env, lag, pmin, dev_bps)
+        for nm, x in vp.items():
+            v[f"judge.venue_penalised.{nm}"] = x
+        vals = [x for nm, x in vp.items() if "." not in nm]
+        v["judge.venue_penalised_max"] = float(max(vals)) if vals else math.nan
+        info = judge_stream(env, "calm-90d").info
+        v["judge.agent_fail_closed"] = float(info.get("agent_fail_closed", 0.0))
+        meta["pool_feed"] = info.get("pool_feed", "venue")
         v["judge.peer_min"] = float(pmin)
         v["judge.dev_bps"] = float(dev_bps)
         kdev = float(pol.k_dev)
@@ -961,10 +1184,16 @@ class G6Study(FamilyStudy):
 
         # ---- L6: nPenalty, accuracyWindow, payeeTiltBps -----------------------------------------
         npen = int(cand["nPenalty"])
-        fp_rate = v["judge.false_penalty"] if math.isfinite(v["judge.false_penalty"]) else 0.0
+        # D-RD-ATT-7: "the share of time an honest pool is excluded" is a steady-state quantity — the
+        # calm false-penalty rate; the worst scenario (stale-pools: 30 % of the hash quoting an hour
+        # late for 85 days) is reported as the stress value, not used as the steady state
+        fp_calm = v["judge.fp.calm-90d"] if math.isfinite(v["judge.fp.calm-90d"]) else 0.0
+        fp_worst = v["judge.false_penalty"] if math.isfinite(v["judge.false_penalty"]) else 0.0
         s_eq = float(pol.expected_enforcing_share) / max(1, int(pol.expected_pool_count))
-        p_pen_tag = s_eq * dens / max(1e-9, float(np.sum(judge_stream(env, "calm-90d").shares))) * fp_rate
-        v["pen.honest_excluded"] = round(1.0 - (1.0 - p_pen_tag) ** npen, 6)
+        r_eq_tag = s_eq * dens / max(1e-9, float(np.sum(judge_stream(env, "calm-90d").shares)))
+        # rounded to 0.01 % of the time: smaller differences are not a reason to move a wallet default
+        v["pen.honest_excluded"] = round(1.0 - (1.0 - r_eq_tag * fp_calm) ** npen, 4)
+        v["pen.honest_excluded_stress"] = round(1.0 - (1.0 - r_eq_tag * fp_worst) ** npen, 4)
         v["pen.liar_excluded"] = 1.0 - (1.0 - rate_min) ** npen
         c["liar_excluded"] = v["pen.liar_excluded"] >= judgement(pol, "min_liar_exclusion")
         c["honest_excluded"] = v["pen.honest_excluded"] <= judgement(pol, "max_honest_exclusion")
@@ -1082,6 +1311,32 @@ class G6Study(FamilyStudy):
         if fam.name != "fees":
             return super().decide_family(table, fam, policy)
         sub = family_table(table, fam)
+        # owner-pinned values (D-3: attestFeeBps) are evidence only — the grid is searched with them
+        # held at the current value; the unconstrained optimum is reported in the notes (D-RD-ATT-8)
+        pinned = owner_pinned(policy) & set(fam.varies)
+        if pinned:
+            free = decide_with_materiality(sub, policy)
+            fr = (
+                free.row
+                if free.verdict != "BLOCKED"
+                else least_violating(list(sub), fam.constraints, sub.distance)
+            )
+            fv = fr.metrics.values
+            self._pinned_evidence = (
+                "Owner-pinned "
+                + ", ".join(
+                    f"{p} = {table.base[p]} ({OWNER_PINNED.get(p, 'policy owner_pinned')})"
+                    for p in sorted(pinned)
+                )
+                + ": held fixed. Evidence only — with it free the grid's "
+                + ("best" if free.verdict != "BLOCKED" else "least-violating")
+                + " point is "
+                + ", ".join(f"{p} = {fr.params[p]}" for p in fam.varies)
+                + f" (fee share {fv.get('fee.share_minmint', math.nan):.2%}, pool "
+                f"${fv.get('fee.pool_usd_month', math.nan):.0f}/mo, "
+                f"attestor ${fv.get('fee.attestor_usd_month', math.nan):.0f}/mo)."
+            )
+            sub.rows = [r for r in sub.rows if all(r.params[p] == table.base[p] for p in pinned)]
         d = decide_with_materiality(sub, policy)
         if d.verdict != "BLOCKED":
             return d.row, d.verdict, d.reason
@@ -1142,6 +1397,8 @@ class G6Study(FamilyStudy):
                 f"(the frozen pool's tags are penalised at {mv.get('judge.frozen_penalised', math.nan):.1%})."
             )
         if fam.name == "fees":
+            if getattr(self, "_pinned_evidence", None):
+                out.append(self._pinned_evidence)
             out.append(
                 "FEE-1 is levied on the collateral, so the round-trip fee share of the debt is "
                 "2·feeBps·baseRatio regardless of size (A "

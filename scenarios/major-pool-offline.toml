@@ -1,0 +1,17 @@
+# The real pool landscape (D-RD-D5): the 52 % pool goes offline from day 5 (its hash leaves; the
+# remaining 48 % mine every block, so the remaining pools' quote tags fill the peer windows).
+name = "major-pool-offline"
+description = "the 52 % pool goes offline from day 5; the remaining pools mine every block"
+stresses = "REG-4 peer counts (peerMin / peerLag) and FEE-0 with the dominant pool gone"
+tags = ["oracle", "real-landscape"]
+horizon_days = 30
+resolution = "block"
+p0_usd = 0.36
+
+[base]
+model = "gbm"
+params = { mu = 0.0, sigma = 0.90 }
+
+[schedules.offline_pool_share]
+default = 0.0
+changes = [{ at_days = 5, value = 0.52 }]

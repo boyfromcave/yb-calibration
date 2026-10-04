@@ -99,6 +99,11 @@ SCHEDULES: dict[str, tuple[str, str]] = {
     "stale_pool_share": ("hash share of pools whose quotes are stale", "fraction"),
     "stale_lag_blocks": ("staleness of those pools' quotes", "blocks"),
     "frozen_pool_share": ("hash share of pools repeating one constant quote (PIN-1 target)", "fraction"),
+    "offline_pool_share": ("hash share of pools that go offline (their hash leaves the chain)", "fraction"),
+    "venue_pool_share": (
+        "hash share of a pool whose agent reads one venue only (constants.venue_pool_source)",
+        "fraction",
+    ),
     "feed_up": ("1 while exchange feeds are reachable, 0 during a feed outage (no quotes)", "flag"),
     "attestor_uptime": ("per-attestor availability probability", "probability"),
     "attestors_down": ("number of attestors offline (deterministic, on top of uptime)", "count"),
