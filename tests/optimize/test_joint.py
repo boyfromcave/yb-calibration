@@ -203,3 +203,20 @@ def test_later_round_failure_keeps_the_earlier_result():
     r = res.recommendations["pMidWindow"]
     assert r.recommended == 624 and any("re-run of G1 failed" in n for n in r.notes)
     assert res.rounds[1].statuses["G1"].startswith("error")
+
+
+def test_restate_names_the_least_violating_value():
+    """D-RD-INF-6: a BLOCKED text written in a later round said "least violating: current"."""
+    from ybcal.optimize.joint import _restate
+    from ybcal.studies.base import Recommendation
+
+    base = mainnet()
+    r = Recommendation("baseRatioBps[1]", 70_000, 70_000, "BLOCKED", "rule",
+                       "policy constraint bad_debt_B cannot be met; least violating: current",
+                       metrics={"decision": "no candidate satisfies bad_debt_B; least violating: current"})
+    final = base.replace({"baseRatioBps[1]": 70_000})
+    _restate(r, base, final, 2)
+    assert r.current == 40_000 and r.recommended == 70_000 and r.verdict == "BLOCKED"
+    assert "least violating: 70000" in r.binding
+    assert not r.binding.split("least violating")[1].startswith(": current")
+    assert "least violating: 70000" in r.metrics["decision"]

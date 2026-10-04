@@ -354,11 +354,31 @@ def _restate(
             "(derived from its parent, or the group's change was not applied)."
         )
         rec.recommended = want
+    _restate_least_violating(rec, shipped)
     if rec.verdict == "KEEP" and rec.recommended != shipped:
         rec.verdict = "CHANGE"
     elif rec.verdict == "CHANGE" and rec.recommended == shipped:
         rec.verdict = "KEEP"
     return rec
+
+
+_LV_CURRENT = re.compile(r"least[ -]violating:? (the )?current( value)?", re.I)
+
+
+def _restate_least_violating(rec: Recommendation, shipped: Any) -> None:
+    """A BLOCKED study text written against an intermediate joint set says "least violating:
+    current" although the value it means is that round's (D-RD-INF-6): name the value."""
+    if rec.verdict != "BLOCKED" or rec.recommended == shipped:
+        return
+    txt = f"least violating: {rec.recommended} (the joint set's value; shipped {shipped})"
+
+    def fix(s: Any) -> Any:
+        return _LV_CURRENT.sub(txt, s) if isinstance(s, str) else s
+
+    rec.binding = fix(rec.binding)
+    if isinstance(rec.metrics, dict) and isinstance(rec.metrics.get("decision"), str):
+        rec.metrics = {**rec.metrics, "decision": fix(rec.metrics["decision"])}
+    rec.notes = [fix(n) for n in rec.notes]
 
 
 def joint_pass(

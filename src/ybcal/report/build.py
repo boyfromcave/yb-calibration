@@ -515,7 +515,17 @@ def blocked_rows(joint: JointResult, sections: Mapping[str, X.ParamSection]) -> 
                 if isinstance(vals, Mapping)
                 else str(vals)
             )
-        reason = "; ".join(x for x in (r.binding, str(m.get("decision") or "")) if x and x != "—")
+        parts: list[str] = []
+        for x in (r.binding, str(m.get("decision") or "")):
+            for y in str(x or "").split("; "):
+                y = y.strip()
+                # de-duplicate, also a part contained in an earlier one (the rd2 "no candidate
+                # satisfies the policy: no candidate satisfies …" repetition, D-RD-INF-6)
+                if y and y != "—" and not any(y in q or q in y for q in parts):
+                    parts.append(y)
+                elif y and any(q in y and q != y for q in parts):
+                    parts = [q for q in parts if q not in y] + [y]
+        reason = "; ".join(parts)
         out.append(
             {
                 "param": p,

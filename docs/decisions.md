@@ -138,6 +138,7 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-INF-3](#d-rd-inf-3-2026-10-04-infra--policy-unmeetable-in-this-environment-is-not-blocked) | infra (wave 2) | "policy unmeetable in this environment" is not BLOCKED |
 | [D-RD-INF-4](#d-rd-inf-4-2026-10-04-infra--g9-on-real-data-no-zero-amounts-thin-market-and-majority-pool-are-environment-limits) | infra (wave 2) | G9 on real data: no zero amounts; thin market and majority pool are environment limits |
 | [D-RD-INF-5](#d-rd-inf-5-2026-10-04-infra--the-robustness-harness-windows-price-models-policy-overrides) | infra (wave 2) | the robustness harness: windows, price models, policy overrides |
+| [D-RD-INF-6](#d-rd-inf-6-2026-10-04-infra--report-polish-blocked-reasons-name-the-value-lock-readiness-counts-pins-and-environment-limits) | infra (wave 2) | report polish: BLOCKED reasons name the value; lock-readiness counts pins and environment limits |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -1766,4 +1767,18 @@ three price models. Subprocesses keep runs isolated, killable and resumable; the
 the final report a join over runs, not a re-run.
 **Consequence.** A full `standard` sweep (3 × 4 × 3 = 36 runs) is hours of CPU; run it in a
 resumable script (`.work/runs/`), group subsets (`--groups`) for a study agent's own parameters.
+
+## D-RD-INF-6 (2026-10-04, infra) — report polish: BLOCKED reasons name the value; lock-readiness counts pins and environment limits
+
+**Decision.** (1) When the joint pass re-states a BLOCKED recommendation whose least-violating value
+differs from the shipped one, "least violating: current" in its binding, decision and notes becomes
+"least violating: <value> (the joint set's value; shipped <x>)" (rd2: `baseRatioBps[1]` 70,000 was
+reported as "least violating: current"). (2) The executive-summary BLOCKED reason de-duplicates its
+parts (rd2 printed "no candidate satisfies the policy" three times for the G1 windows). (3)
+Lock-readiness: an owner-pinned value needs no real-data backing (item 2), a required item checks
+every pin holds its decided value or fraction (D-RD-INF-2) and names the pins the evidence argues
+against; environment-limited parameters are not BLOCKED and have their own required item (note +
+quantified exposure, D-RD-INF-3).
+**Reason.** The audit: the re-stated text contradicted the value in the patch, and the checklist
+counted owner decisions and unmeetable-environment constraints as parameter failures.
 
