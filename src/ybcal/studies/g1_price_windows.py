@@ -1007,7 +1007,7 @@ class G1Study:
     # -- decide -----------------------------------------------------------------------------------
     def decide(self, results: ResultTable, policy: Policy) -> list[Recommendation]:
         jt0 = objective_table(results, policy)
-        jt, env_notes = environment_adjust(jt0, policy)
+        jt, env_notes, env_cons = environment_adjust(jt0, policy)
         dec = decide_with_materiality(jt, policy, params=WINDOWS, metric="objective")
         cur = jt.current(WINDOWS)
         assert cur is not None
@@ -1015,11 +1015,12 @@ class G1Study:
         prov = cur.metrics.provenance
         verdict = final_verdict(dec.verdict, prov)
         binding = binding_constraint(jt, chosen, dec)
+        env = None
         if env_notes:
-            # the policy is unmeetable in the real environment: the verdict stays BLOCKED, the value
-            # is the least-harm set under the relaxed rule (D-RD-ORA-2)
-            verdict = "BLOCKED"
-            binding = "environment-blocked: " + "; ".join(env_notes) + f" — least-harm rule: {dec.reason}"
+            # the policy is unmeetable in the real environment: least harm — environment-limited
+            # (D-RD-ORA-2, envlimit / D-RD-INF-3); the value is the least-harm set of the relaxed rule
+            binding = "environment-limited: " + "; ".join(env_notes) + f" — least-harm rule: {dec.reason}"
+            env = environment_info(env_cons, env_notes, cur, chosen, dec.reason)
         meta = cur.metrics.meta
         conf = _confidence(prov, str(meta.get("budget", "quick")))
         out = evidence_dir(meta.get("out_dir"), GROUP)
@@ -1094,7 +1095,7 @@ class G1Study:
                         f"rules: {', '.join(spec.rules)}",
                         f"materiality: {dec.reason}",
                         f"underlying verdict before the provenance rule: {dec.verdict}",
-                        *[f"environment-blocked (D-RD-ORA-2): {x}" for x in env_notes],
+                        *[f"environment-limited (D-RD-ORA-2): {x}" for x in env_notes],
                     ],
                 )
             )
@@ -1120,6 +1121,11 @@ class G1Study:
                     notes=[f"Derived from {w}; recommend the parent, the child follows."],
                 )
             )
+        if env is not None:
+            from ybcal.studies.envlimit import attach_environment
+
+            for r in recs:
+                attach_environment(r, env)
         return recs
 
     # -- explain ----------------------------------------------------------------------------------
@@ -1159,7 +1165,7 @@ def _objective(lag: float, over: float, lag0: float, over0: float, lam: float) -
 NO_PRICE_BAND = 0.05
 
 
-def environment_adjust(jt: ResultTable, policy: Policy) -> tuple[ResultTable, list[str]]:
+def environment_adjust(jt: ResultTable, policy: Policy) -> tuple[ResultTable, list[str], list[str]]:
     """Relax the G1 constraints the real environment makes unmeetable for *every* window set, so the
     rule still picks the least-harm windows instead of stopping at BLOCKED (D-RD-ORA-2):
 
@@ -1172,16 +1178,19 @@ def environment_adjust(jt: ResultTable, policy: Policy) -> tuple[ResultTable, li
       binding, so it is minimised first (a tight band, not materiality — 20 % of 1,200 h/yr is 240 h);
       J then chooses inside the band as usual (minimal change within materiality of the best).
 
-    Returns the (possibly) adjusted table and one note per relaxation; no notes = unchanged."""
+    Returns the (possibly) adjusted table, one note per relaxation and the relaxed constraint names;
+    no notes = unchanged."""
     cur = jt.current(WINDOWS)
     notes: list[str] = []
+    names: list[str] = []
     if cur is None:
-        return jt, notes
+        return jt, notes, names
     v = cur.metrics.values
     # whenever one pool sets every median alone the coalition test is moot (it passes or fails on a
     # 34 % coalition nobody needs); the note is always raised, the constraint dropped if it binds
     drop_attack = bool(v.get("attack_env_blocked", 0.0) >= 1.0)
     if drop_attack:
+        names.append("attack_share_min")
         notes.append(
             f"the largest pool holds {float(v.get('top_pool_quote_share', math.nan)):.0%} of the quotes "
             f"({float(v.get('top_pool_share', math.nan)):.0%} of blocks) and sets every median alone "
@@ -1194,13 +1203,14 @@ def environment_adjust(jt: ResultTable, policy: Policy) -> tuple[ResultTable, li
     bound = (1.0 + NO_PRICE_BAND) * min(finite) if relax_np else math.nan
     if relax_np:
         np_cur = float(v.get("no_price_h_per_year", math.nan))
+        names.append("max_no_price_hours")
         notes.append(
             f"no window set meets max_no_price_hours ({policy.max_no_price_hours:g} h/yr): the lowest "
             f"background NO_PRICE is {min(finite):.0f} h/yr (current {np_cur:.0f}); "
             f"the rule keeps the sets within {NO_PRICE_BAND:.0%} of it (≤ {bound:.0f} h/yr), then applies J"
         )
     if not notes:
-        return jt, notes
+        return jt, notes, names
     out = ResultTable(jt.base)
     for r in jt:
         m = r.metrics
@@ -1211,7 +1221,59 @@ def environment_adjust(jt: ResultTable, policy: Policy) -> tuple[ResultTable, li
             x = float(m.values.get("no_price_h_per_year", math.nan))
             c["max_no_price_hours"] = bool(math.isfinite(x) and x <= bound)
         out.add(r.params, Metrics(dict(m.values), m.primary, m.minimize, c, m.provenance, dict(m.meta)))
-    return out, notes
+    return out, notes, names
+
+
+def _exposure(row) -> str:
+    v = row.metrics.values
+
+    def g(k: str, fmt: str = "{:.0f}") -> str:
+        x = v.get(k)
+        return "n/a" if x is None or not math.isfinite(float(x)) else fmt.format(float(x))
+
+    return (
+        f"background NO_PRICE {g('no_price_h_per_year')} h/yr with the policy's tagging set "
+        f"(real sequence alone {g('no_price_seq_h_per_year')}; 4 largest keys tag "
+        f"{g('no_price_top4_h_per_year')}; every key {g('no_price_all_tag_h_per_year')}); the largest pool "
+        f"holds {g('top_pool_quote_share', '{:.0%}')} of the quotes and captures pFast / pMid / pSlow in "
+        f"{g('rogue_up_capture_h_fast', '{:.1f}')} / {g('rogue_up_capture_h_mid', '{:.1f}')} / "
+        f"{g('rogue_up_capture_h_slow', '{:.1f}')} h; if it withholds quotes NO_PRICE follows in "
+        f"{g('rogue_withhold_onset_h', '{:.1f}')} h and lasts until {g('rogue_withhold_recovery_h')} h after "
+        "it resumes"
+    )
+
+
+def environment_info(cons: list[str], notes: list[str], cur, chosen, reason: str) -> dict:
+    """The ``envlimit`` record (D-RD-INF-3) for the G1 environment limits (D-RD-ORA-2)."""
+    ids = {"attack_share_min": "G1-ENV-1", "max_no_price_hours": "G1-ENV-2"}
+    titles = {
+        "attack_share_min": "One pool sets every price median (attack_share_min unmeetable)",
+        "max_no_price_hours": "Background NO_PRICE far above max_no_price_hours at every window set",
+    }
+    fixes = {
+        "attack_share_min": "arm the attestation layer early (PRICE-2 revised bounds over-minting and "
+        "path-(a) claims); operationally, spread hash; no window can",
+        "max_no_price_hours": "more tagging pools (the unidentified 21 % key: 4 largest tagging → tens of "
+        "h/yr), or a lower mid/slow min-fill than ⌈2W/3⌉ (L9; v3's PRICE-2 already bounds the minority "
+        "attack L9 guarded against once ARMED)",
+    }
+    h = float(chosen.metrics.values.get("no_price_h_per_year", math.nan))
+    h0 = float(cur.metrics.values.get("no_price_h_per_year", math.nan))
+    return {
+        "constraints": list(cons),
+        "note": ids[cons[0]],
+        "notes": [ids[c] for c in cons],
+        "why": "; ".join(notes),
+        "exposure": _exposure(chosen),
+        "harm_metric": "no_price_h_per_year",
+        "harm_minimize": True,
+        "harm_at_choice": h,
+        "harm_at_current": h0,
+        "harm_best": h,
+        "titles": [titles[c] for c in cons],
+        "fixes": [fixes[c] for c in cons],
+        "decision": f"environment-limited ({', '.join(cons)}): {reason}",
+    }
 
 
 def objective_table(results: ResultTable, policy: Policy) -> ResultTable:

@@ -330,8 +330,12 @@ def test_environment_adjust_picks_least_harm(tmp_path):
     t.add(base.replace(pMidWindow=864), m(39.0, 1400.0))
     recs = G.make_study().decide(t, Policy())
     r = _rec(recs, "pMidWindow")
-    assert r.verdict == "BLOCKED" and r.recommended == 1152
-    assert "environment-blocked" in r.binding
+    assert r.verdict == "CHANGE" and r.recommended == 1152
+    assert "environment-limited" in r.binding
+    from ybcal.studies.envlimit import env_info
+
+    info = env_info(r)
+    assert info and info["constraints"] == ["attack_share_min", "max_no_price_hours"]
     assert any("D-RD-ORA-2" in n for n in r.notes)
     # nothing environmental → the ordinary rule (BLOCKED keeps current)
     t2 = _table([((96, 576, 2016), (40.0, 100.0, False)), ((96, 1152, 2016), (41.0, 100.0, False))], tmp_path)
