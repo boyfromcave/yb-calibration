@@ -54,6 +54,10 @@ max_flaps_per_year = 2.0           # max halt/clear cycles per year at the expec
 operator_upgrade_window_blocks = 2016  # activationDelay must be >= this (time for operators to upgrade, §5.5)
 orphan_rate = 0.005                # orphan rate used for valve false-trip estimates (§5.5)
 max_valve_false_trips_per_year = 1.0   # excluded param valveBlocks: tolerated false trips/year (§5.5)
+enforcing_pools = ["s1NYxEmf", "s1iDNEgZ", "s1TbPq7M"]   # REAL DATA: ninjaraider, mining-dutch, dapool (= expected_enforcing_share 0.70; D-RD-ACT-1)
+activation_reach_days = 60.0       # lock-in within 60 days of startHeight (D-RD-ACT-3; frontier in docs/studies/g5.md)
+max_spurious_lock_prob = 1.0       # reported, not a constraint: no window within the runbook bound meets a useful level (D-RD-ACT-4)
+valve_attack_days = 30.0           # a matured-vault owner keeps a sweep in stock mempools for 30 days (D-RD-ACT-5)
 
 [abandonment]
 max_false_abandon_prob = 0.001     # max P(ENFORCEMENT set for abandonBlocks without a real abandonment) per year (§5.4)

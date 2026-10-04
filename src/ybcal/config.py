@@ -112,6 +112,10 @@ class Policy:
     operator_upgrade_window_blocks: int = 2016
     orphan_rate: float = 0.005
     max_valve_false_trips_per_year: float = 1.0
+    enforcing_pools: tuple[str, ...] = ()
+    activation_reach_days: float = 0.0
+    valve_attack_days: float = 0.0
+    max_spurious_lock_prob: float = 1.0
     # abandonment (G4, release)
     max_false_abandon_prob: float = 0.001
     runbook_operator_buffer_blocks: int = 4608
@@ -190,6 +194,8 @@ class Policy:
         walk(data, "")
         if "sigma_accept_band" in flat:
             flat["sigma_accept_band"] = tuple(flat["sigma_accept_band"])
+        if "enforcing_pools" in flat:
+            flat["enforcing_pools"] = tuple(str(x) for x in flat["enforcing_pools"])
         return cls(**flat)
 
     @classmethod

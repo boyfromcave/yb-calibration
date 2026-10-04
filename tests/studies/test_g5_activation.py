@@ -211,3 +211,64 @@ def test_evaluate_is_deterministic():
     G._SHARE_CACHE.clear()
     b = st.evaluate(mainnet(), env_for(seed=3))
     assert dict(a.values) == dict(b.values) and dict(a.constraints) == dict(b.constraints)
+
+
+# ---------------------------------------------------------------------------------------------------
+# Real pool landscape (wave 2, D-RD-ACT-1..5)
+
+
+def _lumpy_log(days=40, seed=0):
+    """A 4-operator log with a regime switch: 'flex' hash moves from key b to key c mid-sample (the
+    shape of the real unidentified-key → zpool switch)."""
+    from ybcal.data.loaders import PoolShareLog
+
+    rng = np.random.default_rng(seed)
+    n = days * 1152
+    half = n // 2
+    p1, p2 = [0.52, 0.25, 0.0, 0.23], [0.52, 0.0, 0.25, 0.23]
+    pool = np.concatenate([rng.choice(4, size=half, p=p1), rng.choice(4, size=n - half, p=p2)])
+    pool = pool.astype(np.int32)
+    return PoolShareLog(np.arange(n, dtype=np.int64), pool, ("big", "flexA", "flexB", "rest"))
+
+
+def test_coalition_choice_auto_and_explicit():
+    from ybcal.sim.landscape import Landscape
+
+    log = _lumpy_log()
+    land = Landscape.from_log(log, top=4, names={k: k for k in log.keys})
+    auto = G.enforcing_coalition(land, Policy(expected_enforcing_share=0.70))
+    assert auto[0] == "big" and len(auto) >= 2
+    pinned = G.enforcing_coalition(land, Policy(enforcing_pools=("big", "rest")))
+    assert set(pinned) == {"big", "rest"}
+    with pytest.raises(ValueError):
+        G.enforcing_coalition(land, Policy(enforcing_pools=("nobody",)))
+
+
+def test_landscape_metrics_replace_the_binomial_mixture():
+    """With a pool-share log the halt metrics come from the per-block replay of the named coalition: a
+    coalition that loses a key mid-sample halts (the binomial mixture of the old code could not see
+    the order of blocks), the explicit stable coalition does not, and the valve's attack metric is
+    present when valve_attack_days is set."""
+    log = _lumpy_log()
+    base = dict(owner_pinned={}) if "owner_pinned" in Policy.field_names() else {}
+    lumpy = Policy(enforcing_pools=("big", "flexA"), **base)
+    stable = Policy(enforcing_pools=("big", "rest"), activation_reach_days=30.0, valve_attack_days=5.0,
+                    **base)
+    st = load_study("G5")
+    m1 = st.evaluate(mainnet(), Env(lumpy, TINY, seed=3, data={"pool_shares": log}))
+    m2 = st.evaluate(mainnet(), Env(stable, TINY, seed=3, data={"pool_shares": log}))
+    assert m1.provenance == "real-data" and m1.meta["landscape"]
+    assert m1.values["fh.enf_hours"] > 100 and not m1.constraints["false_halt"]
+    assert m2.values["fh.hours"] < m1.values["fh.hours"]
+    assert 0.0 <= m2.values["act.p_reach"] <= 1.0 and "valve.attack_trip" in m2.values
+    assert "valve.attack_trip" not in m1.values
+    assert m2.meta["coalition"] == ["big", "rest"]
+
+
+def test_scenario_confirmation_covers_the_real_pool_family():
+    out = G.scenario_confirmation(mainnet(), np.random.default_rng(0), 4)
+    assert {"hashrate-drop-45", "real-pools-ninja-offline-7d", "real-pools-ninja-rogue"} <= set(out)
+    rogue = out["real-pools-ninja-rogue"]
+    assert rogue["minority_enforced_blocks"] > 0 and rogue["detected_fraction"] == 0.0  # faked signals
+    assert out["real-pools-ninja-offline-45d"]["abandoned_fraction"] == 1.0  # > abandonBlocks
+    assert out["real-pools-launch-hop"]["locked_fraction"] == 1.0  # spurious lock-in

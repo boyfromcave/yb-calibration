@@ -77,6 +77,8 @@ JUDGEMENT: dict[str, float] = {
     # false-halt hours/yr below this are reported as 0 (no spurious relative "improvement")
     "false_halt_resolution_hours": 0.01,
     "detection_quantile": 0.95,         # quantile of the detection delay the policy bound applies to
+    # P(a genuine-minority enforcer ends stuck at VALVE_NOTE_CAP instead of rejoining) (D-RD-ACT-5)
+    "valve_capstuck_max": 0.05,
 }
 
 #: Number of equally weighted share samples (quantiles of the window-mean share distribution).
@@ -112,6 +114,12 @@ class Family:
     provenance: str = "judgement"           #: metric-independent provenance tag (overridden per row)
     provenance_key: str | None = None       #: Metrics.meta key with this family's provenance
     note: str = ""
+    #: when no row satisfies the policy: (metric to minimise, constraints still required) — the
+    #: least-harm value reported with verdict BLOCKED (wave 2, D-RD-ACT-5); None = keep current
+    least_harm: tuple[str, tuple[str, ...]] | None = None
+    #: a row other than the base belongs to the family only if this param moved in it (the window
+    #: family varies the thresholds *with* the window, never alone; wave 2, D-RD-ACT-2)
+    requires: str | None = None
 
     def report_metrics(self) -> tuple[str, ...]:
         out = [self.primary] if self.primary != "zero" else []
@@ -124,7 +132,8 @@ _DERIVED = frozenset(derived_names())
 
 def family_rows(table: ResultTable, fam: Family) -> list[ResultRow]:
     allowed = set(fam.varies) | _DERIVED
-    return [r for r in table if set(r.delta) <= allowed]
+    return [r for r in table if set(r.delta) <= allowed
+            and (fam.requires is None or not r.delta or fam.requires in r.delta)]
 
 
 def family_table(table: ResultTable, fam: Family) -> ResultTable:
@@ -243,6 +252,15 @@ class FamilyStudy:
                                      else "current equals the rule's target")
             return best, "CHANGE", f"rule target {tgt} differs from current {cv} by {rel:.0%}"
         d = decide_with_materiality(sub, policy)
+        if d.verdict == "BLOCKED" and fam.least_harm is not None:
+            metric, hard = fam.least_harm
+            ok = [r for r in sub if all(r.metrics.constraints.get(c, True) for c in hard)
+                  and math.isfinite(float(r.metrics.values.get(metric, math.nan)))]
+            if ok:
+                best = min(ok, key=lambda r: (float(r.metrics.values[metric]), sub.distance(r)))
+                return best, "BLOCKED", (f"{d.reason}; least-harm value: the smallest {metric} "
+                                         f"({float(best.metrics.values[metric]):.4g}) among rows that keep "
+                                         f"{', '.join(hard)}")
         return d.row, d.verdict, d.reason
 
     def decide(self, results: ResultTable, policy) -> list[Recommendation]:
@@ -274,14 +292,15 @@ class FamilyStudy:
             conf.setdefault("evidence_error", f"{type(e).__name__}: {e}")
 
         recs = []
+        dnotes = self.design_notes(results, chosen_rows)
         for p in self.params:
             fam, row, verdict, reason = chosen_rows[p]
             cur = family_table(results, fam).current()
             assert cur is not None
             rec_value = chosen[p]
             v = verdict if verdict == "BLOCKED" else ("CHANGE" if rec_value != results.base[p] else "KEEP")
-            if p in self._resolved and rec_value == results.base[p]:
-                v = "KEEP"
+            if p in self._resolved:
+                v = "KEEP" if rec_value == results.base[p] else "CHANGE"
             prov = self.row_provenance(fam, cur)
             sens: dict[str, Any] = {}
             sub = family_table(results, fam)
@@ -294,6 +313,8 @@ class FamilyStudy:
                 how = ("the derivation from " + ", ".join(REGISTRY[p].parents) if REGISTRY[p].parents
                        else "a design choice / fixed bound")
                 sens = {"sentence": f"{p} is set by {how}; no sweep."}
+            if p in self._resolved and "signalWindow" in chosen_rows:
+                row = chosen_rows["signalWindow"][1]      # the set that resolves it: the new window
             mets = {
                 "primary": fam.primary,
                 "current": {k: _fmt_metric(cur.metrics.values.get(k)) for k in fam.report_metrics()},
@@ -303,6 +324,12 @@ class FamilyStudy:
             }
             if conf:
                 mets["simulation"] = conf.get(fam.name, conf.get("all", {}))
+            mine = [n for n in dnotes if p in n["params"]]
+            if mine:
+                mets["design_notes"] = mine
+            if verdict == "BLOCKED" and fam.least_harm is not None and mine:
+                # D-RD-INF-3 shape: the policy is unmeetable in this environment; the value is least harm
+                mets["environment_blocked"] = {"note": mine[0]["id"], "least_harm": rec_value}
             binding = self.binding(fam, cur, row)
             notes = [f"Family '{fam.name}': {reason}."]
             if fam.note:
@@ -520,7 +547,7 @@ def share_samples(env: Env, window: int) -> tuple[np.ndarray, str]:
     log = _pool_log(env)
     p0 = expected_share(env)
     if log is not None:
-        key = ("log", id(log), len(log), window, p0)
+        key = ("log", id(log), len(log), window, p0, tuple(getattr(env.policy, "enforcing_pools", ()) or ()))
     else:
         key = ("syn", env.seed, env.budget.name, env.budget.paths, env.budget.block_horizon_days, window, p0)
     hit = _SHARE_CACHE.get(key)
@@ -531,10 +558,15 @@ def share_samples(env: Env, window: int) -> tuple[np.ndarray, str]:
     if log is not None:
         rs = log.rolling_shares(int(window))
         if rs.shape[0] >= 3:
-            order = np.argsort(-rs.mean(axis=0))
-            cum = np.cumsum(rs.mean(axis=0)[order])
-            n_enf = int(np.argmin(np.abs(cum - p0))) + 1      # the largest pools whose share is closest to p0
-            enf = rs[:, order[:n_enf]].sum(axis=1)
+            # the policy's coalition (enforcing_pools, else largest first up to p0; D-RD-ACT-1) —
+            # formerly "the largest pools whose cumulative share is closest to p0", which on the real
+            # log picked a key that left the chain mid-sample (1,001 false-halt h/yr)
+            from ybcal.sim.landscape import Landscape
+
+            land = Landscape.from_log(log, top=len(log.keys), names={k: k for k in log.keys})
+            coal = set(enforcing_coalition(land, env.policy))
+            cols = [i for i, k in enumerate(log.keys) if k in coal]
+            enf = rs[:, cols].sum(axis=1)
             res = (np.clip(np.quantile(enf, qs), 1e-6, 1 - 1e-6), "real-data")
     if res is None:
         hourly = _SHARE_CACHE.get(("hourly", env.seed, env.budget.name, env.budget.paths,
@@ -551,6 +583,120 @@ def share_samples(env: Env, window: int) -> tuple[np.ndarray, str]:
         res = (np.clip(np.quantile(means.ravel(), qs), 1e-6, 1 - 1e-6), "judgement")
     _SHARE_CACHE[key] = res
     return res
+
+
+# ---------------------------------------------------------------------------------------------------
+# The real pool landscape (wave 2, D-RD-ACT-1..4): per-block replay instead of the binomial mixture
+
+#: Bootstrap horizon per budget, years of blocks per path.
+LAND_YEARS: dict[str, float] = {"quick": 1.0, "standard": 2.0, "deep": 4.0}
+#: Operators considered for the spurious lock-in hazard (the largest payout keys).
+SPURIOUS_TOP = 6
+#: A coalition is "sub-resume" (it would live in or near the ENFORCEMENT halt once ACTIVE) when its
+#: mean block share is below this fraction of the window; the hazard is its P(lock-in).
+SPURIOUS_SHARE = 0.60
+_LAND_CACHE: dict[tuple, Any] = {}
+
+
+def enforcing_coalition(land, policy) -> tuple[str, ...]:
+    """The operators (payout keys) expected to enforce: ``policy.enforcing_pools`` (key prefixes) when
+    set, else the largest operators in order until their cumulative share first reaches
+    ``expected_enforcing_share``."""
+    prefixes = tuple(getattr(policy, "enforcing_pools", ()) or ())
+    if prefixes:
+        out = tuple(n for n in land.names if any(n.startswith(px) for px in prefixes))
+        if not out:
+            raise ValueError(f"enforcing_pools {prefixes} match no payout key of the pool-share log")
+        return out
+    sh = land.shares()
+    p0 = float(policy.expected_enforcing_share)
+    out, cum = [], 0.0
+    for n in land.names:                     # names are ordered largest first
+        out.append(n)
+        cum += sh[n]
+        if cum >= p0:
+            break
+    return tuple(out)
+
+
+def landscape_bundle(env: Env) -> dict[str, Any] | None:
+    """Bootstrapped real per-block signal paths for the policy's coalition (common random numbers for
+    every candidate), the sub-resume coalitions of the largest operators, and the non-enforcing
+    sequence for the valve. ``None`` without a pool-share log."""
+    from ybcal.sim import landscape as Lsc
+
+    log = _pool_log(env)
+    if log is None:
+        return None
+    pol = env.policy
+    key = ("land", id(log), len(log), env.seed, env.budget.name, env.budget.paths,
+           tuple(getattr(pol, "enforcing_pools", ()) or ()), float(pol.expected_enforcing_share),
+           float(getattr(pol, "activation_reach_days", 0.0)), float(getattr(pol, "valve_attack_days", 0.0)))
+    hit = _LAND_CACHE.get(key)
+    if hit is not None:
+        return hit
+    land = Lsc.Landscape.from_log(log, top=len(log.keys), names={k: k for k in log.keys})
+    coal = enforcing_coalition(land, pol)
+    rng = env.rng_for(GROUP, "landscape")
+    paths = max(16, min(64, int(env.budget.paths)))
+    n = int(LAND_YEARS.get(env.budget.name, 1.0) * BLOCKS_PER_YEAR)
+    x = land.indicator(coal)
+    sig = Lsc.block_bootstrap(x, n, paths, rng)
+    reach_days = float(getattr(pol, "activation_reach_days", 0.0)) or 30.0
+    n_act = int(reach_days * BLOCKS_PER_DAY) + 8064 + 1
+    act_sig = Lsc.block_bootstrap(x, n_act, max(paths, 64), rng)
+    sh = land.shares()
+    top = list(land.names[:SPURIOUS_TOP])
+    spurious = []
+    for c in Lsc.coalitions(Lsc.Landscape(tuple(top), np.where(np.isin(land.op, np.arange(len(top))),
+                                                                land.op, -1).astype(np.int16)),
+                            min_share=0.0):
+        m = sum(sh[k] for k in c)
+        if m < SPURIOUS_SHARE and m >= 0.40:
+            spurious.append((c, m, Lsc.block_bootstrap(land.indicator(c), n_act, max(paths, 64), rng)))
+    attack_days = float(getattr(pol, "valve_attack_days", 0.0))
+    nonenf = (Lsc.block_bootstrap(~x, int(attack_days * BLOCKS_PER_DAY), max(paths, 128), rng)
+              if attack_days > 0 else None)
+    res = {"land": land, "coalition": coal, "share": float(x.mean()), "sig": sig, "act_sig": act_sig,
+           "spurious": spurious, "nonenf": nonenf, "reach_days": reach_days,
+           "attack_days": attack_days, "valve_cache": {}}
+    _LAND_CACHE[key] = res
+    return res
+
+
+def landscape_values(cand: ParamSet, bundle: Mapping[str, Any]) -> dict[str, float]:
+    """Real-landscape metrics of one candidate (``ybcal.sim.landscape``)."""
+    from ybcal.sim import landscape as Lsc
+
+    h = Lsc.halt_stats(cand, bundle["sig"])
+    reach = float(bundle["reach_days"])
+    a = Lsc.activation_stats(cand, bundle["act_sig"], horizons_days=(int(reach),))
+    out = {
+        "land.share": float(bundle["share"]),
+        "land.part_hours": h.part_hours_per_year, "land.enf_hours": h.enf_hours_per_year,
+        "land.part_episodes": h.part_episodes_per_year, "land.enf_episodes": h.enf_episodes_per_year,
+        "land.p_enf_full_window": h.p_enf_full_window_per_year,
+        "land.part_longest_p95": h.part_longest_blocks_p95,
+        "act.p_first_window_real": a.p_first_window,
+        "act.p_lock_reach": a.p_within.get(int(reach), math.nan),
+        "act.lock_median_days": a.median_days,
+    }
+    worst, worst_c = 0.0, ""
+    for c, _m, s in bundle["spurious"]:
+        p = Lsc.activation_stats(cand, s, horizons_days=(int(reach),)).p_within.get(int(reach), 0.0)
+        if p > worst:
+            worst, worst_c = p, "+".join(k[:8] for k in c)
+    out["act.spurious_lock"] = worst
+    out["act.spurious_coalition_n"] = float(len(bundle["spurious"]))
+    bundle.setdefault("spurious_worst", {})[cand.digest()] = worst_c
+    V = int(cand["valveBlocks"])
+    if bundle["nonenf"] is not None:
+        vc = bundle["valve_cache"]
+        if V not in vc:
+            tr = Lsc.valve_race_trips(bundle["nonenf"], V)
+            vc[V] = float(np.mean(tr >= 0))
+        out["valve.attack_trip"] = vc[V]
+    return out
 
 
 # ===================================================================================================
@@ -580,7 +726,8 @@ class G5Study(FamilyStudy):
     def families(self) -> tuple[Family, ...]:
         halt_cons = ("false_halt", "flaps")
         rep = ("fh.hours", "fh.part_hours", "fh.enf_hours", "flaps", "detect.enf_p95", "detect.part_p95",
-               "act.p_lockin", "abandon.false_prob")
+               "act.p_lockin", "act.p_reach", "act.spurious_lock", "act.lock_median_days", "land.share",
+               "abandon.false_prob")
         return (
             Family("window", ("signalWindow",),
                    ("signalWindow", "activationThreshold", "participationFloor", "enforcementFloor",
@@ -591,9 +738,9 @@ class G5Study(FamilyStudy):
                    "max_flaps_per_year, detection p95 of a drop to detection_drop_share ≤ "
                    "max_detection_blocks, EF ≥ W/2 and reliable activation; KEEP unless > materiality.",
                    primary="fh.hours_q", constraints=(*halt_cons, "detect_enf", "detect_part", "majority",
-                                                      "activation_reach"),
+                                                      "activation_reach", "spurious_lock"),
                    report=(*rep, "act.blocks", "runbook_blocks"), sens_metric="detect.enf_p95",
-                   provenance_key="share_provenance"),
+                   provenance_key="share_provenance", requires="signalWindow"),
             Family("participation", ("participationFloor",), ("participationFloor",),
                    "participationFloor: minimise false-halt hours/yr subject to the false-halt, flap and "
                    "detection budgets (drop to detection_drop_share detected by ACT-4) and the §1.4 "
@@ -608,11 +755,14 @@ class G5Study(FamilyStudy):
                    primary="fh.hours_q", constraints=(*halt_cons, "detect_enf", "majority"), report=rep,
                    sens_metric="detect.enf_p95", provenance_key="share_provenance"),
             Family("activation", ("activationThreshold",), ("activationThreshold",),
-                   "activationThreshold (lock-in level and ACT-4 resume): minimise false-halt hours/yr "
-                   "subject to P(lock-in in the first eligible window) ≥ "
-                   f"{JUDGEMENT['activation_reliability']} at the expected share, the false-halt and "
-                   "flap budgets and the §1.4 ordering; KEEP unless > materiality.",
-                   primary="fh.hours_q", constraints=(*halt_cons, "activation_reach"),
+                   "activationThreshold (lock-in level and ACT-4 resume) is the bar a coalition must "
+                   "clear to switch enforcement on: minimise the probability that a coalition which "
+                   "cannot hold the floors (mean share < 60 %) locks in (act.spurious_lock, real pool "
+                   "landscape; without one, false-halt hours) subject to P(lock-in of the expected "
+                   "coalition within activation_reach_days, 0 = the first eligible window) ≥ "
+                   "activation_reliability, the false-halt and flap budgets and the §1.4 ordering; "
+                   "KEEP unless > materiality.",
+                   primary="act.guard", constraints=(*halt_cons, "activation_reach", "spurious_lock"),
                    report=(*rep, "act.blocks"), sens_metric="act.p_lockin",
                    provenance_key="share_provenance"),
             Family("delay", ("activationDelay",), ("activationDelay",),
@@ -622,12 +772,18 @@ class G5Study(FamilyStudy):
                    provenance="judgement"),
             Family("valve", ("valveBlocks",), ("valveBlocks",),
                    "valveBlocks (node-local): the shortest split (blocks to rejoin) with natural false "
-                   "trips ≤ max_valve_false_trips_per_year and a non-enforcing minority's trip "
-                   f"probability per incident ≤ {JUDGEMENT['valve_minority_trip_max']}; KEEP unless "
-                   "> materiality.",
+                   "trips ≤ max_valve_false_trips_per_year, a non-enforcing minority's trip "
+                   "probability ≤ valve_minority_trip_max (per race, or within valve_attack_days of a "
+                   "sustained race attack on the real block sequence) and, when enforcers are a "
+                   "genuine minority (stock share 1 − detection_drop_share), a chance ≤ "
+                   f"{JUDGEMENT['valve_capstuck_max']} of ending stuck at the 64-note cap instead of "
+                   "rejoining; KEEP unless > materiality. When nothing qualifies: the smallest attack "
+                   "trip probability that keeps the note-cap bound (BLOCKED, least harm).",
                    primary="valve.split_blocks",
-                   constraints=("valve_natural", "valve_minority"),
-                   report=("valve.split_blocks", "valve.minority_trip", "valve.natural_trips_per_year"),
+                   constraints=("valve_natural", "valve_minority", "valve_capstuck"),
+                   report=("valve.split_blocks", "valve.minority_trip", "valve.attack_trip",
+                           "valve.capstuck", "valve.natural_trips_per_year"),
+                   least_harm=("valve.attack_trip", ("valve_natural", "valve_capstuck")),
                    sens_metric="valve.minority_trip", provenance="judgement",
                    note="Patch-release parameter (node-local, ACT-7); verdicts never require a new "
                         "parameter set."),
@@ -642,9 +798,22 @@ class G5Study(FamilyStudy):
         W = int(changes["signalWindow"])
         scaled = _scaled_thresholds(base, W)
         out = dict(changes)
+        wrow = chosen_rows.get("signalWindow", (None, None, "", ""))[1]
+        if wrow is not None and wrow.metrics.feasible:
+            # minimal change (D-RD-AUD-9, D-RD-ACT-2): the window move alone satisfies every budget the
+            # threshold families were fixing, so their changes are dropped and the thresholds keep
+            # their fractions of the new window
+            for k in ("activationThreshold", "participationFloor", "enforcementFloor", "enforcementResume"):
+                own = f"its own family's change to {out.pop(k)} is dropped; " if k in out else ""
+                frac = int(base[k]) / int(base["signalWindow"])
+                self._resolved[k] = (f"Resolved by signalWindow {W}: {own}with every threshold at its "
+                                     "current fraction of the window the set satisfies the false-halt, "
+                                     "flap and detection budgets (minimal change, D-RD-ACT-2); the value "
+                                     f"is the current fraction ({frac:.2%}) "
+                                     "of the new window.")
         for k in ("activationThreshold", "participationFloor", "enforcementFloor", "enforcementResume"):
             v = int(out.get(k, base[k]))
-            out[k] = round(v * W / int(base["signalWindow"])) if k in changes else scaled[k]
+            out[k] = round(v * W / int(base["signalWindow"])) if k in out else scaled[k]
         return out
 
     # -- space -----------------------------------------------------------------------------------
@@ -653,7 +822,9 @@ class G5Study(FamilyStudy):
         out = [base]
         W0 = int(base["signalWindow"])
         lo, hi = REGISTRY["signalWindow"].bounds
-        for W in range(lo, hi + 1, 288 if fine else 576):
+        stepW = 288 if fine else 576
+        # centred on the current window so its neighbours (W0 ± one step) are always evaluated
+        for W in range(W0 - ((W0 - lo) // stepW) * stepW, hi + 1, stepW):
             if W != W0:
                 out.append(base.replace(_scaled_thresholds(base, W)))
         frac_step = 0.0125 if fine else 0.025
@@ -686,18 +857,25 @@ class G5Study(FamilyStudy):
         ER = int(cand["enforcementResume"])
         D = int(cand["activationDelay"])
         V = int(cand["valveBlocks"])
-        p0 = expected_share(env)
+        bundle = landscape_bundle(env)
+        lv = landscape_values(cand, bundle) if bundle is not None else {}
+        # the real coalition's mean share replaces the policy figure where one is measured
+        p0 = float(bundle["share"]) if bundle is not None else expected_share(env)
         pd = float(pol.detection_drop_share)
         S, sprov = share_samples(env, W)
         hours = BLOCKS_PER_YEAR / BLOCKS_PER_HOUR
         # expected halted fraction per share sample (rate × duration, capped by P(count < resume))
-        part_h = float(np.mean(halted_fraction(PF, T, W, S))) * hours
-        enf_h = float(np.mean(halted_fraction(EF, ER, W, S))) * hours
+        if lv:      # real per-block replay (D-RD-ACT-2): the exact ACT-4/ACT-6 state machine
+            part_h, enf_h = lv["land.part_hours"], lv["land.enf_hours"]
+            flaps = lv["land.part_episodes"] + lv["land.enf_episodes"]
+        else:
+            part_h = float(np.mean(halted_fraction(PF, T, W, S))) * hours
+            enf_h = float(np.mean(halted_fraction(EF, ER, W, S))) * hours
+            dc = downcrossings_per_block(PF, W, S) + downcrossings_per_block(EF, W, S)
+            flaps = float(np.mean(dc)) * BLOCKS_PER_YEAR
         fh = part_h + enf_h
         res = JUDGEMENT["false_halt_resolution_hours"]
         fh_q = 0.0 if fh < res / 2 else round(fh / res) * res
-        dc = downcrossings_per_block(PF, W, S) + downcrossings_per_block(EF, W, S)
-        flaps = float(np.mean(dc)) * BLOCKS_PER_YEAR
         q = JUDGEMENT["detection_quantile"]
         det_enf = detection_quantile_blocks(p0, pd, W, EF, q)
         det_part = detection_quantile_blocks(p0, pd, W, PF, q)
@@ -705,9 +883,19 @@ class G5Study(FamilyStudy):
 
         fluid = act.detection_delay_approx(p0, pd, W, EF)
         p_lock = float(1.0 - p_below(T, W, [p0])[0])
+        reach_days = float(getattr(pol, "activation_reach_days", 0.0))
+        if lv:
+            p_reach = lv["act.p_lock_reach"] if reach_days > 0 else lv["act.p_first_window_real"]
+        else:
+            # binomial: disjoint windows inside the reach are independent chances (a lower bound)
+            k = max(1, int(reach_days * BLOCKS_PER_DAY) // max(1, W)) if reach_days > 0 else 1
+            p_reach = float(1.0 - (1.0 - p_lock) ** k)
         act_blocks = W - 1 + D
         v_min = act.valve_trip_probability(1.0 - p0, V)
         v_nat = act.natural_fork_trip_rate(float(pol.orphan_rate), V)
+        from ybcal.sim.landscape import valve_stuck_share
+
+        v_stuck = valve_stuck_share(1.0 - pd, V)
         fa = false_abandon_probability(cand, S, int(cand["abandonBlocks"]))
         runbook = (det_enf if math.isfinite(det_enf) else W) + W + int(pol.release_lead_blocks) + \
             int(pol.runbook_operator_buffer_blocks)
@@ -722,26 +910,37 @@ class G5Study(FamilyStudy):
             "detect.enf_fluid": float(fluid) if fluid is not None else math.inf,
             "act.p_lockin": p_lock, "act.blocks": float(act_blocks),
             "valve.split_blocks": float(V), "valve.minority_trip": v_min,
-            "valve.natural_trips_per_year": v_nat,
+            "valve.natural_trips_per_year": v_nat, "valve.capstuck": v_stuck,
             "abandon.false_prob": fa, "runbook_blocks": float(runbook),
+            "act.p_reach": p_reach,
+            **lv,
         }
+        # the activation family's objective: the spurious lock-in hazard on a real landscape; the
+        # original false-halt objective otherwise (its synthetic coalition has no hopping operator)
+        values["act.guard"] = float(values["act.spurious_lock"]) if "act.spurious_lock" in values else fh_q
         cons = {
             "false_halt": fh <= float(pol.max_false_halt_hours_per_year),
             "flaps": flaps <= float(pol.max_flaps_per_year),
             "detect_enf": det_enf <= int(pol.max_detection_blocks),
             "detect_part": det_part <= int(pol.max_detection_blocks),
             "majority": 2 * EF >= W,
-            "activation_reach": p_lock >= float(getattr(pol, "activation_reliability",
-                                                         JUDGEMENT["activation_reliability"])),
+            "activation_reach": p_reach >= float(getattr(pol, "activation_reliability",
+                                                          JUDGEMENT["activation_reliability"])),
+            "spurious_lock": lv.get("act.spurious_lock", 0.0)
+            <= float(getattr(pol, "max_spurious_lock_prob", 1.0)),
             "upgrade_window": int(pol.operator_upgrade_window_blocks) <= D,
             "valve_natural": v_nat <= float(pol.max_valve_false_trips_per_year),
-            "valve_minority": v_min <= float(getattr(pol, "valve_minority_trip_max",
-                                                     JUDGEMENT["valve_minority_trip_max"])),
+            "valve_capstuck": v_stuck <= JUDGEMENT["valve_capstuck_max"],
+            "valve_minority": lv.get("valve.attack_trip", v_min)
+            <= float(getattr(pol, "valve_minority_trip_max", JUDGEMENT["valve_minority_trip_max"])),
         }
         meta = {"seed": env.seed, "budget": env.budget.name, "budget_paths": env.budget.paths,
                 "budget_days": env.budget.block_horizon_days, "out_dir": env_out_dir(env),
                 "share_provenance": sprov, "expected_share": p0, "drop_share": pd,
-                "orphan_rate": float(pol.orphan_rate)}
+                "orphan_rate": float(pol.orphan_rate),
+                "coalition": list(bundle["coalition"]) if bundle is not None else [],
+                "reach_days": float(bundle["reach_days"]) if bundle is not None else 0.0,
+                "landscape": bundle is not None}
         prov = "real-data" if sprov == "real-data" else "judgement"
         return Metrics(values, "fh.hours_q", True, cons, prov, meta)
 
@@ -763,6 +962,63 @@ class G5Study(FamilyStudy):
     def figures(self, table: ResultTable, chosen: ParamSet, out: Path,
                 confirm: Mapping[str, Any]) -> list[Path]:
         return g5_figures(table, chosen, out, self.families()[0])
+
+    def design_notes(self, results: ResultTable, chosen_rows: Mapping[str, Any]) -> list[dict[str, Any]]:
+        """Rule- and environment-level findings of the real landscape (D-RD-ACT-1, -4, -5)."""
+        from ybcal.studies.g3_collateral import design_note
+
+        cur = results.current()
+        if cur is None or not cur.metrics.meta.get("landscape"):
+            return []
+        v = cur.metrics.values
+        share = float(v.get("land.share", math.nan))
+        notes = [design_note(
+            "G5-ENV-1", "One operator is pivotal for enforcement",
+            f"The enforcing coalition ({share:.1%} of blocks) contains an operator with about half the "
+            "hash; without it the rest of the chain is below one half, so no coalition without it can "
+            "reach the L3 majority and activation without it is impossible at any threshold >= 50 %.",
+            evidence={"coalition_share": round(share, 4), "coalition": cur.metrics.meta.get("coalition")},
+            consequence="That operator can switch enforcement off by leaving (ENFORCEMENT after about "
+            "0.8 W blocks) or fake it by signalling without enforcing (never detected by ACT-6; the "
+            "valve is the only defence). No parameter changes this.",
+            fix="Coverage: recruit the remaining large hash (the 25 % flex block) before startHeight.",
+            params=("signalWindow", "activationThreshold", "enforcementFloor"))]
+        sp = v.get("act.spurious_lock")
+        if isinstance(sp, float) and sp > 0.05:
+            notes.append(design_note(
+                "G5-DN-HOP", "A hop can lock in a coalition that cannot hold the floors",
+                f"ACT-2 locks in on one window at the threshold, so a few days of an auto-switching "
+                f"pool's hash lock in a coalition whose mean share is below 60 % with probability "
+                f"{sp:.2f} within the activation reach (real landscape, current set).",
+                evidence={"act.spurious_lock": round(sp, 4),
+                          "reach_days": cur.metrics.meta.get("reach_days", "policy")},
+                consequence="Once ACTIVE that coalition flaps in and out of ENFORCEMENT (W19 windows, "
+                "abandonment, defection windows).",
+                fix="Procedure: publish startHeight only after the enforcing operators commit and watch "
+                "yed_getactivation; or a rule change (lock in after two consecutive windows above the "
+                "threshold, state.cpp:1084).",
+                params=("activationThreshold", "signalWindow")))
+        at = v.get("valve.attack_trip")
+        if isinstance(at, float):
+            vrow = chosen_rows.get("valveBlocks", (None, None))[1]
+            vv = vrow.metrics.values if vrow is not None else v
+            notes.append(design_note(
+                "G5-DN-VALVE", "No valve length defends a 28 % stock minority against a sustained race",
+                f"A matured-vault owner keeps a non-burning sweep in every stock mempool; races run back "
+                f"to back on the real block sequence. P(trip within the attack horizon) is {at:.2f} at "
+                f"valveBlocks {int(results.base['valveBlocks'])} and "
+                f"{float(vv.get('valve.attack_trip', math.nan)):.2f} at "
+                f"{int(vrow.params['valveBlocks']) if vrow is not None else '?'}; longer valves leave a "
+                "genuine-minority enforcer stuck at the 64-note cap (index.h:65) instead of rejoining.",
+                evidence={"attack_trip_current": round(at, 4),
+                          "attack_trip_least_harm": round(float(vv.get("valve.attack_trip", math.nan)), 4),
+                          "capstuck_least_harm": round(float(vv.get("valve.capstuck", math.nan)), 4)},
+                consequence="Enforcement turns off network-wide and the sweep confirms: YED loses the "
+                "collateral of every vault that is swept the same way.",
+                fix="Coverage (with the flex 25 % enforcing, 16 blocks suffice), or a node-local patch: "
+                "raise VALVE_NOTE_CAP and/or require the heavier branch's lead to persist.",
+                params=("valveBlocks",)))
+        return notes
 
 
 def confirm_activation(ps: ParamSet, p0: float, pd: float, seed: int, budget: Budget) -> dict[str, Any]:
@@ -808,29 +1064,89 @@ def confirm_activation(ps: ParamSet, p0: float, pd: float, seed: int, budget: Bu
     res["detect_enf_detected_fraction"] = float((dd > 0).mean())
     # the bound is on the quantile; allow 1 % for the Monte-Carlo quantile's own noise
     res["detect_consistent"] = bool(res["detect_enf_p95_sim"] <= 1.01 * res["detect_enf_p95_bound"] + 1)
-    # 4. the hashrate-drop-45 scenario (enforcing share 0.80 → 0.45 at day 30, back over days 75–80)
+    # 4. the activation scenarios (hashrate-drop-45 plus every scenario tagged "activation", among them
+    #    the real-landscape family scenarios/real-pools.toml): detection, recovery, W19, abandonment
+    #    and the ACT-7 exposure (enforcement on while enforcers are a minority)
     try:
-        from ybcal.data import scenarios as sc
-
-        scen = sc.load_library()["hashrate-drop-45"]
-        run = scen.generate(rng, n_paths=1, resolution="block")
-        share = np.asarray(run.schedules["enforcing_share"], dtype=float)
-        share = share[0] if share.ndim == 2 else share
-        m = max(8, paths // 4)
-        sg = rng.random((m, share.size)) < share[None, :]
-        ss = act.simulate(ps, sg, start_height=0, height0=0, enforce_until=0)
-        drop_at = 30 * BLOCKS_PER_DAY
-        enf = ss.enforcement_halt
-        first = np.where(enf[:, drop_at:].any(axis=1), np.argmax(enf[:, drop_at:], axis=1), -1)
-        hit = first[first >= 0]
-        res["scenario_detect_blocks_p95"] = float(np.quantile(hit, 0.95)) if len(hit) else math.inf
-        res["scenario_detected_fraction"] = float((first >= 0).mean())
-        end = enf[:, -1]
-        res["scenario_enforcement_restored_fraction"] = float((~end).mean())
-        res["scenario_max_halt_run_blocks"] = float(act._run_lengths(enf).max())
+        res["scenarios"] = scenario_confirmation(ps, rng, max(8, paths // 4))
+        h45 = res["scenarios"].get("hashrate-drop-45", {})
+        for k in ("detect_blocks_p95", "detected_fraction", "enforcement_restored_fraction",
+                  "max_halt_run_blocks"):
+            if k in h45:
+                res[f"scenario_{k}"] = h45[k]
     except Exception as e:  # pragma: no cover - scenario library optional
         res["scenario_error"] = f"{type(e).__name__}: {e}"
     return res
+
+
+def scenario_confirmation(ps: ParamSet, rng: np.random.Generator, m: int = 8) -> dict[str, dict[str, float]]:
+    """Every scenario tagged ``activation`` through the exact ACT-1..6 state machine at ``ps``.
+
+    Signals are drawn from ``signal_share`` (falling back to ``enforcing_share``); the chain starts
+    ACTIVE with a full window at the day-0 share unless the scenario's constant ``start_active`` is 0.
+    Per scenario (m paths): detection after the first schedule change (blocks to the first
+    ENFORCEMENT, p95), fraction detected, enforcement restored at the end, the longest ENFORCEMENT run,
+    whether it reaches a signal window (W19 opens) or ``abandonBlocks`` (abandonment), PARTICIPATION /
+    ENFORCEMENT hours, lock-in (when starting un-activated), the blocks with enforcement on while the
+    true enforcing share is below one half (ACT-7 exposure) and the probability that a sustained race
+    attack trips the work valve in the scenario (``landscape.valve_race_trips`` on iid draws of the
+    non-enforcing share, counted only while enforcement is on)."""
+    from ybcal.data import scenarios as sc
+    from ybcal.sim import activation as act
+    from ybcal.sim import landscape as Lsc
+
+    lib = sc.load_library()
+    names = [n for n, s_ in lib.items() if "activation" in getattr(s_, "tags", ()) or n == "hashrate-drop-45"]
+    W = int(ps["signalWindow"])
+    A = int(ps["abandonBlocks"])
+    V = int(ps["valveBlocks"])
+    out: dict[str, dict[str, float]] = {}
+    for name in sorted(set(names)):
+        scen = lib[name]
+        run = scen.generate(rng, n_paths=1, resolution="block")
+        enf_s = np.asarray(run.schedules["enforcing_share"], dtype=float)
+        enf_s = enf_s[0] if enf_s.ndim == 2 else enf_s
+        sig_s = np.asarray(run.schedules.get("signal_share", enf_s), dtype=float)
+        sig_s = sig_s[0] if sig_s.ndim == 2 else sig_s
+        n = enf_s.size
+        start_active = int(float(run.constants.get("start_active", 1))) == 1
+        sig = rng.random((m, n)) < sig_s[None, :]
+        if start_active:
+            prior = rng.random((m, W)) < sig_s[0]
+            init = act.ActivationInit(status=act.ACTIVE, lock_in_height=0, activate_height=1,
+                                      prior_signals=prior)
+            ss = act.simulate(ps, sig, start_height=0, height0=W + 1, initial=init, enforce_until=0)
+        else:
+            ss = act.simulate(ps, sig, start_height=0, height0=0, enforce_until=0)
+        enf = ss.enforcement_halt
+        change = np.flatnonzero(np.abs(np.diff(enf_s)) > 1e-9)
+        c0 = int(change[0]) + 1 if change.size else 0
+        first = np.where(enf[:, c0:].any(axis=1), np.argmax(enf[:, c0:], axis=1), -1)
+        hit = first[first >= 0]
+        runs = act._run_lengths(enf).max(axis=1)
+        on = ss.enforcement_on
+        minority = on & (enf_s[None, :] < 0.5)
+        nonenf = (rng.random((m, n)) >= enf_s[None, :]) & on
+        trips = Lsc.valve_race_trips(nonenf, V)
+        r = {
+            "detect_blocks_p95": float(np.quantile(hit, 0.95)) if len(hit) else math.inf,
+            "detected_fraction": float((first >= 0).mean()),
+            "enforcement_restored_fraction": float((~enf[:, -1]).mean()),
+            "max_halt_run_blocks": float(runs.max()),
+            "w19_open_fraction": float((runs >= W).mean()),
+            "abandoned_fraction": float((runs >= A).mean()),
+            "part_hours": float(ss.participation_halt.sum(axis=1).mean() / BLOCKS_PER_HOUR),
+            "enf_hours": float(enf.sum(axis=1).mean() / BLOCKS_PER_HOUR),
+            "minority_enforced_blocks": float(minority.sum(axis=1).mean()),
+            "valve_trip_under_attack": float((trips >= 0).mean()),
+        }
+        if not start_active:
+            lk = ss.lock_in_height
+            r["locked_fraction"] = float((lk >= 0).mean())
+            r["lock_in_days_median"] = (float(np.median(lk[lk >= 0]) / BLOCKS_PER_DAY) if (lk >= 0).any()
+                                        else math.inf)
+        out[name] = r
+    return out
 
 
 def g5_figures(table: ResultTable, chosen: ParamSet, out: Path, window_family: Family) -> list[Path]:
