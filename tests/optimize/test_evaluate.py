@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
 import pytest
 
 from tests.optimize.toys import Bowl, ToyStudy
@@ -119,3 +120,16 @@ def test_unpicklable_falls_back_to_serial():
     with pytest.warns(RuntimeWarning, match="not picklable"):
         out = evaluate_many(local, _cands()[:3], _env(), workers=2)
     assert len(out) == 3
+
+
+def test_fingerprint_ignores_object_identity():
+    """A plain object (default repr with a memory address) hashes by content, so the on-disk cache
+    hits across processes (2026-10-04: every robust rerun missed)."""
+    from ybcal.optimize.evaluate import fingerprint
+
+    class Log:
+        def __init__(self, xs):
+            self.xs = np.asarray(xs)
+
+    assert fingerprint(Log([1, 2])) == fingerprint(Log([1, 2]))
+    assert fingerprint(Log([1, 2])) != fingerprint(Log([1, 3]))

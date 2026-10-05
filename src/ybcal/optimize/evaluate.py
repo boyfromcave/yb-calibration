@@ -107,7 +107,14 @@ def _feed(h: Any, obj: Any) -> None:
     elif isinstance(obj, np.random.Generator):
         h.update(b"<rng>")   # the per-candidate rng is reset anyway
     else:
-        h.update(repr(obj).encode())
+        r = repr(obj)
+        if " at 0x" in r and hasattr(obj, "__dict__"):
+            # default object repr carries a memory address, which differs per process and made the
+            # on-disk cache miss on every rerun; hash the object's contents instead
+            h.update(type(obj).__qualname__.encode())
+            _feed(h, dict(vars(obj)))
+        else:
+            h.update(r.encode())
 
 
 def fingerprint(obj: Any) -> str:
