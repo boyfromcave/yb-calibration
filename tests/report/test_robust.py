@@ -110,3 +110,19 @@ def test_feasible_values_respect_fraction_pins(tmp_path):
                                     zip(cols[1:5], (1944, 1556, 1296, 1556), strict=True)}}
     fv = R.feasible_values(rd, recs)["signalWindow"]
     assert fv == {"2016": ["false_halt"], "2592": []}
+
+
+def test_rebase_consolidation_rule_and_environment_params():
+    """Rule params (no constraint ever fails) consolidate to the runs' median, environment-limited
+    ones (nothing feasible) to the modal least-harm choice — never silently to the current value."""
+    from ybcal.report.robust import rebase_consolidation
+
+    cons = {"value": 5, "k": 3, "n": 3, "evaluated": 3, "violations": {}}
+    rule = [("a", {"5": [], "12": []}), ("b", {"5": [], "12": []}), ("c", {"5": [], "8": []})]
+    r = rebase_consolidation(cons, rule, [12, 12, 8], 12, False)
+    assert r["value"] == 12 and r["basis"] == "median"
+    env = [("a", {"576": ["x"], "1152": ["x"]})]
+    r = rebase_consolidation({**cons, "k": 0}, env, [1152], 1152, True)
+    assert r["value"] == 1152 and r["basis"] == "least-harm"
+    sep = [("a", {"5": ["false_halt"], "8": []})]
+    assert rebase_consolidation({**cons, "value": 8}, sep, [8], 8, False)["basis"] == "feasibility"

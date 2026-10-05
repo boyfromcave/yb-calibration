@@ -344,6 +344,39 @@ def consolidate(
     }
 
 
+def rebase_consolidation(
+    cons: dict[str, Any],
+    per_run: Sequence[tuple[str, Mapping[str, list[str]] | None]],
+    vals: Sequence[Any],
+    modal: Any,
+    none_feasible: bool,
+) -> dict[str, Any]:
+    """Pick the consolidated value's basis (``cons["basis"]``):
+
+    - ``feasibility``: some constraint separates candidates — keep :func:`consolidate`'s choice;
+    - ``median``: no constraint ever fails (a rule parameter, e.g. ``peerMin`` or ``sigmaRefBps``),
+      so every candidate is trivially feasible and feasibility would fall back to the current value —
+      take the median of the runs' recommendations (the run value at the lower median);
+    - ``least-harm``: no candidate is feasible in any run (an environment limit) — feasibility would
+      again fall back to the current value; take the runs' modal least-harm choice."""
+    out = dict(cons)
+    if cons.get("value") is None:
+        return out
+    have = [d for _, d in per_run if d]
+    discriminates = any(v for d in have for v in d.values())
+    if none_feasible:
+        out.update(value=modal, basis="least-harm")
+    elif not discriminates:
+        try:
+            xs = sorted(vals, key=float)
+            out.update(value=xs[(len(xs) - 1) // 2], basis="median")
+        except (TypeError, ValueError):
+            out.update(value=modal, basis="median")
+    else:
+        out["basis"] = "feasibility"
+    return out
+
+
 def load_run(run_dir: Path) -> dict[str, Any] | None:
     """``{param: {value, verdict, label}}`` of a finished run (``None`` if it did not finish)."""
     f = run_dir / "evidence" / "recommendations.json"
@@ -419,6 +452,7 @@ def tabulate(cfg: RobustConfig) -> dict[str, Any]:
         cons = consolidate(p, base[p], per_run_feas)
         mv, agree = _mode(vals)
         none_feasible = cons["value"] is not None and cons["k"] == 0
+        cons = rebase_consolidation(cons, per_run_feas, vals, mv, none_feasible)
         mverd, vagree = _mode(verds)
         modal_by = {ax: {k: _mode(v)[0] for k, v in d.items()} for ax, d in by.items()}
         flags = []
@@ -449,6 +483,7 @@ def tabulate(cfg: RobustConfig) -> dict[str, Any]:
                 "flags": flags,
                 "n": len(vals),
                 "consolidated": cons["value"],
+                "basis": cons.get("basis", "feasibility"),
                 "feasible_k": cons["k"],
                 "feasible_evaluated": cons["evaluated"],
                 "violations_at_consolidated": cons["violations"],
@@ -482,12 +517,13 @@ def write_tables(
         w = csv.writer(fh)
         w.writerow(["param", "group", "current", "modal", "agreement", "modal_verdict", "verdict_agreement",
                     "verdicts", "values", "by_window", "by_model", "by_seed", "flags", "n", "consolidated",
-                    "feasible_k", "feasible_evaluated", "violations_at_consolidated"])
+                    "basis", "feasible_k", "feasible_evaluated", "violations_at_consolidated"])
         for s in result["summary"]:
             w.writerow([s["param"], s["group"], s["current"], s["modal"], s["agreement"], s["modal_verdict"],
                         s["verdict_agreement"], json.dumps(s["verdicts"]), json.dumps(s["values"]),
                         json.dumps(s["by_window"]), json.dumps(s["by_model"]), json.dumps(s["by_seed"]),
-                        ";".join(s["flags"]), s["n"], s["consolidated"], s["feasible_k"],
+                        ";".join(s["flags"]), s["n"], s["consolidated"],
+                        s.get("basis", "feasibility"), s["feasible_k"],
                         s["feasible_evaluated"], json.dumps(s["violations_at_consolidated"])])
     (out / "robust.json").write_text(json.dumps(result, indent=1, default=str) + "\n")
     lines = [
@@ -522,7 +558,9 @@ def write_tables(
         bw = "; ".join(f"{k}: {_fv(p, v)}" for k, v in s["by_window"].items())
         bm = "; ".join(f"{k}: {_fv(p, v)}" for k, v in s["by_model"].items())
         flags = ", ".join(f"**{f}**" if f == "unstable" else f for f in s["flags"]) or "stable"
-        cv = "—" if s["consolidated"] is None else f"{_fv(p, s['consolidated'])} ({s['feasible_k']}/{s['n']})"
+        basis = s.get("basis", "feasibility")
+        tag = f"{s['feasible_k']}/{s['n']}" if basis == "feasibility" else basis
+        cv = "—" if s["consolidated"] is None else f"{_fv(p, s['consolidated'])} ({tag})"
         viol = "; ".join(f"{k}: {', '.join(v) or '—'}" for k, v in s["violations_at_consolidated"].items())
         lines.append(
             f"| `{p}` | {s['group']} | {_fv(p, s['current'])} | {cv} | {_fv(p, s['modal'])} | "
