@@ -1,0 +1,75 @@
+diff --git a/src/yellowback/params.cpp b/src/yellowback/params.cpp
+--- a/src/yellowback/params.cpp
++++ b/src/yellowback/params.cpp
+@@ -21,43 +21,43 @@
+     p.refWindow  = REF_WINDOW;
+ 
+     p.pFastWindow = 96;   p.pFastMinFill = 48;     // ceil(W/2)
+-    p.pMidWindow  = 576;  p.pMidMinFill  = 384;    // ceil(2W/3) (L9)
+-    p.pSlowWindow = 2016; p.pSlowMinFill = 1344;
+-
+-    p.signalWindow        = 2016;
+-    p.activationThreshold = 1512;   // 75 %
+-    p.participationFloor  = 1210;   // 60 %
++    p.pMidWindow  = 1008;  p.pMidMinFill  = 672;    // ceil(2W/3) (L9) | ybcal: pMidWindow 576 -> 1008; pMidMinFill 384 -> 672
++    p.pSlowWindow = 1152; p.pSlowMinFill = 768;  // ybcal: pSlowWindow 2016 -> 1152; pSlowMinFill 1344 -> 768
++
++    p.signalWindow        = 2592;  // ybcal: signalWindow 2016 -> 2592
++    p.activationThreshold = 1944;   // 75 % | ybcal: activationThreshold 1512 -> 1944
++    p.participationFloor  = 1556;   // 60 % | ybcal: participationFloor 1210 -> 1556
+     p.activationDelay     = 2016;
+-    p.enforcementFloor    = 1008;   // 50 % (L3)
+-    p.enforcementResume   = 1210;   // 60 %
++    p.enforcementFloor    = 1296;   // 50 % (L3) | ybcal: enforcementFloor 1008 -> 1296
++    p.enforcementResume   = 1556;   // 60 % | ybcal: enforcementResume 1210 -> 1556
+     p.valveBlocks         = 6;      // L7
+     p.abandonBlocks       = 34560;  // = GRACE (W21): thirty days before the module declares itself abandoned (L10, L12)
+ 
+     p.nReg            = 576;
+     p.peerLag         = 10;
+-    p.peerMin         = 5;
+-    p.deviationBps    = 1000;
+-    p.accuracyBandBps = 300;
++    p.peerMin         = 12;  // ybcal: peerMin 5 -> 12
++    p.deviationBps    = 1800;  // ybcal: deviationBps 1000 -> 1800
++    p.accuracyBandBps = 100;  // ybcal: accuracyBandBps 300 -> 100
+     p.payeeWindow     = 100;
+ 
+-    p.feeMin = 50000000;            // 0.5 YEC (V10)
+-    p.feeBps = 25;
++    p.feeMin = 40000000;            // 0.5 YEC (V10) | ybcal: feeMin 50000000 -> 40000000
++    p.feeBps = 10;  // ybcal: feeBps 25 -> 10
+ 
+     p.grace              = 34560;   // 30 d
+-    p.claimThresholdBps  = 11000;
++    p.claimThresholdBps  = 12500;  // ybcal: claimThresholdBps 11000 -> 12500
+     p.supplyCapBps       = 1500;    // 15 % of market cap (V21)
+     p.globalRatioHaltBps = 25000;
+     p.recapRatioBps      = 50000;       // W16: twice the halt floor; on every network only class A (500 %) mints through a halt
+-    p.divergenceBps      = 2000;
+-    p.classMin[0] = 34560;  p.classMax[0] = 103680;  p.baseRatioBps[0] = 50000;   // A: 30-90 d
+-    p.classMin[1] = 103681; p.classMax[1] = 420480;  p.baseRatioBps[1] = 40000;   // B: 90-365 d
++    p.divergenceBps      = 2500;  // ybcal: divergenceBps 2000 -> 2500
++    p.classMin[0] = 34560;  p.classMax[0] = 103680;  p.baseRatioBps[0] = 72500;   // A: 30-90 d | ybcal: baseRatioBps[0] 50000 -> 72500
++    p.classMin[1] = 103681; p.classMax[1] = 420480;  p.baseRatioBps[1] = 62500;   // B: 90-365 d | ybcal: baseRatioBps[1] 40000 -> 62500
+     p.classMin[2] = 420481; p.classMax[2] = 2102400; p.baseRatioBps[2] = 30000;   // C: 1-5 y (MAX_LOCK, V19)
+ 
+     p.volWindow         = 2016;
+     p.volStep           = 48;
+     p.volPeriodsPerYear = 8760;     // K13: equal on every network
+-    p.sigmaRefBps       = 10000;
+-    p.sigmaMultMaxBps   = 30000;
++    p.sigmaRefBps       = 18000;  // ybcal: sigmaRefBps 10000 -> 18000
++    p.sigmaMultMaxBps   = 47500;  // ybcal: sigmaMultMaxBps 30000 -> 47500
+ 
+     p.nPenalty       = 288;         // L6 wallet defaults
+     p.accuracyWindow = 576;
+@@ -93,7 +93,7 @@
+     p.ageCap              = 207360; // 180 d
+     p.foundingWindow      = 8064;   // 7 d
+     p.dormancyBlocks      = 16128;
+-    p.dormancyMinBundles  = 20;
++    p.dormancyMinBundles  = 15;  // ybcal: dormancyMinBundles 20 -> 15
+     p.dormancyCheck       = 48;     // S15
+     p.carrierValue        = 10000;  // wallet policy
+     p.attestInterval      = 10;     // k, agent policy

@@ -39,6 +39,10 @@ decision.
 
 ## Status
 
+**The first real-data recommendation is in [docs/reports/2026-10-real/](docs/reports/2026-10-real/README.md)**
+(October 2026: real YEC prices, the real pool landscape, validated on regtest devnets of both node
+lines; not yet lock-ready — see its §7).
+
 All work packages of [the plan](docs/PLAN.md) are built (see its "Status (implementation)"
 section). `ybcal recommend --budget quick --synthetic` produces a complete report covering all 96
 registry entries in about 10 minutes on 4 cores (milestone M5).

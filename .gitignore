@@ -1,7 +1,7 @@
 .venv/
 .work/
 data/local/
-reports/
+/reports/
 wt/
 __pycache__/
 *.egg-info/

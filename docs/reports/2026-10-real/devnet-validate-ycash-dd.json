@@ -1,0 +1,3272 @@
+{
+  "validated": true,
+  "results": [
+    {
+      "name": "calm",
+      "status": "pass",
+      "reason": "",
+      "blocks": 551,
+      "report": {
+        "key": "height",
+        "passed": true,
+        "compared_keys": 551,
+        "missing_in_sim": [],
+        "missing_in_node": [],
+        "fields": {
+          "pFast": {
+            "field": "pFast",
+            "compared": 551,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMid": {
+            "field": "pMid",
+            "compared": 551,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pSlow": {
+            "field": "pSlow",
+            "compared": 551,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMint": {
+            "field": "pMint",
+            "compared": 551,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pClaim": {
+            "field": "pClaim",
+            "compared": 551,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "sigmaMultBps": {
+            "field": "sigmaMultBps",
+            "compared": 551,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "haltMask": {
+            "field": "haltMask",
+            "compared": 551,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "activationCode": {
+            "field": "activationCode",
+            "compared": 551,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "signalCount": {
+            "field": "signalCount",
+            "compared": 551,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "issuedZat": {
+            "field": "issuedZat",
+            "compared": 551,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "supplyCents": {
+            "field": "supplyCents",
+            "compared": 551,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "collateralZat": {
+            "field": "collateralZat",
+            "compared": 551,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "globalRatioBps": {
+            "field": "globalRatioBps",
+            "compared": 551,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          }
+        }
+      },
+      "comparison": {
+        "passed": true,
+        "history": {
+          "key": "height",
+          "passed": true,
+          "compared_keys": 551,
+          "missing_in_sim": [],
+          "missing_in_node": [],
+          "fields": {
+            "pFast": {
+              "field": "pFast",
+              "compared": 551,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMid": {
+              "field": "pMid",
+              "compared": 551,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pSlow": {
+              "field": "pSlow",
+              "compared": 551,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMint": {
+              "field": "pMint",
+              "compared": 551,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pClaim": {
+              "field": "pClaim",
+              "compared": 551,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "sigmaMultBps": {
+              "field": "sigmaMultBps",
+              "compared": 551,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "haltMask": {
+              "field": "haltMask",
+              "compared": 551,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "activationCode": {
+              "field": "activationCode",
+              "compared": 551,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "signalCount": {
+              "field": "signalCount",
+              "compared": 551,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "issuedZat": {
+              "field": "issuedZat",
+              "compared": 551,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "supplyCents": {
+              "field": "supplyCents",
+              "compared": 551,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "collateralZat": {
+              "field": "collateralZat",
+              "compared": 551,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "globalRatioBps": {
+              "field": "globalRatioBps",
+              "compared": 551,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            }
+          }
+        },
+        "vaults": null,
+        "claimable": null,
+        "collateral_mismatches": [],
+        "refusal_mismatches": [],
+        "attest": null
+      },
+      "run_dir": "/Users/boy/projects/yellowback-workspace/yb-calibration/.work/devnet/calm-20261005-023131-53631e"
+    },
+    {
+      "name": "crash-70",
+      "status": "pass",
+      "reason": "",
+      "blocks": 556,
+      "report": {
+        "key": "height",
+        "passed": true,
+        "compared_keys": 556,
+        "missing_in_sim": [],
+        "missing_in_node": [],
+        "fields": {
+          "pFast": {
+            "field": "pFast",
+            "compared": 556,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMid": {
+            "field": "pMid",
+            "compared": 556,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pSlow": {
+            "field": "pSlow",
+            "compared": 556,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMint": {
+            "field": "pMint",
+            "compared": 556,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pClaim": {
+            "field": "pClaim",
+            "compared": 556,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "sigmaMultBps": {
+            "field": "sigmaMultBps",
+            "compared": 556,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "haltMask": {
+            "field": "haltMask",
+            "compared": 556,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "activationCode": {
+            "field": "activationCode",
+            "compared": 556,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "signalCount": {
+            "field": "signalCount",
+            "compared": 556,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "issuedZat": {
+            "field": "issuedZat",
+            "compared": 556,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "supplyCents": {
+            "field": "supplyCents",
+            "compared": 556,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "collateralZat": {
+            "field": "collateralZat",
+            "compared": 556,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "globalRatioBps": {
+            "field": "globalRatioBps",
+            "compared": 556,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          }
+        }
+      },
+      "comparison": {
+        "passed": true,
+        "history": {
+          "key": "height",
+          "passed": true,
+          "compared_keys": 556,
+          "missing_in_sim": [],
+          "missing_in_node": [],
+          "fields": {
+            "pFast": {
+              "field": "pFast",
+              "compared": 556,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMid": {
+              "field": "pMid",
+              "compared": 556,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pSlow": {
+              "field": "pSlow",
+              "compared": 556,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMint": {
+              "field": "pMint",
+              "compared": 556,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pClaim": {
+              "field": "pClaim",
+              "compared": 556,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "sigmaMultBps": {
+              "field": "sigmaMultBps",
+              "compared": 556,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "haltMask": {
+              "field": "haltMask",
+              "compared": 556,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "activationCode": {
+              "field": "activationCode",
+              "compared": 556,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "signalCount": {
+              "field": "signalCount",
+              "compared": 556,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "issuedZat": {
+              "field": "issuedZat",
+              "compared": 556,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "supplyCents": {
+              "field": "supplyCents",
+              "compared": 556,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "collateralZat": {
+              "field": "collateralZat",
+              "compared": 556,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "globalRatioBps": {
+              "field": "globalRatioBps",
+              "compared": 556,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            }
+          }
+        },
+        "vaults": null,
+        "claimable": null,
+        "collateral_mismatches": [],
+        "refusal_mismatches": [],
+        "attest": null
+      },
+      "run_dir": "/Users/boy/projects/yellowback-workspace/yb-calibration/.work/devnet/crash-70-20261005-023131-d7a85f"
+    },
+    {
+      "name": "hashrate-drop",
+      "status": "pass",
+      "reason": "",
+      "blocks": 935,
+      "report": {
+        "key": "height",
+        "passed": true,
+        "compared_keys": 935,
+        "missing_in_sim": [],
+        "missing_in_node": [],
+        "fields": {
+          "pFast": {
+            "field": "pFast",
+            "compared": 935,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMid": {
+            "field": "pMid",
+            "compared": 935,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pSlow": {
+            "field": "pSlow",
+            "compared": 935,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMint": {
+            "field": "pMint",
+            "compared": 935,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pClaim": {
+            "field": "pClaim",
+            "compared": 935,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "sigmaMultBps": {
+            "field": "sigmaMultBps",
+            "compared": 935,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "haltMask": {
+            "field": "haltMask",
+            "compared": 935,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "activationCode": {
+            "field": "activationCode",
+            "compared": 935,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "signalCount": {
+            "field": "signalCount",
+            "compared": 935,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "issuedZat": {
+            "field": "issuedZat",
+            "compared": 935,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "supplyCents": {
+            "field": "supplyCents",
+            "compared": 935,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "collateralZat": {
+            "field": "collateralZat",
+            "compared": 935,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "globalRatioBps": {
+            "field": "globalRatioBps",
+            "compared": 935,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          }
+        }
+      },
+      "comparison": {
+        "passed": true,
+        "history": {
+          "key": "height",
+          "passed": true,
+          "compared_keys": 935,
+          "missing_in_sim": [],
+          "missing_in_node": [],
+          "fields": {
+            "pFast": {
+              "field": "pFast",
+              "compared": 935,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMid": {
+              "field": "pMid",
+              "compared": 935,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pSlow": {
+              "field": "pSlow",
+              "compared": 935,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMint": {
+              "field": "pMint",
+              "compared": 935,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pClaim": {
+              "field": "pClaim",
+              "compared": 935,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "sigmaMultBps": {
+              "field": "sigmaMultBps",
+              "compared": 935,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "haltMask": {
+              "field": "haltMask",
+              "compared": 935,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "activationCode": {
+              "field": "activationCode",
+              "compared": 935,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "signalCount": {
+              "field": "signalCount",
+              "compared": 935,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "issuedZat": {
+              "field": "issuedZat",
+              "compared": 935,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "supplyCents": {
+              "field": "supplyCents",
+              "compared": 935,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "collateralZat": {
+              "field": "collateralZat",
+              "compared": 935,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "globalRatioBps": {
+              "field": "globalRatioBps",
+              "compared": 935,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            }
+          }
+        },
+        "vaults": null,
+        "claimable": null,
+        "collateral_mismatches": [],
+        "refusal_mismatches": [],
+        "attest": null
+      },
+      "run_dir": "/Users/boy/projects/yellowback-workspace/yb-calibration/.work/devnet/hashrate-drop-20261005-023131-7879b6"
+    },
+    {
+      "name": "attestor-outage-1",
+      "status": "pass",
+      "reason": "",
+      "blocks": 566,
+      "report": {
+        "key": "height",
+        "passed": true,
+        "compared_keys": 566,
+        "missing_in_sim": [],
+        "missing_in_node": [],
+        "fields": {
+          "pFast": {
+            "field": "pFast",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMid": {
+            "field": "pMid",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pSlow": {
+            "field": "pSlow",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMint": {
+            "field": "pMint",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pClaim": {
+            "field": "pClaim",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "sigmaMultBps": {
+            "field": "sigmaMultBps",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "haltMask": {
+            "field": "haltMask",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "activationCode": {
+            "field": "activationCode",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "signalCount": {
+            "field": "signalCount",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "issuedZat": {
+            "field": "issuedZat",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "supplyCents": {
+            "field": "supplyCents",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "collateralZat": {
+            "field": "collateralZat",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "globalRatioBps": {
+            "field": "globalRatioBps",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          }
+        }
+      },
+      "comparison": {
+        "passed": true,
+        "history": {
+          "key": "height",
+          "passed": true,
+          "compared_keys": 566,
+          "missing_in_sim": [],
+          "missing_in_node": [],
+          "fields": {
+            "pFast": {
+              "field": "pFast",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMid": {
+              "field": "pMid",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pSlow": {
+              "field": "pSlow",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMint": {
+              "field": "pMint",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pClaim": {
+              "field": "pClaim",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "sigmaMultBps": {
+              "field": "sigmaMultBps",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "haltMask": {
+              "field": "haltMask",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "activationCode": {
+              "field": "activationCode",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "signalCount": {
+              "field": "signalCount",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "issuedZat": {
+              "field": "issuedZat",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "supplyCents": {
+              "field": "supplyCents",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "collateralZat": {
+              "field": "collateralZat",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "globalRatioBps": {
+              "field": "globalRatioBps",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            }
+          }
+        },
+        "vaults": {
+          "key": "vault",
+          "passed": true,
+          "compared_keys": 22,
+          "missing_in_sim": [],
+          "missing_in_node": [],
+          "fields": {
+            "status": {
+              "field": "status",
+              "compared": 22,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "termClass": {
+              "field": "termClass",
+              "compared": 22,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "lockHeight": {
+              "field": "lockHeight",
+              "compared": 22,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "claimHeight": {
+              "field": "claimHeight",
+              "compared": 22,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "collateralZat": {
+              "field": "collateralZat",
+              "compared": 22,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "mintedCents": {
+              "field": "mintedCents",
+              "compared": 22,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "mintHeight": {
+              "field": "mintHeight",
+              "compared": 22,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "refHeight": {
+              "field": "refHeight",
+              "compared": 22,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "feePaidZat": {
+              "field": "feePaidZat",
+              "compared": 22,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "closeHeight": {
+              "field": "closeHeight",
+              "compared": 22,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "burnedCents": {
+              "field": "burnedCents",
+              "compared": 22,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "unbacked": {
+              "field": "unbacked",
+              "compared": 22,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "voidReason": {
+              "field": "voidReason",
+              "compared": 22,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            }
+          }
+        },
+        "claimable": null,
+        "collateral_mismatches": [],
+        "refusal_mismatches": [],
+        "attest": {
+          "layer": [],
+          "seats": [],
+          "bundles": [],
+          "compared": [
+            {
+              "vault": "f5338e88654b2f9719d6f101c488dd734ef2e12077a289d80c83a420e849d40e:0",
+              "aMint": 48897770,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "904ee82d71824a4702f519a0c62f24081a26998de0c043359fabf8a632043d24:0",
+              "aMint": 49701750,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "fa787a304c11ba48263b7339543563617bb2b766ffde2f19c9f30b615894c54e:0",
+              "aMint": 49769898,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "7db35a231a6ae3a2f7bf34b62d9a116cf4d4d392b28baacaa0cb77bccd734052:0",
+              "aMint": 49904405,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "3c77e46ad807f306899ff38dba549ae84b2dd329cb235d9dc2273c175d9f7757:0",
+              "aMint": 50094104,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "a6019a59c08e86d939af950616b7377720bad3a89b5d080b1cd633c976777b5c:0",
+              "aMint": 49232619,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "f86c5fe74537c788c12b2650aa332dbef63f8291cc902b4a4ac16c8e5ff5dc60:0",
+              "aMint": 48553586,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "488eeb58edaf5ff9d95d3a7525712feb2c9960734aa324e3efcdf6f4c8ec0d66:0",
+              "aMint": 50424322,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "e703555d91e33ef9f448184623efc2c5193646e0a608d79925abf372270f1566:0",
+              "aMint": 50417347,
+              "seqs": [
+                0,
+                1,
+                2,
+                3
+              ]
+            },
+            {
+              "vault": "1bce27bbfd7197e3c9ded02daaa5fb72aa151643adf46d96b54785d538acf16a:0",
+              "aMint": 48833169,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "b0dad3a033aa6071f77823f3a75ff1edc0de94e0b394ae423809748ffca8586d:0",
+              "aMint": 49828123,
+              "seqs": [
+                0,
+                1,
+                2,
+                3
+              ]
+            },
+            {
+              "vault": "1645b9f7ed39ae5435e7c096a49997addaeca4930bef9d7c4b9897aafd67a36d:0",
+              "aMint": 50174636,
+              "seqs": [
+                0,
+                1,
+                2,
+                3
+              ]
+            },
+            {
+              "vault": "46097e7e7a7dc05e1874f04e6e099821bb17b451b0b271012374aa0f8c77c482:0",
+              "aMint": 50438677,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "d6baa6fc102ca410e1e684d36c18f5da90cc6f95d4ddf526e5fa2f770eba948d:0",
+              "aMint": 50160674,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "f46796b71b0490bdee223e41e5d22f9eea4f67fa0351e6ab267e97b9e563f48d:0",
+              "aMint": 50641300,
+              "seqs": [
+                0,
+                1,
+                2,
+                3
+              ]
+            },
+            {
+              "vault": "29e62d10688ad8af6f878d54be56b5af0421961400c73cef33ec57ce9a11bda3:0",
+              "aMint": 50540861,
+              "seqs": [
+                0,
+                1,
+                2,
+                3
+              ]
+            },
+            {
+              "vault": "365bc2c2ae2cea3d06a741f7c4a18453f674acd4288c6bfa6c47ccc9967e23a7:0",
+              "aMint": 49460740,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "aa9d297c59187790f9a3c4778a4c384e0612b7b88e705b5475fdf52feeac10b6:0",
+              "aMint": 50124694,
+              "seqs": [
+                0,
+                1,
+                2,
+                3
+              ]
+            },
+            {
+              "vault": "104a4f24f5e3e294316498002ede1967c65cbb4a8a596ab3ffaa2dfd9ee213cc:0",
+              "aMint": 49706260,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "589eefec57e01871d6ecf3ae4b760a7a63d8fd4f773dfb0b6044dbecec18d7df:0",
+              "aMint": 50153401,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "091e8291d40ccfb97dcf513340b70609865e7c9a987988a3489249536c4435e0:0",
+              "aMint": 49890283,
+              "seqs": [
+                0,
+                1,
+                2,
+                3
+              ]
+            },
+            {
+              "vault": "4fb5bd4ecbbd5de862f8426547412e11f2ce0843bc3480fa6944f7e5eaded9f6:0",
+              "aMint": 48339596,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            }
+          ],
+          "pin1": []
+        }
+      },
+      "run_dir": "/Users/boy/projects/yellowback-workspace/yb-calibration/.work/devnet/attestor-outage-1-20261005-023131-6a0746"
+    },
+    {
+      "name": "oracle-attack-34",
+      "status": "pass",
+      "reason": "",
+      "blocks": 599,
+      "report": {
+        "key": "height",
+        "passed": true,
+        "compared_keys": 599,
+        "missing_in_sim": [],
+        "missing_in_node": [],
+        "fields": {
+          "pFast": {
+            "field": "pFast",
+            "compared": 599,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMid": {
+            "field": "pMid",
+            "compared": 599,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pSlow": {
+            "field": "pSlow",
+            "compared": 599,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMint": {
+            "field": "pMint",
+            "compared": 599,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pClaim": {
+            "field": "pClaim",
+            "compared": 599,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "sigmaMultBps": {
+            "field": "sigmaMultBps",
+            "compared": 599,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "haltMask": {
+            "field": "haltMask",
+            "compared": 599,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "activationCode": {
+            "field": "activationCode",
+            "compared": 599,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "signalCount": {
+            "field": "signalCount",
+            "compared": 599,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "issuedZat": {
+            "field": "issuedZat",
+            "compared": 599,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "supplyCents": {
+            "field": "supplyCents",
+            "compared": 599,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "collateralZat": {
+            "field": "collateralZat",
+            "compared": 599,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "globalRatioBps": {
+            "field": "globalRatioBps",
+            "compared": 599,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          }
+        }
+      },
+      "comparison": {
+        "passed": true,
+        "history": {
+          "key": "height",
+          "passed": true,
+          "compared_keys": 599,
+          "missing_in_sim": [],
+          "missing_in_node": [],
+          "fields": {
+            "pFast": {
+              "field": "pFast",
+              "compared": 599,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMid": {
+              "field": "pMid",
+              "compared": 599,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pSlow": {
+              "field": "pSlow",
+              "compared": 599,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMint": {
+              "field": "pMint",
+              "compared": 599,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pClaim": {
+              "field": "pClaim",
+              "compared": 599,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "sigmaMultBps": {
+              "field": "sigmaMultBps",
+              "compared": 599,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "haltMask": {
+              "field": "haltMask",
+              "compared": 599,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "activationCode": {
+              "field": "activationCode",
+              "compared": 599,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "signalCount": {
+              "field": "signalCount",
+              "compared": 599,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "issuedZat": {
+              "field": "issuedZat",
+              "compared": 599,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "supplyCents": {
+              "field": "supplyCents",
+              "compared": 599,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "collateralZat": {
+              "field": "collateralZat",
+              "compared": 599,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "globalRatioBps": {
+              "field": "globalRatioBps",
+              "compared": 599,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            }
+          }
+        },
+        "vaults": null,
+        "claimable": null,
+        "collateral_mismatches": [],
+        "refusal_mismatches": [],
+        "attest": null
+      },
+      "run_dir": "/Users/boy/projects/yellowback-workspace/yb-calibration/.work/devnet/oracle-attack-34-20261005-023417-e74485"
+    },
+    {
+      "name": "feed-outage",
+      "status": "pass",
+      "reason": "",
+      "blocks": 635,
+      "report": {
+        "key": "height",
+        "passed": true,
+        "compared_keys": 635,
+        "missing_in_sim": [],
+        "missing_in_node": [],
+        "fields": {
+          "pFast": {
+            "field": "pFast",
+            "compared": 635,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMid": {
+            "field": "pMid",
+            "compared": 635,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pSlow": {
+            "field": "pSlow",
+            "compared": 635,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMint": {
+            "field": "pMint",
+            "compared": 635,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pClaim": {
+            "field": "pClaim",
+            "compared": 635,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "sigmaMultBps": {
+            "field": "sigmaMultBps",
+            "compared": 635,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "haltMask": {
+            "field": "haltMask",
+            "compared": 635,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "activationCode": {
+            "field": "activationCode",
+            "compared": 635,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "signalCount": {
+            "field": "signalCount",
+            "compared": 635,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "issuedZat": {
+            "field": "issuedZat",
+            "compared": 635,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "supplyCents": {
+            "field": "supplyCents",
+            "compared": 635,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "collateralZat": {
+            "field": "collateralZat",
+            "compared": 635,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "globalRatioBps": {
+            "field": "globalRatioBps",
+            "compared": 635,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          }
+        }
+      },
+      "comparison": {
+        "passed": true,
+        "history": {
+          "key": "height",
+          "passed": true,
+          "compared_keys": 635,
+          "missing_in_sim": [],
+          "missing_in_node": [],
+          "fields": {
+            "pFast": {
+              "field": "pFast",
+              "compared": 635,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMid": {
+              "field": "pMid",
+              "compared": 635,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pSlow": {
+              "field": "pSlow",
+              "compared": 635,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMint": {
+              "field": "pMint",
+              "compared": 635,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pClaim": {
+              "field": "pClaim",
+              "compared": 635,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "sigmaMultBps": {
+              "field": "sigmaMultBps",
+              "compared": 635,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "haltMask": {
+              "field": "haltMask",
+              "compared": 635,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "activationCode": {
+              "field": "activationCode",
+              "compared": 635,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "signalCount": {
+              "field": "signalCount",
+              "compared": 635,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "issuedZat": {
+              "field": "issuedZat",
+              "compared": 635,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "supplyCents": {
+              "field": "supplyCents",
+              "compared": 635,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "collateralZat": {
+              "field": "collateralZat",
+              "compared": 635,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "globalRatioBps": {
+              "field": "globalRatioBps",
+              "compared": 635,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            }
+          }
+        },
+        "vaults": null,
+        "claimable": null,
+        "collateral_mismatches": [],
+        "refusal_mismatches": [],
+        "attest": null
+      },
+      "run_dir": "/Users/boy/projects/yellowback-workspace/yb-calibration/.work/devnet/feed-outage-20261005-023417-a7e064"
+    },
+    {
+      "name": "vault-cycle",
+      "status": "pass",
+      "reason": "",
+      "blocks": 729,
+      "report": {
+        "key": "height",
+        "passed": true,
+        "compared_keys": 729,
+        "missing_in_sim": [],
+        "missing_in_node": [],
+        "fields": {
+          "pFast": {
+            "field": "pFast",
+            "compared": 729,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMid": {
+            "field": "pMid",
+            "compared": 729,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pSlow": {
+            "field": "pSlow",
+            "compared": 729,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMint": {
+            "field": "pMint",
+            "compared": 729,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pClaim": {
+            "field": "pClaim",
+            "compared": 729,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "sigmaMultBps": {
+            "field": "sigmaMultBps",
+            "compared": 729,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "haltMask": {
+            "field": "haltMask",
+            "compared": 729,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "activationCode": {
+            "field": "activationCode",
+            "compared": 729,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "signalCount": {
+            "field": "signalCount",
+            "compared": 729,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "issuedZat": {
+            "field": "issuedZat",
+            "compared": 729,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "supplyCents": {
+            "field": "supplyCents",
+            "compared": 729,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "collateralZat": {
+            "field": "collateralZat",
+            "compared": 729,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "globalRatioBps": {
+            "field": "globalRatioBps",
+            "compared": 729,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          }
+        }
+      },
+      "comparison": {
+        "passed": true,
+        "history": {
+          "key": "height",
+          "passed": true,
+          "compared_keys": 729,
+          "missing_in_sim": [],
+          "missing_in_node": [],
+          "fields": {
+            "pFast": {
+              "field": "pFast",
+              "compared": 729,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMid": {
+              "field": "pMid",
+              "compared": 729,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pSlow": {
+              "field": "pSlow",
+              "compared": 729,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMint": {
+              "field": "pMint",
+              "compared": 729,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pClaim": {
+              "field": "pClaim",
+              "compared": 729,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "sigmaMultBps": {
+              "field": "sigmaMultBps",
+              "compared": 729,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "haltMask": {
+              "field": "haltMask",
+              "compared": 729,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "activationCode": {
+              "field": "activationCode",
+              "compared": 729,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "signalCount": {
+              "field": "signalCount",
+              "compared": 729,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "issuedZat": {
+              "field": "issuedZat",
+              "compared": 729,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "supplyCents": {
+              "field": "supplyCents",
+              "compared": 729,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "collateralZat": {
+              "field": "collateralZat",
+              "compared": 729,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "globalRatioBps": {
+              "field": "globalRatioBps",
+              "compared": 729,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            }
+          }
+        },
+        "vaults": {
+          "key": "vault",
+          "passed": true,
+          "compared_keys": 3,
+          "missing_in_sim": [],
+          "missing_in_node": [],
+          "fields": {
+            "status": {
+              "field": "status",
+              "compared": 3,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "termClass": {
+              "field": "termClass",
+              "compared": 3,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "lockHeight": {
+              "field": "lockHeight",
+              "compared": 3,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "claimHeight": {
+              "field": "claimHeight",
+              "compared": 3,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "collateralZat": {
+              "field": "collateralZat",
+              "compared": 3,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "mintedCents": {
+              "field": "mintedCents",
+              "compared": 3,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "mintHeight": {
+              "field": "mintHeight",
+              "compared": 3,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "refHeight": {
+              "field": "refHeight",
+              "compared": 3,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "feePaidZat": {
+              "field": "feePaidZat",
+              "compared": 3,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "closeHeight": {
+              "field": "closeHeight",
+              "compared": 3,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "burnedCents": {
+              "field": "burnedCents",
+              "compared": 3,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "unbacked": {
+              "field": "unbacked",
+              "compared": 3,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "voidReason": {
+              "field": "voidReason",
+              "compared": 3,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            }
+          }
+        },
+        "claimable": {
+          "key": "k",
+          "passed": true,
+          "compared_keys": 990,
+          "missing_in_sim": [],
+          "missing_in_node": [],
+          "fields": {
+            "status": {
+              "field": "status",
+              "compared": 990,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "claimable": {
+              "field": "claimable",
+              "compared": 990,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            }
+          }
+        },
+        "collateral_mismatches": [],
+        "refusal_mismatches": [],
+        "attest": null
+      },
+      "run_dir": "/Users/boy/projects/yellowback-workspace/yb-calibration/.work/devnet/vault-cycle-20261005-023446-b1aeb6"
+    },
+    {
+      "name": "pin",
+      "status": "pass",
+      "reason": "",
+      "blocks": 566,
+      "report": {
+        "key": "height",
+        "passed": true,
+        "compared_keys": 566,
+        "missing_in_sim": [],
+        "missing_in_node": [],
+        "fields": {
+          "pFast": {
+            "field": "pFast",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMid": {
+            "field": "pMid",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pSlow": {
+            "field": "pSlow",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pMint": {
+            "field": "pMint",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "pClaim": {
+            "field": "pClaim",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "sigmaMultBps": {
+            "field": "sigmaMultBps",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "haltMask": {
+            "field": "haltMask",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "activationCode": {
+            "field": "activationCode",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "signalCount": {
+            "field": "signalCount",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "issuedZat": {
+            "field": "issuedZat",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "supplyCents": {
+            "field": "supplyCents",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "collateralZat": {
+            "field": "collateralZat",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          },
+          "globalRatioBps": {
+            "field": "globalRatioBps",
+            "compared": 566,
+            "mismatches": 0,
+            "allowed": 0,
+            "first_mismatch": null,
+            "first_node": null,
+            "first_sim": null,
+            "passed": true
+          }
+        }
+      },
+      "comparison": {
+        "passed": true,
+        "history": {
+          "key": "height",
+          "passed": true,
+          "compared_keys": 566,
+          "missing_in_sim": [],
+          "missing_in_node": [],
+          "fields": {
+            "pFast": {
+              "field": "pFast",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMid": {
+              "field": "pMid",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pSlow": {
+              "field": "pSlow",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pMint": {
+              "field": "pMint",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "pClaim": {
+              "field": "pClaim",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "sigmaMultBps": {
+              "field": "sigmaMultBps",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "haltMask": {
+              "field": "haltMask",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "activationCode": {
+              "field": "activationCode",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "signalCount": {
+              "field": "signalCount",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "issuedZat": {
+              "field": "issuedZat",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "supplyCents": {
+              "field": "supplyCents",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "collateralZat": {
+              "field": "collateralZat",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "globalRatioBps": {
+              "field": "globalRatioBps",
+              "compared": 566,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            }
+          }
+        },
+        "vaults": {
+          "key": "vault",
+          "passed": true,
+          "compared_keys": 21,
+          "missing_in_sim": [],
+          "missing_in_node": [],
+          "fields": {
+            "status": {
+              "field": "status",
+              "compared": 21,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "termClass": {
+              "field": "termClass",
+              "compared": 21,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "lockHeight": {
+              "field": "lockHeight",
+              "compared": 21,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "claimHeight": {
+              "field": "claimHeight",
+              "compared": 21,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "collateralZat": {
+              "field": "collateralZat",
+              "compared": 21,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "mintedCents": {
+              "field": "mintedCents",
+              "compared": 21,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "mintHeight": {
+              "field": "mintHeight",
+              "compared": 21,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "refHeight": {
+              "field": "refHeight",
+              "compared": 21,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "feePaidZat": {
+              "field": "feePaidZat",
+              "compared": 21,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "closeHeight": {
+              "field": "closeHeight",
+              "compared": 21,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "burnedCents": {
+              "field": "burnedCents",
+              "compared": 21,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "unbacked": {
+              "field": "unbacked",
+              "compared": 21,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            },
+            "voidReason": {
+              "field": "voidReason",
+              "compared": 21,
+              "mismatches": 0,
+              "allowed": 0,
+              "first_mismatch": null,
+              "first_node": null,
+              "first_sim": null,
+              "passed": true
+            }
+          }
+        },
+        "claimable": null,
+        "collateral_mismatches": [],
+        "refusal_mismatches": [],
+        "attest": {
+          "layer": [],
+          "seats": [],
+          "bundles": [],
+          "compared": [
+            {
+              "vault": "a07c9f59bed0ea4fa564216c649c2dc637ea8c0747f9843dc88637e70ec8e80e:0",
+              "aMint": 50798189,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "ce20ac449ba108c513ef9789b2de9b5022cd7f8e337b094e735ec54bf50ba110:0",
+              "aMint": 65090490,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "bf2b183782ac187d605abe142f1fe70447fab274c07af290a11f7b55682d6d23:0",
+              "aMint": 53536708,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "4c9cc4f3ba47753bf9b2bde306b2eda9b4849f7318b52ae67a506f9545cbae28:0",
+              "aMint": 58246971,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "aa8a1d2a59da74e5ae5cf99e1d6ef9822f2279e031ab09e5612bcb5a7f6a1929:0",
+              "aMint": 66681374,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "f0183e7f8b0546509afe51d1434f9c573ea3266063d58125abb6018a163de12b:0",
+              "aMint": 58563310,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "52e3a23b64f9c46312d9581dbb85de944ef31669f5e5f9874ffd3c0b9c1e6834:0",
+              "aMint": 66895493,
+              "seqs": [
+                0,
+                1,
+                2,
+                4
+              ]
+            },
+            {
+              "vault": "ae35dbb4cf8f66f338b9f373f7028d5d3ad7b13fc884fbe97274539bf34cc342:0",
+              "aMint": 57338131,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "613a956f9f2bdea377d60d0ba613563a6e808ffce96b6fe6ecfd880ae0b5b265:0",
+              "aMint": 50493589,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "532a48b12c0cd55f3234dfb6c7f9e6b977e6d2cd3b9cf08176e84f51962af670:0",
+              "aMint": 62914764,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "2b511d6786a28465c72dceb69cbaa40eb18dc2d43b0ca516aa355dc0f3dcc477:0",
+              "aMint": 50307260,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "3018db80b69d0bbbb9f90ae0f787e9f4fdf5323622214b477cde9dfc213c9479:0",
+              "aMint": 57996674,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "9a8bbe1c3810e4e684d6f72a2eab967fa76b78083d0e8e9b0e12dcbe3368af95:0",
+              "aMint": 66401444,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "67be0538d739479edd2e68e5172bc2c02d09f971ded0a1e57eb0fc3e7fe107a3:0",
+              "aMint": 66354996,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "ef03445127559c92f5e98809127ac45561ad8326dd5ec782e4aadb3ad9bcaac0:0",
+              "aMint": 58521581,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "a485ca0feff8a0a01118adf2b51c9d75cb4f98267b17c755688e6fb7ce13a9da:0",
+              "aMint": 50589979,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "d5b86a69dcd53e36d54cba0f325ec842ac10e2e2c0d35625ef9bf54fe76011db:0",
+              "aMint": 51635996,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "bc3543fdf1f5f2a5542233e980bc6e3ec6df8cd22eba8f28168c9eab89cb86e3:0",
+              "aMint": 66548004,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "61e6571fb8ffc80bf270c0765df5144b682e62d398b8a2bbabd97508cafdc8f1:0",
+              "aMint": 60739037,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "804bd8d07a7bce9bfec6917bfbae8b2a8b1f0f16e630678e00e8f0b88fcc7df4:0",
+              "aMint": 50645125,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "vault": "855e5847a17bd50fd52db84eb0cebf1178f3898afa3117ecced545056bfcbbfb:0",
+              "aMint": 50722304,
+              "seqs": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            }
+          ],
+          "pin1": []
+        }
+      },
+      "run_dir": "/Users/boy/projects/yellowback-workspace/yb-calibration/.work/devnet/pin-20261005-023616-b3eb7e"
+    }
+  ],
+  "overlay_digest": "56ba367e3f35776e3f83d80b15e4b0739ae2e1637bfb802c371c76f328c216dc",
+  "scaled": true
+}

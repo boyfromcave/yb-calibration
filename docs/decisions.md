@@ -168,6 +168,7 @@ contract change from a work package was resolved; they supersede the entry they 
 | [D-RD-ATT-10](#d-rd-att-10-2026-10-04-attestation--robustness-runs-and-the-final-g6g8-values) | attestation (wave 2) | robustness runs and the final G6/G8 values |
 | [D-RD-ATT-11](#d-rd-att-11-2026-10-04-attestation--qlowbps-stays-3333-griefing-resistance-is-not-bought-with-cheaper-theft) | attestation (wave 2) | `qLowBps` stays 3,333: griefing resistance is not bought with cheaper theft |
 | [D-RD-ATT-12](#d-rd-att-12-2026-10-04-attestation--devnet-attestor-dormancy-scenario) | attestation (wave 2) | devnet `attestor-dormancy` scenario |
+| [D-RD-FIN-1](#d-rd-fin-1-2026-10-05-integrator--the-october-2026-real-data-recommendation) | integrator | the October 2026 real-data recommendation |
 
 ## D-1 (2026-10-03, WP-0) — "locked" / "excluded" vocabulary mapping
 
@@ -2469,3 +2470,19 @@ after its outage (DORMANT is final until REV-1); in attestor-outage-1 it returns
 the tool's floors (`dormancyMinBundles` 15 → 2 at regtest scale), so the devnet confirms the rules'
 timing and arithmetic at the scaled set, not the mainnet count itself. Reports:
 `.work/devnet/validate3-{y6,dd}.json` in this worktree.
+
+## D-RD-FIN-1 (2026-10-05, integrator) — the October 2026 real-data recommendation
+
+**Decision.** The recommended set is `docs/reports/2026-10-real/recommended.json` (20 changes),
+chosen by `docs/reports/2026-10-real/consolidate.py` from four `ybcal robust` sweeps on the frozen
+snapshot `data/local/frozen-20261004`: 6 standard runs (full history and last 365 days × 3 seeds,
+the decision), 6 quick runs over the 2021–22 and 2025–26 regimes and 8 quick runs under the regime
+and martingale price models. Rule: the standard runs decide (consolidated value — feasible in the
+most runs, the runs' median for rule parameters, the modal least-harm value for environment limits;
+`robust` basis column); a quick run moves a value only when the standard choice fails one of the
+parameter's own constraints in a regime or a validated model (so `deviationBps` 1,700 → 1,800 for
+2021–22; the regime model is excluded for G3, D-RD-COL-3, so `claimThresholdBps` is 12,500 not
+13,250). `sigmaRefBps` takes the full-history median 18,000 — the conservative end, since a lower
+reference raises the σ multiplier — over the last 365 days' 23,500–24,500. Validated on regtest
+devnets of both node lines (8/8 scenarios each). Not lock-ready: the live spread log and depth
+series need more calendar time, and the owner-level findings in the report's §3 are open.
