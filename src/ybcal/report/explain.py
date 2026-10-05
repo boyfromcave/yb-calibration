@@ -322,8 +322,21 @@ def section_for(
         insensitive=bool(rec.sensitivity.get("insensitive")),
         verdict_label=verdict_label(rec, rec.verdict),
         pin=dict(pin) if pin is not None else None,
-        env_blocked=dict(envb) if envb is not None else None,
+        env_blocked=_env_record(envb) if envb is not None else None,
     )
+
+
+def _env_record(envb: Mapping[str, Any]) -> dict[str, Any]:
+    """The full ``environment_blocked`` shape the report renders (D-RD-INF-3). Studies may write a
+    short form (G5's valve rows carry only ``note`` and ``least_harm``); missing keys get defaults."""
+    e = dict(envb)
+    cons = e.get("constraints")
+    e["constraints"] = [cons] if isinstance(cons, str) else list(cons or [])
+    e.setdefault("note", "")
+    e.setdefault("why", "no value in the searched range meets the policy in the real environment")
+    e.setdefault("harm_metric", "the study's least-harm metric")
+    e.setdefault("exposure", None)
+    return e
 
 
 class _Shim:

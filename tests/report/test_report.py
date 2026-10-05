@@ -386,3 +386,11 @@ def test_neighbours_name_only_the_rules_own_constraints():
     rec.metrics = {"constraints_current": {"bad_debt_A": True}}
     rec.sensitivity["neighbours"][0]["violated"] = ["bad_debt_A", "bad_debt_C"]
     assert "violates bad_debt_A." in XX.neighbours_text(rec)
+
+
+def test_short_environment_record_renders():
+    """G5 valve rows carry only note/least_harm; the report needs the full shape (sweep crash 2026-10-04)."""
+    e = X._env_record({"note": "G5-DN-VALVE", "least_harm": 12})
+    assert e["constraints"] == [] and e["note"] == "G5-DN-VALVE" and e["least_harm"] == 12
+    assert e["why"] and e["harm_metric"] and e["exposure"] is None
+    assert X._env_record({"constraints": "false_halt"})["constraints"] == ["false_halt"]
