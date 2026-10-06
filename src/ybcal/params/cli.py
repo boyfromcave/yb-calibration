@@ -127,8 +127,41 @@ def cli_check(args: argparse.Namespace) -> int:
             failures += len(viol)
         else:
             print(f"{net}: all invariants pass")
+    failures += _check_policy_base(policy, ctx)
     print("OK" if not failures else f"FAILED ({failures})")
     return 0 if not failures else 1
+
+
+def _check_policy_base(policy: Any, ctx: Context) -> int:
+    """When the policy sets a base (``base_set`` / ``base_values``), run the invariants on that set
+    too and list what it changes against the shipped mainnet column; returns the failure count."""
+    from ybcal.params.classes import CLASS_NAMES, disabled_classes
+    from ybcal.params.paramset import mainnet, policy_base
+
+    if not (policy.base_set or policy.base_values):
+        return 0
+    try:
+        base = policy_base(policy)
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        print(f"policy base: cannot build it: {type(e).__name__}: {e}")
+        return 1
+    where = policy.base_set or "the shipped mainnet column"
+    delta = mainnet().delta(base)
+    off = disabled_classes(base)
+    print(f"policy base: {where} + {len(policy.base_values)} base_values -> {len(delta)} value(s) differ "
+          f"from the shipped set" + (f"; disabled classes (empty term range, H-5): "
+                                      f"{', '.join(CLASS_NAMES[i] for i in off)}" if off else ""))
+    planned = [k for k in REGISTRY if REGISTRY[k].proposed and base[k] != REGISTRY[k].mainnet]
+    if planned:
+        print(f"  proposed field(s) set by the policy, not yet in source at the pin: {', '.join(planned)}")
+    viol = base.check(ctx)
+    if viol:
+        print(f"policy base: {len(viol)} invariant violation(s):")
+        for v in viol:
+            print(f"  {v}")
+        return len(viol)
+    print("policy base: all invariants pass")
+    return 0
 
 
 def cli_doc(args: argparse.Namespace) -> int:

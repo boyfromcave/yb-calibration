@@ -48,6 +48,7 @@ from typing import Any
 import numpy as np
 
 from ybcal.data.synthetic import DEFAULT_P0
+from ybcal.params.classes import enabled_classes
 from ybcal.params.paramset import ParamSet
 from ybcal.params.registry import REGISTRY, params_for_group
 from ybcal.studies import g3_collateral as G3
@@ -279,13 +280,13 @@ def liquidation_frontier(ps: Mapping, ctx: G9Context, sizes_cents: Iterable[int]
 def ranges(ps: Mapping, ctx: G9Context) -> dict[str, tuple[float, float, str, str]]:
     """Admissible ``(lo, hi, binding_lo, binding_hi)`` per parameter (unrounded; ±inf when open)."""
     fee_min = int(ps["feeMin"])
-    rmin = min(int(ps[f"baseRatioBps[{c}]"]) for c in range(3))
+    rmin = min(int(ps[f"baseRatioBps[{c}]"]) for c in enabled_classes(ps))  # H-5: enabled classes
     worst = ctx.worst_microusd
     out: dict[str, tuple[float, float, str, str]] = {}
     # minMint: 4·feeMin at the worst price; fee floor at the reference price
     mintable = 4 * fee_min * worst / (rmin * COIN)  # cents (cents × bps = µUSD)
     floor_lo = 0.0
-    for c in range(3):
+    for c in enabled_classes(ps):
         prop = 2 * int(ps["feeBps"]) * int(ps[f"baseRatioBps[{c}]"]) / BPS / BPS
         allow = max(ctx.max_fee_share_small, prop)
         floor_lo = max(floor_lo, 2 * fee_min / COIN * ctx.p_ref_microusd / 1e6 / allow * 100)
@@ -360,7 +361,7 @@ def g9_values(ps: Mapping, ctx: G9Context) -> tuple[dict[str, float], dict[str, 
     v.update({f"{k}@ref": x for k, x in fee_shares(ps, int(ps["minMint"]), ctx.p_ref_microusd).items()})
     v.update({f"{k}@worst": x for k, x in fee_shares(ps, int(ps["minMint"]), ctx.worst_microusd).items()})
     v["fee_share.A.any_size"] = 2 * int(ps["feeBps"]) * int(ps["baseRatioBps[0]"]) / BPS / BPS
-    rmin = min(int(ps[f"baseRatioBps[{c}]"]) for c in range(3))
+    rmin = min(int(ps[f"baseRatioBps[{c}]"]) for c in enabled_classes(ps))  # H-5: enabled classes
     # price above which the feeMin floor sets FEE-1 of a minMint vault (lowest-ratio class)
     v["fee.floor_binds_above_usd"] = (
         int(ps["minMint"]) / 100 * rmin / BPS / (int(ps["feeMin"]) * BPS / int(ps["feeBps"]) / COIN)

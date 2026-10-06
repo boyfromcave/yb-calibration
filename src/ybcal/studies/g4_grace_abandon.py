@@ -43,6 +43,7 @@ from typing import Any
 
 import numpy as np
 
+from ybcal.params.classes import class_enabled
 from ybcal.params.paramset import ParamSet
 from ybcal.params.registry import REGISTRY, params_for_group
 from ybcal.sim import agents as AG
@@ -159,6 +160,11 @@ class G4Study:
         cons: dict[str, bool] = {}
         dbar = 0.0
         for c, name in enumerate(G3.CLASS_NAMES):
+            if not class_enabled(cand, c):  # H-5: a disabled class has no vaults to protect
+                values[f"dP.{name}"] = values[f"pbad.{name}"] = math.nan
+                cons[f"grace_debt_{name}"] = True
+                values[f"viol.grace_debt_{name}"] = 0.0
+                continue
             inc, tot = [], []
             for m in ens.names:
                 fb = G3.bad_debt(
@@ -371,8 +377,8 @@ class G4Study:
                     "constraints_recommended": dict(gd.row.metrics.constraints),
                     "decision": gd.reason,
                     "flags": {
-                        f"grace_debt_{c}": bool(
-                            gd.row.metrics.values.get(f"dP.{c}", 0.0) <= float(policy.max_bad_debt(c))
+                        f"grace_debt_{c}": not bool(
+                            gd.row.metrics.values.get(f"dP.{c}", 0.0) > float(policy.max_bad_debt(c))
                         )
                         for c in G3.CLASS_NAMES
                     },

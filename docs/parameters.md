@@ -15,7 +15,7 @@ Every field of `yellowback::Params` (`src/yellowback/params.h`) and the `params.
 | derived | fixed by a formula from a parent; locked when a rule reads it | follows its parent |
 | meta | identity (network name, address version) | not calibrated |
 
-Counts: locked 66, excluded 9, per-release 2, derived 7, constant 10, meta 2; total 96.
+Counts: locked 67, excluded 9, per-release 2, derived 7, constant 10, meta 2; total 97.
 
 Hashed (in the state-hash `ParamsRecord`, `view.h`): `startHeight`, `enforceUntilHeight`, `supplyCapBps`, `sigmaRefBps`, `attestArmMin`, `bundleCarrier`.
 
@@ -168,6 +168,7 @@ Hashed (in the state-hash `ParamsRecord`, `view.h`): `startHeight`, `enforceUnti
 | `addressVersion` | 1FE4 | 2002 | meta | hex |  | D10 | — | Base58Check version bytes of Yellowback addresses (ye… / yr…) |
 | `tokenValue` | 10,000 | 10,000 | constant | zat |  | RPC | — | YEC carried by every Yellowback output (= TOKEN_VALUE) |
 | `refWindow` | 40 | 40 | constant | blocks |  | MINT-2, RED-1, NOT-1 | — | refHeight must lie in [H - refWindow, H - 1] (= REF_WINDOW) |
+| `mintRequiresArmed` | false | false | locked | bool |  | MINT-4, H-1 | — | MINT-4: no mint unless the attestation layer is ARMED (verdict mint-halted-unarmed); false = v3 behaviour, unarmed mints price at xMint alone |
 | `bundleCarrier` | SCRIPTSIG | SCRIPTSIG (`-yellowbackbundlecarrier`) | locked | enum | yes | BUNDLE-1, W2 | — | Where a transaction carries its attestation bundle (design choice, verified) |
 | `MAX_REF_LAG` | 36 | 36 | constant | blocks |  | §3.5 | — | Upper bound of -yellowbackmintlag (mempool expiring-soon rule) |
 | `REF_WINDOW` | 40 | 40 | constant | blocks |  | MINT-2, RED-1, NOT-1 | — | Protocol constant = DEFAULT_POST_BLOSSOM_TX_EXPIRY_DELTA |
@@ -177,6 +178,8 @@ Hashed (in the state-hash `ParamsRecord`, `view.h`): `startHeight`, `enforceUnti
 | `BLOCKS_PER_HOUR` | 48 | 48 | constant | blocks |  | units | — | Blocks per hour at 75 s |
 | `BLOCKS_PER_DAY` | 1,152 | 1,152 | constant | blocks |  | units | — | Blocks per day at 75 s |
 | `BLOCKS_PER_YEAR` | 420,480 | 420,480 | constant | blocks |  | L8, K13 | — | Blocks per year at 75 s |
+
+- `mintRequiresArmed`: Proposed by the hardening plan H-1 (chunk H3-a): mainnet and testnet true, regtest false and settable. Not in params.h at the pin, so both columns are the pin's behaviour (false); policy/harden-2026-10.toml sets true.
 
 ## Invariants (PLAN §1.4)
 
@@ -194,11 +197,11 @@ Checked on every candidate before simulation (`ybcal.params.invariants`). *Mainn
 | `sunset` | L8 (ACT-5) | enforceUntilHeight = startHeight + BLOCKS_PER_YEAR, never past the next network upgrade (0 = no sunset, regtest only) | all |
 | `release_lead` | M14 | startHeight >= release tip + 16,128 (checked when a tip is given) | mainnet-scale |
 | `regtest_zero_meanings` | M13 / spec §3.1 | sigmaRefBps, supplyCapBps, attestArmMin > 0 at mainnet scale (0 has a regtest-only meaning) | mainnet-scale |
-| `class_contiguous` | MINT-2 (V19) | classMin[0] >= 1, classMin[i] <= classMax[i], classMin[i+1] = classMax[i] + 1 | all |
-| `class_locktime` | MINT-2 / CLTV | classMax[2] + grace + tip < 500,000,000 | all |
+| `class_contiguous` | MINT-2 (V19), H-5 | contiguous or empty: classMin[0] >= 1 and class A is non-empty; a class with classMin[i] > classMax[i] is disabled (H-5); the non-empty classes, in order, satisfy classMin[next] = classMax[prev] + 1 | all |
+| `class_locktime` | MINT-2 / CLTV | max(classMax of the enabled classes) + grace + tip < 500,000,000 | all |
 | `vol_step_divides` | SIGMA-1 | volWindow % volStep == 0 | all |
 | `vol_periods` | K13 | volPeriodsPerYear = BLOCKS_PER_YEAR / volStep exactly (mainnet scale); 8,760 on regtest | all |
-| `base_gt_halt` | HALT-2 / MINT-5 | baseRatioBps[i] > globalRatioHaltBps | all |
+| `base_gt_halt` | HALT-2 / MINT-5, H-11 | baseRatioBps[i] > globalRatioHaltBps for every enabled class (a disabled class mints nothing) | all |
 | `recap_double` | W16 | recapRatioBps = 2 × globalRatioHaltBps | all |
 | `claim_emergency_order` | RED-4 | claimThresholdBps > emergencyRatioBps > 10,000 | all |
 | `bundle_size` | BUNDLE-1 | mSelect + kSlack <= bundleMax <= 6 and nSlots >= mSelect + kSlack | all |

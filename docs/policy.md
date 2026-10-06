@@ -218,6 +218,17 @@ Owner decisions on values that are not tunable registry fields are honoured by d
 pinned: `recapRatioBps` = 2 × `globalRatioHaltBps` (W16 / D-R-3, the owner chose 2×), the window
 minimum fills ⌈W/2⌉ and ⌈2W/3⌉ (L9), the sunset span ≈ 420,480 blocks (L8, release study).
 
+## `[base]` and `[base_values]` — the starting set and the ratio lock rule (hardening plan H0-b)
+
+| Key | Default | Unit | Meaning | Read by | How to choose |
+|---|---|---|---|---|---|
+| `base_set` | `""` | path | The set every study starts from, the "current" column of the report and the set owner pins hold. `""` = the shipped mainnet column at the pin; else a `recommended.json` (`ybcal-extract/1`, its `main` column), a report directory or a `ybcal-paramset/1` JSON, relative to the repository root. `params.cpp.patch` is always written against the shipped source, whatever the base. | `recommend`, `study`, `robust` (`paramset.policy_base`), `params check` | Point it at the previous recommendation when a new policy builds on it (`policy/harden-2026-10.toml` uses `docs/reports/2026-10-real/recommended.json`). |
+| `base_values` | `{}` (empty table) | registry name → value | Owner-set values applied on top of `base_set`; derived values follow their parents (setting `globalRatioHaltBps` moves `recapRatioBps` to 2×). May set a proposed field (a field a plan adds that the pin lacks, e.g. `mintRequiresArmed`, H-1). `ybcal params check --policy` runs every invariant on the resulting set. | as `base_set` | Put an owner decision's value here and pin it in `[owner_pinned]` so the studies keep it. A class is disabled with an empty term range: `"classMax[i]" = classMin[i] - 1` (H-5). |
+| `ratio_lock_rule` | `"consolidate"` | `consolidate` \| `worse-window` | How `ybcal robust` consolidates the parameters in `ratio_lock_params`. `consolidate`: the value feasible in the most runs (D-RD-INF-5). `worse-window`: per window of `ratio_lock_windows`, the smallest value whose own rule's constraints hold in **every** run of that window; the locked value is the largest of those per-window needs (H-3: "the worse window decides"). Undecidable (shown as —) when a window has no finished run or no value feasible in all its runs. | `robust` tabulation (`robust.md` § Worse-window lock rule, `robust.json` `worse_window`) | `worse-window` for a risk-averse lock on window-sensitive ratios. |
+| `ratio_lock_params` | `["baseRatioBps[0]"]` | registry names | The parameters `ratio_lock_rule` applies to (tunable registry names). | as above | The class ratios the windows disagree on. |
+| `search_bounds` | `{}` (empty table) | param → `[lo, hi]` | Search bounds that **replace** the registry's for a study's lattice (G3's class ratios today). Values outside the registry bounds are evaluated as evidence; they are still subject to every invariant. | G3 `space` (via `G3Study.with_policy`) | Widen a ratio when the policy's need lies beyond the registry bound (H-3: the last-365-day need for class A is above 800 %). |
+| `ratio_lock_windows` | `["full", "last365"]` | window names | The data windows whose needs `worse-window` compares (the robust harness's `--windows` names). | as above | Every window the lock must survive; each must be among the sweep's `--windows`. |
+
 ## `[studies_g5_g8]` — G5/G8 assumptions (D-WP7c-2)
 
 | Key | Default | Unit | Meaning | Read by | How to choose |

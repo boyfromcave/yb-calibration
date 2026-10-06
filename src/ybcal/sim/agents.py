@@ -44,6 +44,7 @@ from typing import Literal
 
 import numpy as np
 
+from ybcal.params.classes import disabled_classes
 from ybcal.units import BLOCKS_PER_DAY, BLOCKS_PER_YEAR, BPS, COIN
 
 OWNER_WP = "WP-4"
@@ -302,6 +303,13 @@ def sample_mint_attempts(
     step = first + np.repeat(np.arange(span, dtype=np.int64), counts)
     n = int(step.shape[0])
     w = np.asarray(m.class_weights, dtype=np.float64)
+    off = disabled_classes(params)
+    if off and len(off) < len(w):
+        # H-5: a disabled class (empty term range) takes no demand; wallets hide what the node refuses
+        w = w.copy()
+        w[list(off)] = 0.0
+        if w.sum() <= 0:
+            w[[i for i in range(len(w)) if i not in off]] = 1.0
     tc = rng.choice(3, size=n, p=w / w.sum()).astype(np.int8)
     lock = sample_lock_blocks(rng, params, tc, m.term_distribution)
     cents = sample_sizes(rng, params, m, n)

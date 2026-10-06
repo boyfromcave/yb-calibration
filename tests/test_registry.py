@@ -23,7 +23,7 @@ def test_live_source_equals_snapshot(live_extracted):
 
 
 def test_values_match_extraction(extracted):
-    main, reg = extracted.values("main"), extracted.values("regtest")
+    main, reg = extracted.registry_values("main"), extracted.registry_values("regtest")
     for name, spec in REGISTRY.items():
         assert main[name] == spec.mainnet, name
         assert reg[name] == spec.regtest, name

@@ -104,6 +104,11 @@ class ParamSpec:
     regtest_flag: str | None = None  #: regtest-only runtime flag that sets it (M13)
     note: str = ""                 #: extra caveat shown in docs/parameters.md
     pinned_commit: str = PINNED_COMMIT
+    #: Non-empty for a field a plan adds to ``Params`` that the source at the pin does not have yet
+    #: (the plan item, e.g. ``"H-1"``). Its registry columns are the behaviour of a node *without*
+    #: the field, so the shipped set is unchanged; drift checks tolerate its absence from source and
+    #: compare it once it appears; a policy sets the planned value (``base_values``).
+    proposed: str = ""
 
     @property
     def cpp_field(self) -> str:
@@ -175,6 +180,7 @@ def _add(
     cpp_expr: str | None = None,
     regtest_flag: str | None = None,
     note: str = "",
+    proposed: str = "",
 ) -> None:
     if consensus is None:
         consensus = klass in ("locked", "per-release", "derived", "constant")
@@ -184,7 +190,7 @@ def _add(
             hashed=hashed, rules=rules, derive=derive, bounds=bounds, step=step, doc=doc,
             consensus=consensus, origin=origin,
             cpp_expr=cpp_expr if cpp_expr is not None else repr(mainnet),
-            parents=parents, regtest_flag=regtest_flag, note=note,
+            parents=parents, regtest_flag=regtest_flag, note=note, proposed=proposed,
         )
     )
 
@@ -338,6 +344,13 @@ _add("attestArmMin", 5, 3, "locked", "G8", "count", ("ARM-1",), (3, 15), 1,
      hashed=True, regtest_flag="-yellowbackattestarmmin")
 _add("attestArmDelay", 1152, 8, "locked", "G8", "blocks", ("ARM-2",), (288, 8064), 288,
      "Blocks from arm condition to ARMED")
+_add("mintRequiresArmed", False, False, "locked", "-", "bool", ("MINT-4", "H-1"), (0, 1), 0,
+     "MINT-4: no mint unless the attestation layer is ARMED (verdict mint-halted-unarmed); false = "
+     "v3 behaviour, unarmed mints price at xMint alone",
+     cpp_expr="false", proposed="H-1",
+     note=("Proposed by the hardening plan H-1 (chunk H3-a): mainnet and testnet true, regtest false "
+           "and settable. Not in params.h at the pin, so both columns are the pin's behaviour (false); "
+           "policy/harden-2026-10.toml sets true."))
 _add("attestRequired", True, True, "locked", "G8", "bool", ("W15",), (0, 1), 0,
      "Whether ARMED rules require bundles (false: PRICE-2 reads tags only)", cpp_expr="true")
 _add("bundleCarrier", "SCRIPTSIG", "SCRIPTSIG", "locked", "-", "enum", ("BUNDLE-1", "W2"), (0, 2), 0,
@@ -468,5 +481,11 @@ def derived_names() -> tuple[str, ...]:
 
 
 def field_names() -> tuple[str, ...]:
-    """Names of every ``Params`` struct field (expanded arrays), in declaration order."""
-    return tuple(s.name for s in REGISTRY.values() if s.origin == "field")
+    """Names of every ``Params`` struct field at the pin (expanded arrays), in declaration order
+    (proposed fields, which the pin does not have, excluded)."""
+    return tuple(s.name for s in REGISTRY.values() if s.origin == "field" and not s.proposed)
+
+
+def proposed_names() -> tuple[str, ...]:
+    """Fields a plan adds that the source at the pin does not have (:attr:`ParamSpec.proposed`)."""
+    return tuple(s.name for s in REGISTRY.values() if s.proposed)

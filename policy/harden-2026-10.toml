@@ -1,3 +1,26 @@
+# Hardening policy (H0-b, 2026-10-05): policy/real-data-2026-10.toml plus the owner decisions of the
+# evidence-based hardening plan (workspace docs/plans/yellowback-evidence-based-hardening-plan.md
+# §3, H-1..H-12) as reshaped by the upgrade plan §7 (docs/plans/yellowback-upgrade-plan.md).
+# Use: ybcal recommend --policy policy/harden-2026-10.toml ... (data: the frozen snapshot, see
+# docs/reports/2026-10-real/README.md §8).
+#
+# What it changes against the real-data policy:
+#   * every run starts from the October 2026 recommended set (base_set) with the H decisions applied
+#     on top (base_values): class A only (H-5, the empty-class convention classMax[i] = classMin[i] - 1),
+#     mintRequiresArmed (H-1), attestArmMin 7 (H-2), fee split 15 / 5,000 bps (H-4), maxMint $2,500
+#     (H-12), halt 300 % / recap 600 % (H-11; recap follows as 2 x halt, W16);
+#   * those values are owner-pinned (studied, kept) with the H reference;
+#   * baseRatioBps[0] is NOT pinned: the robust harness decides it by the "worse window" rule (H-3):
+#     the smallest ratio feasible in every run of both the full-history and the last-365-day windows;
+#   * max_fee_share_small 2 % -> 2.25 % (H-4: the minter's round trip at 15 bps + 50 % attestor share
+#     is ~2.1 % on a minMint class-A vault, inside the 2.25 % the plan accepts).
+# Retired under the upgrade plan §7 and NOT modelled here: H-6 (valve persistence, note cap 256,
+# valveBlocks 12; gate G-6), H-7 (two-window lock-in), H-9.1 (sunset stand-down), F-3. valveBlocks
+# keeps its L7 pin (6) and max_spurious_lock_prob stays report-only; the v3 line does not implement
+# H-6/H-7 (upgrade plan §7: H2 and H3-b's lock-in/sunset parts are dropped), so there is nothing to
+# calibrate them against. H-10 (class-A-only soft-cap gate) is moot with B/C disabled and is not
+# modelled in the simulator.
+#
 # ybcal risk policy — the owner's risk appetite (PLAN §2.4, §5, §12).
 #
 # Copy this file, edit it, and pass it with `--policy FILE`. Every value is a STARTING TOLERANCE for
@@ -18,7 +41,6 @@ require_real_data_for_lock = true  # lock-readiness needs real-data provenance f
 class_heterogeneity_max = 0.50     # max relative spread of P(bad debt) within one class before a split/merge is suggested (§5.3)
 term_distribution = "uniform"      # lock-term distribution within each class: "uniform" | "short-heavy" | "long-heavy" (§5.3)
 sigma_mult_at = "median"           # σ multiplier assumed when sizing base ratios: "median" | "p90" (§5.3)
-price_drift = "centred"            # drift of long-horizon solvency price paths: "centred" (median flat) | "martingale" (E[p] flat, −σ²/2 bleed) | "model" (D-RD-AUD-1)
 real_price_model = "bootstrap"      # model of real price data in the studies: "bootstrap" (demeaned block bootstrap of the hourly series) | "regime" | "garch" (fitted on the longest real series, centred) (D-RD-INF-5)
 
 [risk.max_bad_debt_prob]           # max P(collateral < debt when the claim path opens), per term class (§5.3, §12.1)
@@ -46,17 +68,17 @@ hour_kernel_tolerance_bps = 300.0  # max p95 relative error (bps) of the hour-mo
 
 [activation]
 max_false_halt_hours_per_year = 24.0  # max expected hours/year of false PARTICIPATION/ENFORCEMENT halts (§5.5, §12.1)
-expected_enforcing_share = 0.80    # hash share expected to run enforcing nodes (§5.5, §12.1)
+expected_enforcing_share = 0.70    # REAL DATA: ninjaraider 52.0 % + mining-dutch 13.7 % + dapool 6.1 % over blocks 2983806..3053805 (D-RD-D5)
 detection_drop_share = 0.45        # a real drop to this share must be detected… (§5.5)
 max_detection_blocks = 4032        # …within this many blocks (§5.5)
 max_flaps_per_year = 2.0           # max halt/clear cycles per year at the expected share (§5.5)
 operator_upgrade_window_blocks = 2016  # activationDelay must be >= this (time for operators to upgrade, §5.5)
 orphan_rate = 0.005                # orphan rate used for valve false-trip estimates (§5.5)
 max_valve_false_trips_per_year = 1.0   # excluded param valveBlocks: tolerated false trips/year (§5.5)
-enforcing_pools = []               # payout-key prefixes of the operators expected to enforce (pool-share log); [] = largest first up to expected_enforcing_share (D-RD-ACT-1)
-activation_reach_days = 0.0        # activation_reliability is P(lock-in within this many days); 0 = in the first eligible window (D-RD-ACT-3)
-max_spurious_lock_prob = 1.0       # max P(a sub-60 % coalition of the largest operators locks in within the reach) on a pool-share log; 1 = off (D-RD-ACT-4)
-valve_attack_days = 0.0            # valveBlocks: valve_minority_trip_max bounds P(trip within this many days of a sustained race attack); 0 = per race (D-RD-ACT-5)
+enforcing_pools = ["s1NYxEmf", "s1iDNEgZ", "s1TbPq7M"]   # REAL DATA: ninjaraider, mining-dutch, dapool (= expected_enforcing_share 0.70; D-RD-ACT-1)
+activation_reach_days = 60.0       # lock-in within 60 days of startHeight (D-RD-ACT-3; frontier in docs/studies/g5.md)
+max_spurious_lock_prob = 1.0       # reported, not a constraint: no window within the runbook bound meets a useful level (D-RD-ACT-4)
+valve_attack_days = 30.0           # a matured-vault owner keeps a sweep in stock mempools for 30 days (D-RD-ACT-5)
 
 [abandonment]
 max_false_abandon_prob = 0.001     # max P(ENFORCEMENT set for abandonBlocks without a real abandonment) per year (§5.4)
@@ -75,14 +97,14 @@ w_debt = 1.0                       # weight of ΔP(bad debt) in the grace object
 [judgement]
 k_dev = 1.5                        # deviationBps >= k_dev × p99 honest deviation (§5.6)
 max_not_evaluated_prob = 0.05      # max P(fewer than peerMin peers) at the expected pool count (§5.6)
-expected_pool_count = 6            # tagging pools expected on mainnet (§5.6)
+expected_pool_count = 4            # REAL DATA: 4 payout keys >= 5 % (median per day; min 3), 6 >= 1 %, effective 2.9 (D-RD-D5)
 max_false_penalty_rate = 0.01      # max fraction of honest pool-blocks judged bad (§5.6)
 pool_feed = "agent"                # honest pool quote model: "agent" = the shipped agent's median of the venues; "venue" = one venue per pool (D-RD-ATT-1)
-agent_min_sources = 3              # agent min_sources (both sample configs ship 3; fail closed below)
+agent_min_sources = 2              # REAL DATA (D-RD-ATT-2): the sample configs ship 3 with exactly three venues, which fails closed 53 % of blocks on the real venues with SafeTrade max_age 1 h; the agent configs must ship 2 (min_venues 2)
 agent_outlier_bps = 1000           # agent outlier filter, bps from the median (yellowback_price.py OUTLIER_BPS)
 
 [fees]
-max_fee_share_small = 0.02         # max total fee as a share of a minMint vault's value (§5.6, §5.9)
+max_fee_share_small = 0.0225       # H-4: max total fee as a share of a minMint vault's value (§5.6, §5.9); 2 % in the default
 pool_min_monthly_revenue_usd = 50.0       # min fee revenue/month per enforcing pool under adoption_low (§5.6)
 attestor_min_monthly_revenue_usd = 50.0   # min fee revenue/month per seated attestor under adoption_low (§5.6)
 pool_operating_cost_usd_month = 20.0      # pool's marginal cost of running enforcement (§5.6)
@@ -155,7 +177,7 @@ mint_inclusion_slack_blocks = 10   # blocks a mint may wait for inclusion when c
 release_tip = 3052055              # mainnet tip at the release (M14 lead is counted from here)
 release_tip_date = "2026-10-02"    # date of release_tip
 # Optional, unset by default (TOML has no null; add the key to set it):
-# yec_daily_volume_p10_usd = 150000.0   # p10 daily YEC trading volume, USD — enables the maxMint/supply-cap depth checks
+yec_daily_volume_p10_usd = 700.0   # REAL DATA: p10 of CoinGecko daily 24 h volume, 2025-10-04..2026-10-04 = $718 (D-RD-D5)
 # reference_price_usd = 0.40            # YEC/USD reference price for fee/bond judgements (default: from data)
 # next_upgrade_height = 3500000         # next scheduled Ycash network upgrade (default: read from chainparams; none scheduled)
 
@@ -169,38 +191,52 @@ max_honest_exclusion = 0.01                 # max probability the wallet payee r
 max_accuracy_sd_bps = 500                  # max sd of honest pools' accuracy score, bps (G6)
 max_honest_payee_spread = 1.5                  # max ratio between honest pools' payee weights (G6)
 min_accuracy_premium = 0.25                 # min payee-weight premium of an accurate over a sloppy pool (G6)
-p10_daily_volume_usd = 25000.0              # PLACEHOLDER p10 daily YEC volume, USD, used by G7 only when no depth file and no yec_daily_volume_p10_usd (G7)
+p10_daily_volume_usd = 700.0                # REAL DATA: same as yec_daily_volume_p10_usd (CoinGecko p10, 365 d)
 system_ratio_alarm_bps = 15000                # HALT-2 must fire before the true system ratio reaches this, bps (G7)
 
-[base]  # the set every study starts from (hardening plan H0-b); owner pins hold ITS values
-base_set = ""                      # "" = the shipped mainnet column at the pin; else a recommended.json / report dir / ybcal-paramset JSON (relative to the repo root)
-ratio_lock_rule = "consolidate"    # robust harness: "consolidate" (feasible in the most runs, D-RD-INF-5) | "worse-window" (smallest value feasible in every run of each window: the larger per-window need decides, H-3)
-ratio_lock_params = ["baseRatioBps[0]"]   # parameters ratio_lock_rule applies to
-ratio_lock_windows = ["full", "last365"]  # windows whose needs worse-window compares
-
-[search_bounds]  # param = [lo, hi] replacing the registry's search bounds (G3 ratios only). Empty = the registry's.
-
 [owner_pinned]  # owner decisions (D-RD-INF-2): the study runs, the value is KEPT; evidence against it is shown, never a CHANGE
-# Plan citations (workspace docs/plans/): v3 = yellowback-v3-development-plan.md, v2 = yellowback-v2-development-plan.md,
-# proposal = docs/reference/yellowback-price-attestation.md. Remove a line to let the study move that value.
+# H = workspace docs/plans/yellowback-evidence-based-hardening-plan.md §3; v3 = yellowback-v3-development-plan.md,
+# v2 = yellowback-v2-development-plan.md, proposal = docs/reference/yellowback-price-attestation.md.
 abandonBlocks = "W21 (D-R-12)"                                   # v3 §2 W21, §6.2 D-R-12: ABANDON_BLOCKS = GRACE = 34,560 (30 d floor)
-grace = "D-R-6 (reaffirmed W21)"                                 # v3 §6.2 D-R-6 (2026-09-21), revision 4 / W21: GRACE stays 30 d
-"classMin[0]" = "D-R-6 (lock classes stay, reaffirmed W21)"      # v3 revision 4: "GRACE and the lock classes stay as they are"
-"classMin[1]" = "D-R-6 (lock classes stay, reaffirmed W21)"
-"classMin[2]" = "D-R-6 (lock classes stay, reaffirmed W21)"
-"classMax[0]" = "D-R-6 (lock classes stay, reaffirmed W21)"
-"classMax[1]" = "D-R-6 (lock classes stay, reaffirmed W21)"
-"classMax[2]" = "D-R-6 (lock classes stay, reaffirmed W21)"
-supplyCapBps = "W20 (D-R-11)"                                    # v3 §2 W20, §6.2 D-R-11: SUPPLY_CAP_BPS stays 1,500, soft above RECAP_RATIO_BPS
-globalRatioHaltBps = "W16 (D-R-3) + W20 (D-R-11)"                # v3 W16: RECAP_RATIO_BPS = 2 x halt (owner chose 2x); W20 pins that gate at 500 % -> halt 250 % (D-RD-ORA-7)
-attestFeeBps = "D-3"                                             # proposal §16 D-3: additive, 25 % of feeZat (v3 §3.1 ATTEST_FEE_BPS 2,500)
-attestArmMin = "D-4"                                             # proposal §16 D-4: automatic arming, 5 ELIGIBLE attestors ...
+grace = "D-R-6 (reaffirmed W21)"                                 # v3 §6.2 D-R-6, revision 4 / W21: GRACE stays 30 d
+"classMin[0]" = "H-5 (class A 30-90 d, D-R-6)"                   # H-5: class A keeps its range
+"classMax[0]" = "H-5 (class A 30-90 d, D-R-6)"
+"classMin[1]" = "H-5 (class B disabled: empty range)"            # H-5 amends D-R-6: classMin[1] > classMax[1]
+"classMax[1]" = "H-5 (class B disabled: empty range)"
+"classMin[2]" = "H-5 (class C disabled: empty range)"            # H-5: classMin[2] > classMax[2]
+"classMax[2]" = "H-5 (class C disabled: empty range)"
+supplyCapBps = "W20 (D-R-11)"                                    # H-12: supplyCapBps does not move (D-RD-AUD-5)
+globalRatioHaltBps = "H-11 (amends W16 values)"                  # H-11: 30,000; recap 2 x halt = 60,000 (W16 rule kept)
+sigmaRefBps = "H-3"                                              # H-3: the recommended 18,000 (conservative end)
+sigmaMultMaxBps = "H-3"                                          # H-3: 47,500 as recommended
+claimThresholdBps = "H-3"                                        # H-3: 12,500 as recommended (D-RD-COL-6)
+feeBps = "H-4 (amends the 10 bps least-harm)"                    # H-4: 15 bps
+attestFeeBps = "H-4 (amends D-3)"                                # H-4: 5,000 = 50 % of feeZat, additive (math.h:270)
+attestArmMin = "H-2 (amends D-4)"                                # H-2: 7 ELIGIBLE attestors ...
 attestArmDelay = "D-4"                                           # ... then one day (ATTEST_ARM_DELAY 1,152)
+maxMint = "H-12"                                                 # H-12: $2,500 for the first parameter lifetime
 # L3 fixes SHARES of the signal window: pinned as fractions of signalWindow (signalWindow itself is not pinned)
-activationThreshold = { ref = "L3", of = "signalWindow" }        # v2 revision 4 L3: the mint halt keeps 75 % (1,512 of 2,016)
-participationFloor = { ref = "L3", of = "signalWindow" }         # ... and 60 % (1,210 of 2,016)
-enforcementFloor = { ref = "L3", of = "signalWindow" }           # v2 revision 4 L3: ENFORCEMENT_FLOOR = 50 % (1,008 of 2,016)
-enforcementResume = { ref = "L3", of = "signalWindow" }          # v2 revision 4 L3: ENFORCEMENT_RESUME = 60 % (1,210 of 2,016)
-valveBlocks = "L7"                                               # v2 revision 5 L7: VALVE_BLOCKS = 6
+activationThreshold = { ref = "L3", of = "signalWindow" }        # 75 %
+participationFloor = { ref = "L3", of = "signalWindow" }         # 60 %
+enforcementFloor = { ref = "L3", of = "signalWindow" }           # 50 %
+enforcementResume = { ref = "L3", of = "signalWindow" }          # 60 %
+valveBlocks = "L7 (H-6 retired, upgrade plan §7)"                # VALVE_BLOCKS = 6 stays on the v3 line
 
-[base_values]  # owner-set values applied on top of base_set (registry names; derived values follow their parents). Empty = none.
+[base]  # the set every study starts from (H0-b); owner pins hold ITS values
+base_set = "docs/reports/2026-10-real/recommended.json"   # the October 2026 recommendation (digest 0d56f848a635), H-3's floor
+ratio_lock_rule = "worse-window"          # H-3: the larger of the full-history and last-365-day needs decides
+ratio_lock_params = ["baseRatioBps[0]"]   # class A's base ratio (B and C are disabled)
+ratio_lock_windows = ["full", "last365"]
+
+[search_bounds]  # H-3: search class A's ratio past the registry's 800 % so the worse window's need can be found
+"baseRatioBps[0]" = [30000, 250000]
+
+[base_values]  # H decisions applied on top of base_set (registry names)
+mintRequiresArmed = true      # H-1: MINT-4 refuses every mint while the attestation layer is not ARMED (proposed field, H3-a)
+"classMax[1]" = 103680        # H-5: class B empty (classMin[1] 103,681 > classMax[1])
+"classMax[2]" = 420480        # H-5: class C empty (classMin[2] 420,481 > classMax[2])
+attestArmMin = 7              # H-2
+feeBps = 15                   # H-4
+attestFeeBps = 5000           # H-4
+maxMint = 250000              # H-12: $2,500 in cents
+globalRatioHaltBps = 30000    # H-11 (recapRatioBps follows: 60,000)

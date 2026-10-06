@@ -41,6 +41,7 @@ from typing import Any
 import numpy as np
 
 from ybcal.model import vkernels as V
+from ybcal.params.classes import class_enabled, enabled_classes
 from ybcal.params.paramset import ParamSet
 from ybcal.params.registry import REGISTRY, params_for_group
 from ybcal.studies import g1_price_windows as G1
@@ -264,7 +265,9 @@ def book_metrics(env: Env, cand: ParamSet) -> dict[str, Any]:
         typ = typical_mint_cents(ps)
         closed = {}
         for cls, name in ((1, "B"), (2, "C")):
-            if int(ps[f"baseRatioBps[{cls}]"]) >= recap:
+            if not class_enabled(ps, cls):
+                closed[name] = 0.0  # disabled (H-5): closed by its empty range, not by the cap
+            elif int(ps[f"baseRatioBps[{cls}]"]) >= recap:
                 closed[name] = 0.0
             else:
                 closed[name] = float(np.median((head < typ).sum(axis=1)))
@@ -347,7 +350,9 @@ def system_tolerance(policy, params: Mapping) -> float:
     """System bad-debt tolerance: the class tolerances (``max_bad_debt_prob``) weighted by each class's
     share of the outstanding debt of a mature book — arrival weight (the minter's ``class_weights``) ×
     mean term (mid-point of ``[classMin, classMax]``, uniform terms) (D-WP7d-3)."""
-    w = agents_config(policy).minter.class_weights
+    # H-5: no demand for a disabled class
+    w = [wi if class_enabled(params, i) else 0.0
+         for i, wi in enumerate(agents_config(policy).minter.class_weights)]
     terms = [(int(params[f"classMin[{i}]"]) + int(params[f"classMax[{i}]"])) / 2 for i in range(3)]
     debt = [wi * t for wi, t in zip(w, terms, strict=True)]
     return float(sum(d * policy.max_bad_debt(i) for i, d in enumerate(debt)) / max(sum(debt), 1e-12))
@@ -628,7 +633,7 @@ class G7Study(FamilyStudy):
         h = int(cand["globalRatioHaltBps"])
         r0 = v["book.global_ratio_true"]
         if not math.isfinite(r0):
-            r0 = float(np.mean([int(cand[f"baseRatioBps[{i}]"]) for i in range(3)])) / BPS
+            r0 = float(np.mean([int(cand[f"baseRatioBps[{i}]"]) for i in enabled_classes(cand)])) / BPS
         v.update(halt2_metrics(env, cand, r0))
         grace = int(cand["grace"])
         v["halt.p_sys_bad"] = sys_bad_prob(env, h, grace)
@@ -641,10 +646,11 @@ class G7Study(FamilyStudy):
         req = next((g for g in grid if sys_bad_prob(env, g, grace) <= tol), math.nan)
         v["halt.required_bps"] = float(req)
         v["halt.bypass_classes"] = float(
-            sum(int(cand[f"baseRatioBps[{i}]"]) >= int(cand["recapRatioBps"]) for i in range(3))
+            sum(int(cand[f"baseRatioBps[{i}]"]) >= int(cand["recapRatioBps"]) for i in enabled_classes(cand))
         )
         c["halt_sys_bad"] = v["halt.p_sys_bad"] <= tol
-        c["halt_below_floor"] = h < min(int(cand[f"baseRatioBps[{i}]"]) for i in range(3))
+        # §1.4 "halt < every class's base ratio", over the enabled classes (H-5, H-11)
+        c["halt_below_floor"] = h < min(int(cand[f"baseRatioBps[{i}]"]) for i in enabled_classes(cand))
         c["halt2_timely"] = v["halt.recall_alarm"] >= float(pol.halt_recall_floor)
         meta["global_ratio_true"] = r0
         # ---- HALT-3 ---------------------------------------------------------------------------------

@@ -354,6 +354,11 @@ def scale_to_regtest(
     for c in range(3):
         if c > 0:
             out[f"classMin[{c}]"] = int(out[f"classMax[{c - 1}]"]) + 1
+        if i(f"classMin[{c}]") > i(f"classMax[{c}]"):
+            # H-5: a disabled class stays disabled (empty range, classMax = classMin - 1)
+            out[f"classMax[{c}]"] = int(out[f"classMin[{c}]"]) - 1
+            fixups[f"classMax[{c}]"] = "class disabled (empty range, H-5)"
+            continue
         mx = scaled(f"classMax[{c}]", tf)
         if mx < int(out[f"classMin[{c}]"]):
             mx = int(out[f"classMin[{c}]"])

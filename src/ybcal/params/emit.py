@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from ybcal.params.paramset import ParamSet
-from ybcal.params.registry import PARAMS_CPP, PINNED_COMMIT, REGISTRY
+from ybcal.params.registry import PARAMS_CPP, PINNED_COMMIT, REGISTRY, proposed_names
 from ybcal.types import ParamValue
 from ybcal.units import COIN
 
@@ -108,7 +108,8 @@ def recommended_document(
 
     snap = load_snapshot()
     fields = list(snap.fields)
-    main = _column(recommended, "main", fields)
+    # proposed fields (not in source at the pin) are carried in the columns so the set reloads whole
+    main = _column(recommended, "main", [*fields, *proposed_names()])
     # SetCommon() is shared with testnet: apply the same field changes to the test column.
     shipped_main = snap.networks["main"]
     test = dict(snap.networks["test"])
