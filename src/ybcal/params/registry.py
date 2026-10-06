@@ -344,7 +344,7 @@ _add("attestArmMin", 5, 3, "locked", "G8", "count", ("ARM-1",), (3, 15), 1,
      hashed=True, regtest_flag="-yellowbackattestarmmin")
 _add("attestArmDelay", 1152, 8, "locked", "G8", "blocks", ("ARM-2",), (288, 8064), 288,
      "Blocks from arm condition to ARMED")
-_add("mintRequiresArmed", False, False, "locked", "G8", "bool", ("MINT-4", "H-1"), (0, 1), 0,
+_add("mintRequiresArmed", False, False, "locked", "-", "bool", ("MINT-4", "H-1"), (0, 1), 0,
      "MINT-4: no mint unless the attestation layer is ARMED (verdict mint-halted-unarmed); false = "
      "v3 behaviour, unarmed mints price at xMint alone",
      cpp_expr="false", proposed="H-1",

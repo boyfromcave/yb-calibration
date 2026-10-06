@@ -111,7 +111,6 @@ Hashed (in the state-hash `ParamsRecord`, `view.h`): `startHeight`, `enforceUnti
 |---|---|---|---|---|---|---|---|---|
 | `attestArmMin` | 5 | 3 (`-yellowbackattestarmmin`) | locked | count | yes | ARM-1 | 3–15 / 1 | Seated attestors needed to arm attestation; 0 = never arms (regtest) |
 | `attestArmDelay` | 1,152 | 8 | locked | blocks |  | ARM-2 | 288–8,064 / 288 | Blocks from arm condition to ARMED |
-| `mintRequiresArmed` | false | false | locked | bool |  | MINT-4, H-1 | — | MINT-4: no mint unless the attestation layer is ARMED (verdict mint-halted-unarmed); false = v3 behaviour, unarmed mints price at xMint alone |
 | `attestRequired` | true | true | locked | bool |  | W15 | — | Whether ARMED rules require bundles (false: PRICE-2 reads tags only) |
 | `nSlots` | 9 | 5 | locked | count |  | seating, selection | 5–21 / 1 | Attestor seats |
 | `mSelect` | 4 | 2 | locked | count |  | selection, BUNDLE-1 | 2–6 / 1 | Signatures a bundle needs |
@@ -137,7 +136,6 @@ Hashed (in the state-hash `ParamsRecord`, `view.h`): `startHeight`, `enforceUnti
 | `dormancyCheck` | 48 | 4 | locked | blocks |  | dormancy, S15 | 12–288 / 12 | Dormancy is evaluated every this many blocks |
 | `attestInterval` | 10 | 4 | excluded | blocks |  |  | 2–60 / 1 | k: attestor signing interval (agent policy); attestMaxAge = 2k |
 
-- `mintRequiresArmed`: Proposed by the hardening plan H-1 (chunk H3-a): mainnet and testnet true, regtest false and settable. Not in params.h at the pin, so both columns are the pin's behaviour (false); policy/harden-2026-10.toml sets true.
 - `attestMaxAge`: Locked although its parent k (attestInterval) is excluded: changing k is therefore a locked change through attestMaxAge (docs/decisions.md D-3).
 
 ## G9 — Amounts and wallet policy
@@ -170,6 +168,7 @@ Hashed (in the state-hash `ParamsRecord`, `view.h`): `startHeight`, `enforceUnti
 | `addressVersion` | 1FE4 | 2002 | meta | hex |  | D10 | — | Base58Check version bytes of Yellowback addresses (ye… / yr…) |
 | `tokenValue` | 10,000 | 10,000 | constant | zat |  | RPC | — | YEC carried by every Yellowback output (= TOKEN_VALUE) |
 | `refWindow` | 40 | 40 | constant | blocks |  | MINT-2, RED-1, NOT-1 | — | refHeight must lie in [H - refWindow, H - 1] (= REF_WINDOW) |
+| `mintRequiresArmed` | false | false | locked | bool |  | MINT-4, H-1 | — | MINT-4: no mint unless the attestation layer is ARMED (verdict mint-halted-unarmed); false = v3 behaviour, unarmed mints price at xMint alone |
 | `bundleCarrier` | SCRIPTSIG | SCRIPTSIG (`-yellowbackbundlecarrier`) | locked | enum | yes | BUNDLE-1, W2 | — | Where a transaction carries its attestation bundle (design choice, verified) |
 | `MAX_REF_LAG` | 36 | 36 | constant | blocks |  | §3.5 | — | Upper bound of -yellowbackmintlag (mempool expiring-soon rule) |
 | `REF_WINDOW` | 40 | 40 | constant | blocks |  | MINT-2, RED-1, NOT-1 | — | Protocol constant = DEFAULT_POST_BLOSSOM_TX_EXPIRY_DELTA |
@@ -179,6 +178,8 @@ Hashed (in the state-hash `ParamsRecord`, `view.h`): `startHeight`, `enforceUnti
 | `BLOCKS_PER_HOUR` | 48 | 48 | constant | blocks |  | units | — | Blocks per hour at 75 s |
 | `BLOCKS_PER_DAY` | 1,152 | 1,152 | constant | blocks |  | units | — | Blocks per day at 75 s |
 | `BLOCKS_PER_YEAR` | 420,480 | 420,480 | constant | blocks |  | L8, K13 | — | Blocks per year at 75 s |
+
+- `mintRequiresArmed`: Proposed by the hardening plan H-1 (chunk H3-a): mainnet and testnet true, regtest false and settable. Not in params.h at the pin, so both columns are the pin's behaviour (false); policy/harden-2026-10.toml sets true.
 
 ## Invariants (PLAN §1.4)
 
