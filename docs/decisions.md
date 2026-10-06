@@ -2537,3 +2537,13 @@ reported, never guessed — when a window has no finished run or no candidate fe
 "Every run" rather than "most runs" is the strict reading of H-3's "meets class A's 0.5 % on both the
 full-history and the last-365-day standard runs". Rendered in `robust.md` § "Worse-window lock rule"
 and `robust.json` (`summary[].worse_window`).
+
+## D-HD-4 (2026-10-05, hardening H4-a) — class A's ratio is searched past the registry bound
+
+**Decision.** Policy key `search_bounds` replaces a study's search bounds for listed parameters (G3's
+ratio lattice; `G3Study.with_policy`, called by the runner before `space`). The hardening policy
+searches `baseRatioBps[0]` on [30,000, 250,000]: the first H4-a runs showed that on the last-365-day
+window P(bad debt at claim opening) of class A is still ≈ 3.9 % at the registry's 80,000 bound, so the
+worse-window rule (D-HD-3) would be undecidable inside the registry bounds. The registry bound is a
+search bound, not a rule; a value above it is evaluated like any other and is still subject to every
+invariant.
