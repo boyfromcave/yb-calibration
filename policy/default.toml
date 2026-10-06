@@ -178,6 +178,8 @@ ratio_lock_rule = "consolidate"    # robust harness: "consolidate" (feasible in 
 ratio_lock_params = ["baseRatioBps[0]"]   # parameters ratio_lock_rule applies to
 ratio_lock_windows = ["full", "last365"]  # windows whose needs worse-window compares
 
+[search_bounds]  # param = [lo, hi] replacing the registry's search bounds (G3 ratios only). Empty = the registry's.
+
 [owner_pinned]  # owner decisions (D-RD-INF-2): the study runs, the value is KEPT; evidence against it is shown, never a CHANGE
 # Plan citations (workspace docs/plans/): v3 = yellowback-v3-development-plan.md, v2 = yellowback-v2-development-plan.md,
 # proposal = docs/reference/yellowback-price-attestation.md. Remove a line to let the study move that value.

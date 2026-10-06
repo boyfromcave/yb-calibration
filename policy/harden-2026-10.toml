@@ -228,6 +228,9 @@ ratio_lock_rule = "worse-window"          # H-3: the larger of the full-history 
 ratio_lock_params = ["baseRatioBps[0]"]   # class A's base ratio (B and C are disabled)
 ratio_lock_windows = ["full", "last365"]
 
+[search_bounds]  # H-3: search class A's ratio past the registry's 800 % so the worse window's need can be found
+"baseRatioBps[0]" = [30000, 250000]
+
 [base_values]  # H decisions applied on top of base_set (registry names)
 mintRequiresArmed = true      # H-1: MINT-4 refuses every mint while the attestation layer is not ARMED (proposed field, H3-a)
 "classMax[1]" = 103680        # H-5: class B empty (classMin[1] 103,681 > classMax[1])

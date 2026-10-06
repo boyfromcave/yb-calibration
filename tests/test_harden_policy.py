@@ -174,3 +174,14 @@ def test_worse_window_is_undecidable_without_a_feasible_value():
     assert ww["needs"]["last365"] is None and ww["value"] is None
     ww = worse_window(per_run[:1], ["full"], ["full", "last365"])
     assert ww["value"] is None and ww["needs"]["last365"] is None
+
+
+def test_search_bounds_widen_the_g3_ratio_lattice():
+    from ybcal.studies.g3_collateral import G3Study, lattice
+
+    assert max(lattice(72_500, "baseRatioBps[0]")) == 80_000
+    assert max(lattice(72_500, "baseRatioBps[0]", lo=30_000, hi=100_000, widen=True)) == 100_000
+    st = G3Study().with_policy(Policy.load(HARDEN))
+    assert st.bounds == {"baseRatioBps[0]": (30_000, 250_000)}
+    with pytest.raises(KeyError):
+        Policy(search_bounds={"baseRatioBps[0]": [90_000, 80_000]})

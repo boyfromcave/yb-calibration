@@ -143,6 +143,8 @@ def recommended_set(base: ParamSet, recs: Sequence[Recommendation]) -> ParamSet:
 def _source(study: Study, base: ParamSet, env: Env, budget: Budget, source: str, *, params: Sequence[str],
             context: Context, couple: Sequence[Coupling], feasible: Sequence[Feasibility]) -> CandidateSet:
     if source == "space":
+        if hasattr(study, "with_policy"):
+            study = study.with_policy(env.policy)  # type: ignore[attr-defined]
         return screen(study.space(base, budget), base, method="space", context=context, feasible=feasible)
     space = SearchSpace.for_params(base, params, couple=couple, feasible=feasible, context=context)
     if not space.axes:

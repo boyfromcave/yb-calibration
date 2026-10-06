@@ -1094,14 +1094,21 @@ def confidence_for(prov: str, verdict: str, budget: str) -> Literal["high", "med
 
 
 def lattice(
-    base: int, spec_name: str, step: int | None = None, lo: int | None = None, hi: int | None = None
+    base: int, spec_name: str, step: int | None = None, lo: int | None = None, hi: int | None = None,
+    *, widen: bool = False,
 ) -> list[int]:
-    """Values ``base + k·step`` inside the registry bounds (or ``[lo, hi]``), base included."""
+    """Values ``base + k·step`` inside the registry bounds (or ``[lo, hi]``), base included.
+    ``widen``: ``[lo, hi]`` replace the registry bounds instead of narrowing them (policy
+    ``search_bounds``)."""
     spec = REGISTRY[spec_name]
     s = int(step or spec.step)
     blo, bhi = spec.bounds
-    lo = blo if lo is None else max(blo, lo)
-    hi = bhi if hi is None else min(bhi, hi)
+    if widen:
+        lo = blo if lo is None else lo
+        hi = bhi if hi is None else hi
+    else:
+        lo = blo if lo is None else max(blo, lo)
+        hi = bhi if hi is None else min(bhi, hi)
     out = {int(base)}
     v = int(base)
     while v - s >= lo:
@@ -1284,6 +1291,15 @@ class G3Study:
 
     group: str = GROUP
     params: tuple[str, ...] = field(default_factory=lambda: params_for_group(GROUP))
+    #: policy ``search_bounds``: param → (lo, hi) replacing the registry's search bounds (H-3 needs
+    #: class A's ratio searched past 800 % to find the last-365-day need)
+    bounds: dict[str, tuple[int, int]] = field(default_factory=dict)
+
+    def with_policy(self, policy: Any) -> G3Study:
+        """This study with the policy's ``search_bounds`` (the runner calls it before ``space``)."""
+        sb = dict(getattr(policy, "search_bounds", None) or {})
+        self.bounds = {k: (int(v[0]), int(v[1])) for k, v in sb.items()}
+        return self
 
     # -- space -----------------------------------------------------------------------------------
     def space(self, base: ParamSet, budget: Budget) -> Iterable[ParamSet]:
@@ -1291,7 +1307,8 @@ class G3Study:
         on = enabled_classes(base)
         for c in on:  # H-5: a disabled class (empty term range) has no ratio to size
             k = f"baseRatioBps[{c}]"
-            for v in lattice(int(base[k]), k):
+            lo, hi = self.bounds.get(k, (None, None))
+            for v in lattice(int(base[k]), k, lo=lo, hi=hi, widen=k in self.bounds):
                 if v != int(base[k]):
                     out.append(base.replace({k: v}))
         for v in claim_grid(base):

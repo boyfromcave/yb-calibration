@@ -217,6 +217,8 @@ class Policy:
     ratio_lock_rule: str = "consolidate"
     ratio_lock_params: tuple[str, ...] = ("baseRatioBps[0]",)
     ratio_lock_windows: tuple[str, ...] = ("full", "last365")
+    # study search bounds that replace the registry's (G3 ratios only; hardening plan H-3)
+    search_bounds: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         from ybcal.params.registry import REGISTRY
@@ -236,6 +238,11 @@ class Policy:
         if self.ratio_lock_rule not in RATIO_LOCK_RULES:
             raise ValueError(f"ratio_lock_rule {self.ratio_lock_rule!r}: choose from "
                              f"{', '.join(RATIO_LOCK_RULES)}")
+        bad_s = [k for k, v in self.search_bounds.items()
+                 if k not in REGISTRY or not REGISTRY[k].tunable or len(v) != 2 or int(v[0]) > int(v[1])]
+        if bad_s:
+            raise KeyError("search_bounds: not tunable registry parameters or bad [lo, hi]: "
+                           + ", ".join(bad_s))
         bad_r = [k for k in self.ratio_lock_params if k not in REGISTRY or not REGISTRY[k].tunable]
         if bad_r:
             raise KeyError(f"ratio_lock_params: not tunable registry parameters: {', '.join(bad_r)}")
