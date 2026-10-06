@@ -2486,3 +2486,54 @@ parameter's own constraints in a regime or a validated model (so `deviationBps` 
 reference raises the σ multiplier — over the last 365 days' 23,500–24,500. Validated on regtest
 devnets of both node lines (8/8 scenarios each). Not lock-ready: the live spread log and depth
 series need more calendar time, and the owner-level findings in the report's §3 are open.
+
+## D-HD-1 (2026-10-05, hardening H0-b) — the hardening policy and the empty-class convention
+
+**Decision.** `policy/harden-2026-10.toml` encodes the evidence-based hardening plan's owner
+decisions (workspace `docs/plans/yellowback-evidence-based-hardening-plan.md` §3, as reshaped by
+`docs/plans/yellowback-upgrade-plan.md` §7) on top of the real-data policy. Two new mechanisms carry
+it. (1) **The base set** (`base_set`, `base_values`, `paramset.policy_base`): every run starts from
+the October 2026 recommendation (`docs/reports/2026-10-real/recommended.json`) with the H values
+applied — class A only (H-5), `mintRequiresArmed` (H-1), `attestArmMin` 7 (H-2), `feeBps` 15 /
+`attestFeeBps` 5,000 (H-4), `maxMint` $2,500 (H-12), halt 300 % / recap 600 % (H-11) — and owner pins
+hold those values (`Pin.holds` compares with the base, not the shipped column). The report's
+"current" column is the base; `params.cpp.patch` is still written against the shipped source.
+(2) **The empty-class convention** (H-5): a class is disabled by an empty term range,
+`classMin[i] > classMax[i]`, concretely `classMax[i] = classMin[i] − 1` (B: 103,681 > 103,680; C:
+420,481 > 420,480). The node's MINT-2/MINT-3 already refuse every term against an empty range, so this
+is a value, not a schema change. Invariants read "contiguous or empty": class A must be non-empty, the
+non-empty classes must be contiguous in order; `base_gt_halt`, `class_locktime` and `fee_floor_mintable`
+read the enabled classes only. The studies follow: G3 sizes no ratio and moves no boundary into a
+disabled class (its ratio is KEPT with a note), G4's grace constraint, G6's fee share, G7's
+`halt_below_floor` and system tolerance, G9's ratio minimum and the minter demand mix skip disabled
+classes; `scale_to_regtest` keeps a disabled class disabled. **Not modelled** (retired by the upgrade
+plan §7, and not implemented on the v3 line either): the H-6 valve (persistence, note cap, 12 blocks;
+gate G-6), H-7 two-window lock-in, H-9.1 sunset stand-down, F-3. `valveBlocks` keeps its L7 pin and
+`max_spurious_lock_prob` stays report-only. H-10 (class-A-only soft-cap gate) is moot with B/C off
+and is not in the simulator.
+
+## D-HD-2 (2026-10-05, hardening H0-b) — `mintRequiresArmed` is a proposed registry field
+
+**Decision.** H-1 adds a field to `yellowback::Params` that the pin `7702d22` does not have. The
+registry carries it as a *proposed* field (`ParamSpec.proposed = "H-1"`): both columns are the pin's
+behaviour (`false`), so the shipped set, the golden replay and the devnet differential at the pin are
+unchanged; `check_drift` tolerates its absence and compares it once the node defines it;
+`Extracted.registry_values` fills it for sets read from source; `recommended.json` carries it in its
+columns. The policy sets `true` through `base_values`. The simulator's `mint_verdict` gains the MINT-4
+clause (`mint-halted-unarmed`), placed after the existing halt bits and before MINT-5 (the order the
+node chunk H3-a chooses must be mirrored here; the plan does not fix it). **Studies without an
+attestation model** (no ARMED height in the timeline) run the vault book as if the clause were met:
+launch gate G-5 puts the layer ARMED before minting opens, and pricing at `xMint` alone instead of
+`min(xMint, aMint)` is the conservative side of PRICE-2 for collateral sizing. Without that, every
+mint of an unarmed study would be VOID and G3/G4/G7 would score an empty book.
+
+## D-HD-3 (2026-10-05, hardening H0-b) — the "worse window decides" ratio lock rule (H-3)
+
+**Decision.** With `ratio_lock_rule = "worse-window"`, `ybcal robust` locks each parameter of
+`ratio_lock_params` (class A's `baseRatioBps[0]`) at the largest of the per-window needs, where a
+window's need is the smallest candidate whose own rule's constraints (`bad_debt_A`: P(bad debt at
+claim opening) ≤ 0.5 %) hold in **every** run of that window (all seeds and models). Undecidable —
+reported, never guessed — when a window has no finished run or no candidate feasible in all its runs.
+"Every run" rather than "most runs" is the strict reading of H-3's "meets class A's 0.5 % on both the
+full-history and the last-365-day standard runs". Rendered in `robust.md` § "Worse-window lock rule"
+and `robust.json` (`summary[].worse_window`).

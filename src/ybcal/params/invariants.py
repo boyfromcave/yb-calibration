@@ -14,6 +14,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+from ybcal.params.classes import enabled_classes
 from ybcal.units import (
     BLOCKS_PER_YEAR,
     BPS,
@@ -221,27 +222,33 @@ def _regtest_zero_meanings(ps: ParamSet, _: Context) -> list[str]:
 
 # --- classes ---------------------------------------------------------------------------------------------
 
-@_inv("class_contiguous", "MINT-2 (V19)",
-      "classMin[0] >= 1, classMin[i] <= classMax[i], classMin[i+1] = classMax[i] + 1",
+@_inv("class_contiguous", "MINT-2 (V19), H-5",
+      "contiguous or empty: classMin[0] >= 1 and class A is non-empty; a class with classMin[i] > "
+      "classMax[i] is disabled (H-5); the non-empty classes, in order, satisfy classMin[next] = "
+      "classMax[prev] + 1",
       ("classMin[0]", "classMax[0]", "classMin[1]", "classMax[1]", "classMin[2]", "classMax[2]"))
 def _class_contiguous(ps: ParamSet, _: Context) -> list[str]:
     lo, hi = ps.array("classMin"), ps.array("classMax")
     out = []
     if lo[0] < 1:
         out.append(f"classMin[0] {lo[0]} < 1")
+    if lo[0] > hi[0]:
+        out.append(f"classMin[0] {lo[0]} > classMax[0] {hi[0]}: class A cannot be disabled")
+    prev: int | None = None
     for i in range(len(lo)):
         if lo[i] > hi[i]:
-            out.append(f"classMin[{i}] {lo[i]} > classMax[{i}] {hi[i]}")
-        if i + 1 < len(lo) and lo[i + 1] != hi[i] + 1:
-            out.append(f"classMin[{i + 1}] {lo[i + 1]} != classMax[{i}] + 1")
+            continue  # empty term range: the class is disabled (H-5)
+        if prev is not None and lo[i] != hi[prev] + 1:
+            out.append(f"classMin[{i}] {lo[i]} != classMax[{prev}] + 1")
+        prev = i
     return out
 
 
-@_inv("class_locktime", "MINT-2 / CLTV", "classMax[2] + grace + tip < 500,000,000",
+@_inv("class_locktime", "MINT-2 / CLTV", "max(classMax of the enabled classes) + grace + tip < 500,000,000",
       ("classMax[2]", "grace", "startHeight"))
 def _class_locktime(ps: ParamSet, ctx: Context) -> list[str]:
     tip = max(_i(ps, "startHeight"), ctx.release_tip or 0)
-    top = ps.array("classMax")[-1] + _i(ps, "grace") + tip
+    top = max((ps.array("classMax")[i] for i in enabled_classes(ps)), default=0) + _i(ps, "grace") + tip
     return [] if top < LOCKTIME_THRESHOLD else [f"claim height {top} reaches the CLTV time threshold"]
 
 
@@ -270,11 +277,14 @@ def _vol_periods(ps: ParamSet, _: Context) -> list[str]:
 
 # --- ratios ------------------------------------------------------------------------------------------------
 
-@_inv("base_gt_halt", "HALT-2 / MINT-5", "baseRatioBps[i] > globalRatioHaltBps",
+@_inv("base_gt_halt", "HALT-2 / MINT-5, H-11",
+      "baseRatioBps[i] > globalRatioHaltBps for every enabled class (a disabled class mints nothing)",
       ("baseRatioBps[0]", "baseRatioBps[1]", "baseRatioBps[2]", "globalRatioHaltBps"))
 def _base_gt_halt(ps: ParamSet, _: Context) -> list[str]:
     h = _i(ps, "globalRatioHaltBps")
-    return [f"baseRatioBps[{i}] {b} <= halt {h}" for i, b in enumerate(ps.array("baseRatioBps")) if b <= h]
+    on = enabled_classes(ps)
+    return [f"baseRatioBps[{i}] {b} <= halt {h}" for i, b in enumerate(ps.array("baseRatioBps"))
+            if i in on and b <= h]
 
 
 @_inv("recap_double", "W16", "recapRatioBps = 2 × globalRatioHaltBps",
@@ -355,9 +365,10 @@ def _amount_order(ps: ParamSet, _: Context) -> list[str]:
 
 
 def min_mint_collateral_zat(ps: ParamSet, price_microusd: int) -> int:
-    """Collateral of a ``minMint`` vault in the lowest-ratio class at σ-multiplier 1×
+    """Collateral of a ``minMint`` vault in the lowest-ratio enabled class at σ-multiplier 1×
     (``RequiredCollateral`` = ceil(cents · ratio · COIN / pMint), math.h; cents → µUSD inside)."""
-    ratio = min(ps.array("baseRatioBps"))
+    ratios = ps.array("baseRatioBps")
+    ratio = min((ratios[i] for i in enabled_classes(ps)), default=min(ratios))
     cents = _i(ps, "minMint")
     # cents × bps is µUSD (1 cent at 10,000 bps = 10,000 µUSD), so no unit factor is needed.
     return ceil_div(cents * ratio * COIN, price_microusd)

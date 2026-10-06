@@ -15,7 +15,7 @@ Every field of `yellowback::Params` (`src/yellowback/params.h`) and the `params.
 | derived | fixed by a formula from a parent; locked when a rule reads it | follows its parent |
 | meta | identity (network name, address version) | not calibrated |
 
-Counts: locked 66, excluded 9, per-release 2, derived 7, constant 10, meta 2; total 96.
+Counts: locked 67, excluded 9, per-release 2, derived 7, constant 10, meta 2; total 97.
 
 Hashed (in the state-hash `ParamsRecord`, `view.h`): `startHeight`, `enforceUntilHeight`, `supplyCapBps`, `sigmaRefBps`, `attestArmMin`, `bundleCarrier`.
 
@@ -111,6 +111,7 @@ Hashed (in the state-hash `ParamsRecord`, `view.h`): `startHeight`, `enforceUnti
 |---|---|---|---|---|---|---|---|---|
 | `attestArmMin` | 5 | 3 (`-yellowbackattestarmmin`) | locked | count | yes | ARM-1 | 3–15 / 1 | Seated attestors needed to arm attestation; 0 = never arms (regtest) |
 | `attestArmDelay` | 1,152 | 8 | locked | blocks |  | ARM-2 | 288–8,064 / 288 | Blocks from arm condition to ARMED |
+| `mintRequiresArmed` | false | false | locked | bool |  | MINT-4, H-1 | — | MINT-4: no mint unless the attestation layer is ARMED (verdict mint-halted-unarmed); false = v3 behaviour, unarmed mints price at xMint alone |
 | `attestRequired` | true | true | locked | bool |  | W15 | — | Whether ARMED rules require bundles (false: PRICE-2 reads tags only) |
 | `nSlots` | 9 | 5 | locked | count |  | seating, selection | 5–21 / 1 | Attestor seats |
 | `mSelect` | 4 | 2 | locked | count |  | selection, BUNDLE-1 | 2–6 / 1 | Signatures a bundle needs |
@@ -136,6 +137,7 @@ Hashed (in the state-hash `ParamsRecord`, `view.h`): `startHeight`, `enforceUnti
 | `dormancyCheck` | 48 | 4 | locked | blocks |  | dormancy, S15 | 12–288 / 12 | Dormancy is evaluated every this many blocks |
 | `attestInterval` | 10 | 4 | excluded | blocks |  |  | 2–60 / 1 | k: attestor signing interval (agent policy); attestMaxAge = 2k |
 
+- `mintRequiresArmed`: Proposed by the hardening plan H-1 (chunk H3-a): mainnet and testnet true, regtest false and settable. Not in params.h at the pin, so both columns are the pin's behaviour (false); policy/harden-2026-10.toml sets true.
 - `attestMaxAge`: Locked although its parent k (attestInterval) is excluded: changing k is therefore a locked change through attestMaxAge (docs/decisions.md D-3).
 
 ## G9 — Amounts and wallet policy
@@ -194,11 +196,11 @@ Checked on every candidate before simulation (`ybcal.params.invariants`). *Mainn
 | `sunset` | L8 (ACT-5) | enforceUntilHeight = startHeight + BLOCKS_PER_YEAR, never past the next network upgrade (0 = no sunset, regtest only) | all |
 | `release_lead` | M14 | startHeight >= release tip + 16,128 (checked when a tip is given) | mainnet-scale |
 | `regtest_zero_meanings` | M13 / spec §3.1 | sigmaRefBps, supplyCapBps, attestArmMin > 0 at mainnet scale (0 has a regtest-only meaning) | mainnet-scale |
-| `class_contiguous` | MINT-2 (V19) | classMin[0] >= 1, classMin[i] <= classMax[i], classMin[i+1] = classMax[i] + 1 | all |
-| `class_locktime` | MINT-2 / CLTV | classMax[2] + grace + tip < 500,000,000 | all |
+| `class_contiguous` | MINT-2 (V19), H-5 | contiguous or empty: classMin[0] >= 1 and class A is non-empty; a class with classMin[i] > classMax[i] is disabled (H-5); the non-empty classes, in order, satisfy classMin[next] = classMax[prev] + 1 | all |
+| `class_locktime` | MINT-2 / CLTV | max(classMax of the enabled classes) + grace + tip < 500,000,000 | all |
 | `vol_step_divides` | SIGMA-1 | volWindow % volStep == 0 | all |
 | `vol_periods` | K13 | volPeriodsPerYear = BLOCKS_PER_YEAR / volStep exactly (mainnet scale); 8,760 on regtest | all |
-| `base_gt_halt` | HALT-2 / MINT-5 | baseRatioBps[i] > globalRatioHaltBps | all |
+| `base_gt_halt` | HALT-2 / MINT-5, H-11 | baseRatioBps[i] > globalRatioHaltBps for every enabled class (a disabled class mints nothing) | all |
 | `recap_double` | W16 | recapRatioBps = 2 × globalRatioHaltBps | all |
 | `claim_emergency_order` | RED-4 | claimThresholdBps > emergencyRatioBps > 10,000 | all |
 | `bundle_size` | BUNDLE-1 | mSelect + kSlack <= bundleMax <= 6 and nSlots >= mSelect + kSlack | all |

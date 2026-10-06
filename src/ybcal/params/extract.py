@@ -428,6 +428,17 @@ class Extracted:
         out.update(self.constants)
         return out
 
+    def registry_values(self, network: str) -> dict[str, ParamValue]:
+        """:meth:`values` plus every proposed field the source lacks, at the registry's value for a
+        node without it (``regtest`` column on regtest, ``mainnet`` otherwise)."""
+        from ybcal.params.registry import REGISTRY
+
+        out = self.values(network)
+        for name, spec in REGISTRY.items():
+            if spec.proposed and name not in out:
+                out[name] = spec.regtest if network == "regtest" else spec.mainnet
+        return out
+
 
 def extract_sources(
     header: str,
@@ -520,7 +531,7 @@ def check_drift(registry: Mapping[str, ParamSpec], extracted: Extracted) -> list
     fields = list(extracted.fields)
     out.extend(Drift("missing-from-registry", f) for f in fields if f not in registry)
     for name, spec in registry.items():
-        if spec.origin == "field" and name not in fields:
+        if spec.origin == "field" and name not in fields and not spec.proposed:
             out.append(Drift("extra-in-registry", name))
         if spec.origin == "header" and name not in extracted.constants:
             out.append(Drift("missing-constant", name))

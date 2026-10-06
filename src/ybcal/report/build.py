@@ -47,7 +47,7 @@ from ybcal.optimize.joint import (
 )
 from ybcal.params import emit
 from ybcal.params.invariants import Context
-from ybcal.params.paramset import ParamSet, mainnet
+from ybcal.params.paramset import ParamSet, mainnet, policy_base
 from ybcal.params.registry import PINNED_COMMIT, REGISTRY
 from ybcal.report import explain as X
 from ybcal.report import plots
@@ -930,7 +930,8 @@ def write_report(ctx: ReportContext, out: Path) -> dict[str, Path]:
     for k, r in joint.recommendations.items():
         if r.verdict == "BLOCKED" and r.recommended != r.current and k in psec:
             psec[k] = f"{psec[k]}, BLOCKED: least-violating value"
-    patch = emit.make_patch(joint.recommended, ctx.base, sections=psec, source=src)
+    # the patch is against the shipped source, whatever set the run started from (policy base_set)
+    patch = emit.make_patch(joint.recommended, mainnet(), sections=psec, source=src)
     pfile = out / "params.cpp.patch"
     pfile.write_text(
         patch.locked
@@ -1216,7 +1217,7 @@ def run_recommend(
     out = Path(cfg.out) if cfg.out else default_out_dir(cfg, seed, hashes)
     out.mkdir(parents=True, exist_ok=True)
     env = make_env(cfg, data, prov, out)
-    base = mainnet()
+    base = policy_base(cfg.policy)
     timings: dict[str, float] = {"load": time.perf_counter() - t0}
     say(
         f"ybcal recommend: budget {cfg.budget.name}, seed {seed}, data {prov} "

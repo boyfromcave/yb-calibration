@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterator, Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ybcal.params.registry import REGISTRY, ParamSpec
@@ -175,8 +176,9 @@ class ParamSet(Mapping[str, ParamValue]):
 
     @classmethod
     def from_extracted(cls, extracted: Any, network: str) -> ParamSet:
-        """From a :class:`ybcal.params.extract.Extracted` network column (fields + constants)."""
-        vals = extracted.values(network)
+        """From a :class:`ybcal.params.extract.Extracted` network column (fields + constants; a
+        proposed field the column lacks takes the registry's no-field value)."""
+        vals = extracted.registry_values(network)
         return cls({k: vals[k] for k in REGISTRY})
 
 
@@ -193,3 +195,30 @@ def regtest() -> ParamSet:
 def candidate(base: ParamSet | None = None, **changes: ParamValue) -> ParamSet:
     """A mainnet-scale candidate (``network="candidate"``) from ``base`` (default mainnet)."""
     return (base or mainnet()).replace({"network": "candidate", **changes})
+
+
+def load_set_file(path: str | Path) -> ParamSet:
+    """A ParamSet from a report directory / ``recommended.json`` (``ybcal-extract/1``, its ``main``
+    column) / ``ybcal-paramset/1`` JSON. A relative path is taken from the working directory, else
+    from the repository root."""
+    p = Path(path)
+    if not p.is_absolute() and not p.exists():
+        p = Path(__file__).resolve().parents[3] / p
+    if p.is_dir():
+        p = p / "recommended.json"
+    d = json.loads(p.read_text())
+    if d.get("format") == "ybcal-extract/1":
+        from ybcal.params.extract import Extracted
+
+        return ParamSet.from_extracted(Extracted.from_dict(d), "main")
+    return ParamSet.from_dict(d)
+
+
+def policy_base(policy: Any = None) -> ParamSet:
+    """The set a run starts from: the shipped mainnet column, or the policy's ``base_set``, with the
+    policy's ``base_values`` applied (derived values follow their parents unless given). Owner pins
+    hold the values of this set (hardening plan H0-b)."""
+    path = str(getattr(policy, "base_set", "") or "")
+    base = load_set_file(path) if path else mainnet()
+    vals = dict(getattr(policy, "base_values", None) or {})
+    return base.replace(vals) if vals else base

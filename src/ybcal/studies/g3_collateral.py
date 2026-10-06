@@ -69,6 +69,7 @@ from ybcal.data import synthetic as SY
 from ybcal.model import vkernels as V
 from ybcal.optimize.robust import aggregate
 from ybcal.optimize.sensitivity import oat_from_table, sensitivity_sentence
+from ybcal.params.classes import class_enabled, enabled_classes
 from ybcal.params.invariants import Context
 from ybcal.params.paramset import ParamSet
 from ybcal.params.registry import REGISTRY, derived_names, params_for_group
@@ -1287,7 +1288,8 @@ class G3Study:
     # -- space -----------------------------------------------------------------------------------
     def space(self, base: ParamSet, budget: Budget) -> Iterable[ParamSet]:
         out = [base]
-        for c in range(3):
+        on = enabled_classes(base)
+        for c in on:  # H-5: a disabled class (empty term range) has no ratio to size
             k = f"baseRatioBps[{c}]"
             for v in lattice(int(base[k]), k):
                 if v != int(base[k]):
@@ -1300,6 +1302,8 @@ class G3Study:
                 out.append(base.replace(emergencyRatioBps=v))
         days = JUDGEMENT["boundary_days_quick" if budget.name == "quick" else "boundary_days_full"]
         for i, ds in days.items():
+            if i not in on or i + 1 not in on:
+                continue  # moving a boundary into a disabled class would re-enable it (H-5)
             for d in ds:
                 b = d * BLOCKS_PER_DAY
                 if b != int(base[f"classMax[{i}]"]):
@@ -1319,6 +1323,16 @@ class G3Study:
         cons: dict[str, bool] = {}
         hets: list[float] = []
         for c, name in enumerate(CLASS_NAMES):
+            if not class_enabled(cand, c):
+                # H-5: disabled by an empty term range; nothing mints, nothing to score
+                for k in ("pbad", "pbad_lock", "es", "tmax_ok_days", "het", "yed_per_usd", "sigma_med"):
+                    values[f"{k}.{name}"] = math.nan
+                values[f"ratio.{name}"] = float(cand[f"baseRatioBps[{c}]"])
+                values[f"disabled.{name}"] = 1.0
+                cons[f"bad_debt_{name}"] = True
+                values[f"viol.bad_debt_{name}"] = 0.0
+                values[f"viol.het_{name}"] = 0.0
+                continue
             ps_, pl_, het_, es_, bt_ = [], [], [], [], []
             terms_c = None
             for m in ens.names:
@@ -1430,7 +1444,8 @@ class G3Study:
             "crash_scenarios": list(cr.names),
             "depth_p10_usd": depth,
         }
-        return Metrics(values, "pbad.B", True, cons, ens.provenance, meta)  # type: ignore[arg-type]
+        primary = "pbad.B" if class_enabled(cand, 1) else "pbad.A"
+        return Metrics(values, primary, True, cons, ens.provenance, meta)  # type: ignore[arg-type]
 
     # -- decide ----------------------------------------------------------------------------------
     def decide(self, results: ResultTable, policy: Any) -> list[Recommendation]:
@@ -1491,6 +1506,13 @@ class G3Study:
             if not sens:
                 sens = {"sentence": f"{p} is verified, not swept for a metric."}
             rec_notes = [f"Rule '{rule.name}': {d.reason}."]
+            ratio_cls = CLASS_NAMES.index(rule.name[-1]) if rule.name.startswith("ratio_") else None
+            if ratio_cls is not None and not class_enabled(results.base, ratio_cls):
+                rec_notes.insert(
+                    0,
+                    f"Class {rule.name[-1]} is disabled by an empty term range (hardening plan H-5): no "
+                    "mint can use it, so its ratio is not sized; the value is kept as it stands.",
+                )
             if p in ("classMin[1]", "classMin[2]"):
                 rec_notes.append(f"Follows classMax[{int(p[-2]) - 1}] + 1 (MINT-2 contiguity).")
             if rule.name == "emergency":

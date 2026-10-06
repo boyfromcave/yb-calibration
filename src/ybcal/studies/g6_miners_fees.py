@@ -1221,8 +1221,11 @@ class G6Study(FamilyStudy):
                 F.fee_table(cand, [min_mint], p_ref, term_class=cls, armed=True)[0]["fee_share_of_debt"]
             )
             shares_un.append(F.fee_table(cand, [min_mint], p_ref, term_class=cls)[0]["fee_share_of_debt"])
-        v["fee.share_minmint"] = float(max(shares))
-        v["fee.share_minmint_unarmed"] = float(max(shares_un))
+        from ybcal.params.classes import enabled_classes
+
+        on = enabled_classes(cand)  # H-5: a disabled class mints nothing, so it sets no fee share
+        v["fee.share_minmint"] = float(max(shares[i] for i in on))
+        v["fee.share_minmint_unarmed"] = float(max(shares_un[i] for i in on))
         for cls, s in zip("ABC", shares, strict=True):
             v[f"fee.share_minmint_{cls}"] = float(s)
         mx = float(pol.max_fee_share_small)

@@ -237,10 +237,8 @@ def collect_runs(cfg: RobustConfig) -> list[tuple[RunSpec, Path, str]]:
     return [(sp, cfg.out / "runs" / sp.id, sp.id) for sp in cfg.specs()]
 
 
-def run_pins(run_dir: Path) -> list[Any]:
-    """The owner pins of a finished run's policy (file + ``--policy-set`` overrides)."""
-    from ybcal.optimize.pins import parse_pin
-
+def run_policy(run_dir: Path) -> Policy:
+    """A finished run's policy (file + ``--policy-set`` overrides); the default when unreadable."""
     try:
         m = json.loads((run_dir / "manifest.json").read_text())
         pp = m.get("policy_path") or None
@@ -248,6 +246,14 @@ def run_pins(run_dir: Path) -> list[Any]:
         pol, _ = pol.with_overrides(list((m.get("extra") or {}).get("policy_set") or []))
     except (OSError, ValueError, KeyError):
         pol = Policy()  # a policy this build cannot read (another branch's keys): the default pins
+    return pol
+
+
+def run_pins(run_dir: Path) -> list[Any]:
+    """The owner pins of a finished run's policy (file + ``--policy-set`` overrides)."""
+    from ybcal.optimize.pins import parse_pin
+
+    pol = run_policy(run_dir)
     return [parse_pin(p, v) for p, v in (pol.owner_pinned or {}).items()]
 
 
@@ -256,9 +262,9 @@ def feasible_values(run_dir: Path, recs: Mapping[str, Any]) -> dict[str, dict[st
     best row holding that value, from the run's per-group result tables (``evidence/<g>/results.csv``,
     the final round). A parameter's own constraints are ``metrics.constraints_current`` when the study
     reports them (D-RD-AUD-10), else every constraint. A value absent from a run was not evaluated."""
-    from ybcal.params.paramset import mainnet
+    from ybcal.params.paramset import policy_base
 
-    shipped = mainnet()
+    shipped = policy_base(run_policy(run_dir))  # the set the run started from (policy base_set)
     pins = run_pins(run_dir)
     out: dict[str, dict[str, list[str]]] = {}
     groups = {REGISTRY[p].group for p in recs if p in REGISTRY}
@@ -344,6 +350,42 @@ def consolidate(
     }
 
 
+def worse_window(
+    per_run: Sequence[tuple[str, Mapping[str, list[str]] | None]],
+    windows_of_runs: Sequence[str],
+    windows: Sequence[str],
+) -> dict[str, Any]:
+    """The hardening plan's H-3 lock rule for a ratio: per window, the smallest candidate whose own
+    rule's constraints hold in **every** run of that window (seeds × models); the value is the
+    largest of those per-window needs ("the worse window decides"). ``value`` is ``None`` when a
+    window has no finished run or no candidate feasible in all of its runs (then ``needs`` says
+    which). ``per_run`` pairs a run id with its value → violations table, aligned with
+    ``windows_of_runs``."""
+    needs: dict[str, Any] = {}
+    detail: dict[str, Any] = {}
+    for w in windows:
+        tabs = [(rid, d) for (rid, d), rw in zip(per_run, windows_of_runs, strict=True) if rw == w]
+        have = [(rid, d) for rid, d in tabs if d]
+        if not have:
+            needs[w] = None
+            detail[w] = "no finished run with a result table"
+            continue
+        cands = set.intersection(*(set(d) for _, d in have))
+        ok = sorted((json.loads(k) for k in cands if all(not d[k] for _, d in have)), key=float)
+        needs[w] = ok[0] if ok else None
+        detail[w] = (f"smallest value feasible in all {len(have)} run(s)" if ok else
+                     f"no candidate feasible in all {len(have)} run(s)")
+    vals = [v for v in needs.values() if v is not None]
+    value = max(vals, key=float) if vals and len(vals) == len(windows) else None
+    viol: dict[str, list[str]] = {}
+    if value is not None:
+        k = json.dumps(value)
+        for rid, d in per_run:
+            if d and d.get(k, ["not evaluated"]) != []:
+                viol[rid] = d.get(k, ["not evaluated"])
+    return {"value": value, "needs": needs, "detail": detail, "windows": list(windows), "violations": viol}
+
+
 def rebase_consolidation(
     cons: dict[str, Any],
     per_run: Sequence[tuple[str, Mapping[str, list[str]] | None]],
@@ -409,12 +451,12 @@ def _mode(xs: Sequence[Any]) -> tuple[Any, float]:
 
 def tabulate(cfg: RobustConfig) -> dict[str, Any]:
     """Read every finished run and write the robustness tables; returns the summary."""
-    from ybcal.params.paramset import mainnet
+    from ybcal.params.paramset import policy_base
 
-    base = mainnet()
     runs: list[tuple[RunSpec, dict[str, Any]]] = []
     ids: list[str] = []
     missing: list[str] = []
+    dirs: list[Path] = []
     for sp, rd, rid in collect_runs(cfg):
         r = load_run(rd)
         if r is None:
@@ -422,6 +464,12 @@ def tabulate(cfg: RobustConfig) -> dict[str, Any]:
         else:
             runs.append((sp, r))
             ids.append(rid)
+            dirs.append(rd)
+    # the runs' policy decides the base set and the ratio lock rule (--runs: the first run's)
+    pol = run_policy(dirs[0]) if cfg.run_dirs and dirs else Policy.load(cfg.policy)
+    if not cfg.run_dirs and cfg.sets:
+        pol, _ = pol.with_overrides(cfg.sets)
+    base = policy_base(pol)
     params = [k for k, s in REGISTRY.items() if s.tunable]
     rows_long, summary = [], []
     for p in params:
@@ -453,6 +501,11 @@ def tabulate(cfg: RobustConfig) -> dict[str, Any]:
         mv, agree = _mode(vals)
         none_feasible = cons["value"] is not None and cons["k"] == 0
         cons = rebase_consolidation(cons, per_run_feas, vals, mv, none_feasible)
+        ww = None
+        if pol.ratio_lock_rule == "worse-window" and p in pol.ratio_lock_params:
+            ww = worse_window(per_run_feas, [sp.window for sp, _ in runs], pol.ratio_lock_windows)
+            cons = {**cons, "value": ww["value"], "basis": "worse-window",
+                    "violations": ww["violations"]}
         mverd, vagree = _mode(verds)
         modal_by = {ax: {k: _mode(v)[0] for k, v in d.items()} for ax, d in by.items()}
         flags = []
@@ -487,6 +540,7 @@ def tabulate(cfg: RobustConfig) -> dict[str, Any]:
                 "feasible_k": cons["k"],
                 "feasible_evaluated": cons["evaluated"],
                 "violations_at_consolidated": cons["violations"],
+                **({"worse_window": ww} if ww is not None else {}),
             }
         )
     summary.sort(key=lambda s: (0 if "unstable" in s["flags"] else 1 if s["flags"] else 2, s["group"]))
@@ -566,6 +620,22 @@ def write_tables(
             f"| `{p}` | {s['group']} | {_fv(p, s['current'])} | {cv} | {_fv(p, s['modal'])} | "
             f"{s['agreement']:.0%} | {verd} | {bw} | {bm} | {flags} | {viol or 'none'} |".replace("\n", " ")
         )
+    ww = [s for s in result["summary"] if s.get("worse_window")]
+    if ww:
+        lines += ["", "## Worse-window lock rule (hardening plan H-3)", "",
+                  "Per window, the smallest value whose own rule's constraints hold in every run of that "
+                  "window; the locked value is the largest of those needs (`ratio_lock_rule = "
+                  "\"worse-window\"`).", "",
+                  "| Parameter | " + " | ".join(f"Need ({w})" for w in ww[0]["worse_window"]["windows"])
+                  + " | Locked value |",
+                  "|---|" + "---|" * (len(ww[0]["worse_window"]["windows"]) + 1)]
+        for s in ww:
+            d = s["worse_window"]
+            cells = [("—" if d["needs"].get(w) is None else _fv(s["param"], d["needs"][w]))
+                     + f" ({d['detail'].get(w, '')})" for w in d["windows"]]
+            lv = "— (not decidable: a window has no feasible value or no run)" if d["value"] is None \
+                else f"**{_fv(s['param'], d['value'])}**"
+            lines.append(f"| `{s['param']}` | " + " | ".join(cells) + f" | {lv} |")
     lines += [
         "",
         "Per-run values: `robust.csv`; per-parameter detail (values, by seed): `robust-summary.csv`, "

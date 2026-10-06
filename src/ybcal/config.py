@@ -68,6 +68,12 @@ def _owner_pinned_default() -> dict[str, Any]:
     }
 
 
+#: ``ratio_lock_rule`` values: ``consolidate`` = the robust harness's feasibility consolidation
+#: (D-RD-INF-5); ``worse-window`` = the smallest value feasible in every run of *each* window of
+#: ``ratio_lock_windows``, i.e. the larger of the per-window needs (hardening plan H-3).
+RATIO_LOCK_RULES: tuple[str, ...] = ("consolidate", "worse-window")
+
+
 @dataclass(frozen=True)
 class Policy:
     """Owner tolerances. Field meanings and units are documented in ``policy/default.toml``."""
@@ -204,6 +210,13 @@ class Policy:
     insensitive_total_order: float = 0.01
     # owner decisions (D-RD-INF-2): param → decision reference; studied, never changed
     owner_pinned: dict[str, Any] = field(default_factory=_owner_pinned_default)
+    # base set (hardening plan H0-b): the set every study starts from and owner pins hold
+    base_set: str = ""
+    base_values: dict[str, Any] = field(default_factory=dict)
+    # ratio lock rule across data windows (hardening plan H-3)
+    ratio_lock_rule: str = "consolidate"
+    ratio_lock_params: tuple[str, ...] = ("baseRatioBps[0]",)
+    ratio_lock_windows: tuple[str, ...] = ("full", "last365")
 
     def __post_init__(self) -> None:
         from ybcal.params.registry import REGISTRY
@@ -216,6 +229,16 @@ class Policy:
                     bad.append(f"{k} ({v})")
         if bad:
             raise KeyError(f"owner_pinned: not tunable registry parameters: {', '.join(bad)}")
+        unknown = [k for k in self.base_values
+                   if k not in REGISTRY or REGISTRY[k].klass in ("meta", "constant")]
+        if unknown:
+            raise KeyError(f"base_values: not settable registry parameters: {', '.join(unknown)}")
+        if self.ratio_lock_rule not in RATIO_LOCK_RULES:
+            raise ValueError(f"ratio_lock_rule {self.ratio_lock_rule!r}: choose from "
+                             f"{', '.join(RATIO_LOCK_RULES)}")
+        bad_r = [k for k in self.ratio_lock_params if k not in REGISTRY or not REGISTRY[k].tunable]
+        if bad_r:
+            raise KeyError(f"ratio_lock_params: not tunable registry parameters: {', '.join(bad_r)}")
 
     # -- loading -------------------------------------------------------------------------------------
     @classmethod
@@ -245,8 +268,9 @@ class Policy:
         walk(data, "")
         if "sigma_accept_band" in flat:
             flat["sigma_accept_band"] = tuple(flat["sigma_accept_band"])
-        if "enforcing_pools" in flat:
-            flat["enforcing_pools"] = tuple(str(x) for x in flat["enforcing_pools"])
+        for k in ("enforcing_pools", "ratio_lock_params", "ratio_lock_windows"):
+            if k in flat:
+                flat[k] = tuple(str(x) for x in flat[k])
         return cls(**flat)
 
     @classmethod
@@ -276,6 +300,8 @@ class Policy:
                 val = v
             if k == "sigma_accept_band" and isinstance(val, list):
                 val = tuple(val)
+            if k in ("enforcing_pools", "ratio_lock_params", "ratio_lock_windows") and isinstance(val, list):
+                val = tuple(str(x) for x in val)
             out[k] = val
         return (self.replace(**out) if out else self), out
 

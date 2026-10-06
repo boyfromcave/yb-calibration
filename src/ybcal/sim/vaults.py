@@ -49,6 +49,7 @@ below the hour resolution, so it collapses to that one snapshot.
 from __future__ import annotations
 
 import bisect
+import dataclasses
 import heapq
 import multiprocessing as mp
 import time
@@ -97,6 +98,8 @@ MINT_HALTED_NO_PRICE = "mint-halted-no-price"
 MINT_HALTED_PARTICIPATION = "mint-halted-participation"
 MINT_HALTED_GLOBAL_RATIO = "mint-halted-global-ratio"
 MINT_HALTED_DIVERGENCE = "mint-halted-divergence"
+#: Hardening plan H-1 (proposed field ``mintRequiresArmed``): no mint while the layer is not ARMED.
+MINT_HALTED_UNARMED = "mint-halted-unarmed"
 BAD_MINT_COLLATERAL = "bad-mint-collateral"
 MINT_UNSATISFIABLE = "mint-unsatisfiable"
 MINT_SUPPLY_CAP = "mint-supply-cap"
@@ -165,6 +168,7 @@ class RuleParams:
     enforce_until: int
     abandon_blocks: int
     default_ref_lag: int
+    mint_requires_armed: bool = False   #: H-1 (proposed field; False = the pin's behaviour)
 
     @classmethod
     def of(cls, p: Mapping) -> RuleParams:
@@ -197,6 +201,7 @@ class RuleParams:
             enforce_until=g("enforceUntilHeight"),
             abandon_blocks=g("abandonBlocks"),
             default_ref_lag=g("DEFAULT_REF_LAG"),
+            mint_requires_armed=bool(p.get("mintRequiresArmed", False)),
         )
 
     def fee(self, collateral_zat: int) -> int:
@@ -299,6 +304,9 @@ def mint_verdict(rp: RuleParams, height: int, tx: MintTx, snap: Snap | None, sup
         return MINT_HALTED_DIVERGENCE
     if m & ~HALT_GLOBAL_RATIO:
         return MINT_NOT_ACTIVE
+    # H-1 (proposed): MINT-4's unarmed halt bit, evaluated after the existing halt bits
+    if rp.mint_requires_armed and not snap.armed:
+        return MINT_HALTED_UNARMED
     x_mint = _opt(snap.x_mint)
     coll = int(tx.collateral_zat)
 
@@ -1223,6 +1231,11 @@ def run_book(
     ctx = _Ctx(params, tl, agents, opt)
     rp, n, W = ctx.rp, ctx.n, ctx.W
     rp_eff = rp if opt.supply_cap else _no_cap(rp)
+    if rp_eff.mint_requires_armed and not bool(np.asarray(tl.armed).any()):
+        # H-1 in a study without an attestation model: the launch gate G-5 puts the layer ARMED
+        # before minting opens, so the book is simulated as if every mint met the clause; pricing at
+        # xMint alone (no min with aMint) is the conservative side of PRICE-2 (docs/decisions.md D-HD-2)
+        rp_eff = dataclasses.replace(rp_eff, mint_requires_armed=False)
     book = VaultBook(rp_eff)
     m = len(attempts)
     tab = _empty_table(m)
