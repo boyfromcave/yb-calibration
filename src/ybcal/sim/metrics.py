@@ -343,6 +343,48 @@ class FastBadDebt:
     #: mean uncovered share of the debt at the claim-path opening, ``E[max(0, 1 − value/debt)]``,
     #: term-grid mean — the severity behind ``p`` (D-RD-AUD-3; 0 when no sample is bad)
     shortfall: dict[str, float] = field(default_factory=dict)
+    #: ``claim_path="in-term"`` only: the term-grid mean share of samples claimed inside the term
+    #: (collateral < θ × debt at pClaim before the post-term opening); 0 under ``"post-term"``
+    in_term: dict[str, float] = field(default_factory=dict)
+    #: ``keep_gaps=True`` only: the uncovered share ``max(0, 1 − value/debt)`` of every bad sample at
+    #: the opening (post-term) or the claim's completion (in-term), pooled over terms, starts and paths
+    gaps: dict[str, np.ndarray] = field(default_factory=dict)
+
+
+_BIG = np.iinfo(np.int64).max // 4
+CLAIM_PATHS = ("post-term", "in-term")
+
+
+class FirstBelow:
+    """Sparse table over one series: :meth:`first` gives the first ``t ≥ t0`` with ``x[t] < level``
+    (``n`` when none), for any number of queries in O(log n) numpy steps."""
+
+    def __init__(self, x: np.ndarray):
+        x = np.asarray(x)
+        self.n = int(x.shape[0])
+        self.lv = [x]
+        k = 1
+        while (1 << k) <= self.n:
+            prev, h = self.lv[-1], 1 << (k - 1)
+            self.lv.append(np.minimum(prev[: self.n - (1 << k) + 1], prev[h : h + self.n - (1 << k) + 1]))
+            k += 1
+
+    def first(self, t0: np.ndarray, level: np.ndarray) -> np.ndarray:
+        pos = np.clip(np.asarray(t0, dtype=np.int64), 0, self.n).copy()
+        lvl = np.asarray(level)
+        for k in range(len(self.lv) - 1, -1, -1):
+            size = 1 << k
+            fits = pos + size <= self.n
+            v = self.lv[k][np.minimum(pos, self.n - size)]
+            pos = pos + np.where(fits & (v >= lvl), size, 0)
+        return pos
+
+
+def underwater_level(coll: np.ndarray, threshold_bps: int, cents: int) -> np.ndarray:
+    """``L`` with ``coll · p < cents · threshold · 10^8  ⇔  p < L`` for integer p (exact, int64): the
+    pClaim below which :func:`ybcal.model.vkernels.is_underwater` holds at ``threshold_bps``."""
+    x = np.int64(cents) * np.int64(threshold_bps) * np.int64(10**8)
+    return -(-x // np.asarray(coll, dtype=np.int64))
 
 
 def _sigma_choice(sig: np.ndarray, sigma, skip: int) -> np.ndarray:
@@ -374,6 +416,10 @@ def p_bad_debt_fast(
     start_stride: int = 1,
     skip_hours: int | None = None,
     chunk_paths: int = 32,
+    claim_path: str = "post-term",
+    claim_threshold_bps: int | None = None,
+    claim_delay_blocks: int = 0,
+    keep_gaps: bool = False,
 ) -> FastBadDebt:
     """P(bad debt) by the ratio test at ``lockHeight + grace``, vectorised over start dates × paths.
 
@@ -392,7 +438,22 @@ def p_bad_debt_fast(
 
     ``p[c]`` averages the terms with equal weights (the grid is equal-probability quantiles of the
     term distribution). ``graces`` adds the same test at other grace values (G4 curve). No agents,
-    no supply cap, no HALT-2: a pure solvency statistic of the class ratios (PLAN §5.3)."""
+    no supply cap, no HALT-2: a pure solvency statistic of the class ratios (PLAN §5.3).
+
+    ``claim_path`` (in-term claims plan, D-IT-1): ``"post-term"`` is the rule above (every earlier
+    number). ``"in-term"`` lets anyone claim the vault at the first hour ``u > s`` inside the term
+    or grace with ``collateral · pClaim[u] < θ · debt`` (θ = ``claim_threshold_bps``, default the
+    set's ``claimThresholdBps``; the exact integer level of RED-4(a)); the claim completes
+    ``claim_delay_blocks`` later (the attestor cancel window, ceil to hours), capped at the post-term
+    opening ``e`` (where today's claim is available at once), and the vault is **bad** iff
+    ``collateral · truePrice(min(u + delay, e)) < debt``. A vault never claimed in term is tested at
+    ``e`` as before. Sample counts ``n`` are identical in both modes; ``in_term[c]`` is the share
+    claimed in term. ``keep_gaps`` keeps every bad sample's uncovered share in ``gaps[c]``."""
+    if claim_path not in CLAIM_PATHS:
+        raise ValueError(f"claim_path must be one of {CLAIM_PATHS} (got {claim_path!r})")
+    in_term = claim_path == "in-term"
+    theta = int(params["claimThresholdBps"] if claim_threshold_bps is None else claim_threshold_bps)
+    delay_h = -(-max(0, int(claim_delay_blocks)) // BLOCKS_PER_HOUR)
     ht, _res = E.prices_from(hourly_true)
     P, n = ht.shape
     g0 = int(params["grace"])
@@ -403,6 +464,8 @@ def p_bad_debt_fast(
     kernel = kernel or E.OracleTransferKernel.ideal(params)
     acc: dict[tuple[int, int, str], list[int]] = {}
     sf: dict[tuple[int, int], float] = {}
+    it_acc: dict[tuple[int, int], int] = {}
+    gap_acc: dict[int, list[np.ndarray]] = {}
     terms_of = {c: AG.term_grid(params, c, n_terms, term_distribution)[0] for c in classes}  # type: ignore[arg-type]
     starts = np.arange(skip_hours, n, max(1, int(start_stride)))
     for a in range(0, P, chunk_paths):
@@ -411,9 +474,11 @@ def p_bad_debt_fast(
             pm = hour_series.p_mint[sl]
             sg = hour_series.sigma_mult_bps[sl]
             hm = hour_series.halt_mask[sl]
+            pc = hour_series.p_claim[sl]
         else:
             hs = E.simulate_hours(params, ht[sl], kernel, rng=rng, noise=rng is not None)
-            pm, sg, hm = hs.p_mint, hs.sigma_mult_bps, hs.halt_mask
+            pm, sg, hm, pc = hs.p_mint, hs.sigma_mult_bps, hs.halt_mask, hs.p_claim
+        fbs = [FirstBelow(np.where(row > 0, row, _BIG)) for row in pc] if in_term else []
         sgc = _sigma_choice(np.asarray(sg, dtype=np.int64), sigma, skip_hours)
         tp = ht[sl]
         pms = pm[:, starts]
@@ -423,6 +488,11 @@ def p_bad_debt_fast(
                 rp, np.full(pms.shape, cents), np.full(pms.shape, c), sgc[:, starts], np.where(okm, pms, 1)
             )
             okc = okm & (coll != VB.UNDEF)
+            if in_term:
+                # first hour after the mint with the vault under θ at pClaim (n = never), per path
+                level = underwater_level(np.where(okc, coll, 1), theta, cents)
+                u = np.stack([fb.first(starts + 1, level[i]) for i, fb in enumerate(fbs)])
+                done = np.minimum(u + delay_h, n - 1)
             for ti, T in enumerate(terms_of[c].tolist()):
                 for key, off in [("lock", T + 1)] + [(f"g{g}", T + g + 1) for g in gl]:
                     e = starts + -(-off // BLOCKS_PER_HOUR)
@@ -431,8 +501,17 @@ def p_bad_debt_fast(
                         acc.setdefault((c, ti, key), [0, 0])
                         continue
                     cols = np.nonzero(inside)[0]
-                    tpe = tp[:, e[cols]]
                     good = okc[:, cols]
+                    if in_term and key != "lock":
+                        # claimed in term iff the crossing precedes the post-term opening e; the claim
+                        # completes at min(u + delay, e); otherwise tested at e as before
+                        claimed = (u[:, cols] < e[None, cols]) & good
+                        idx = np.where(claimed, np.minimum(done[:, cols], e[None, cols]), e[None, cols])
+                        tpe = np.take_along_axis(tp, idx, axis=1)
+                        if key == f"g{g0}":
+                            it_acc[(c, ti)] = it_acc.get((c, ti), 0) + int(claimed.sum())
+                    else:
+                        tpe = tp[:, e[cols]]
                     bad = V.is_underwater(np.where(good, coll[:, cols], 0), tpe, cents, BPS) & good
                     r = acc.setdefault((c, ti, key), [0, 0])
                     r[0] += int(bad.sum())
@@ -441,7 +520,9 @@ def p_bad_debt_fast(
                         val = coll[:, cols][bad].astype(np.float64) * tpe[bad].astype(np.float64) / COIN
                         gap = np.maximum(0.0, 1.0 - val / (cents * 1e4))
                         sf[(c, ti)] = sf.get((c, ti), 0.0) + float(gap.sum())
-    p, p_lock, inc, by_term, by_grace, nn, short = {}, {}, {}, {}, {}, {}, {}
+                        if keep_gaps:
+                            gap_acc.setdefault(c, []).append(gap)
+    p, p_lock, inc, by_term, by_grace, nn, short, itshare, gaps = {}, {}, {}, {}, {}, {}, {}, {}, {}
     for c in classes:
         name = CLASS_NAMES[c]
         nt = len(terms_of[c])
@@ -469,6 +550,14 @@ def p_bad_debt_fast(
             if acc.get((c, ti, f"g{g0}"), [0, 0])[1]
         ]
         short[name] = float(np.mean(per)) if per else float("nan")
+        its = [
+            it_acc.get((c, ti), 0) / acc[(c, ti, f"g{g0}")][1]
+            for ti in range(nt)
+            if acc.get((c, ti, f"g{g0}"), [0, 0])[1]
+        ]
+        itshare[name] = float(np.mean(its)) if its else float("nan")
+        if keep_gaps:
+            gaps[name] = np.concatenate(gap_acc[c]) if gap_acc.get(c) else np.zeros(0)
     return FastBadDebt(
         p,
         p_lock,
@@ -484,13 +573,20 @@ def p_bad_debt_fast(
             "start_stride": start_stride,
             "paths": P,
             "hours": n,
+            "claim_path": claim_path,
+            "claim_threshold_bps": theta,
+            "claim_delay_blocks": int(claim_delay_blocks),
         },
         shortfall=short,
+        in_term=itshare,
+        gaps=gaps,
     )
 
 
 __all__ = [
+    "CLAIM_PATHS",
     "FastBadDebt",
+    "FirstBelow",
     "bad_debt_prob",
     "capital_efficiency",
     "claimant_profit",
@@ -505,4 +601,5 @@ __all__ = [
     "supply_trajectory",
     "system_shortfall",
     "time_until_cap_admits",
+    "underwater_level",
 ]

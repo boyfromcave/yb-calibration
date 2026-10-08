@@ -414,10 +414,15 @@ def bad_debt(
     n_terms: int,
     stride: int,
     graces: Sequence[int] = (),
+    claim_path: str = "post-term",
+    claim_delay_blocks: int = 0,
+    keep_gaps: bool = False,
 ) -> M.FastBadDebt:
     """:func:`ybcal.sim.metrics.p_bad_debt_fast` for one member and one class, memoised on what it reads
-    (the class's ratio and bounds, grace, feeMin, the σ choice, the term grid and extra graces)."""
+    (the class's ratio and bounds, grace, feeMin, the σ choice, the term grid and extra graces; under
+    ``claim_path="in-term"`` also ``claimThresholdBps`` and the cancel delay — in-term claims plan)."""
     gl = tuple(sorted({int(g) for g in graces}))
+    in_term = claim_path == "in-term"
     key = (
         ens.key,
         name,
@@ -432,6 +437,10 @@ def bad_debt(
         n_terms,
         stride,
         gl,
+        claim_path,
+        int(params["claimThresholdBps"]) if in_term else None,
+        int(claim_delay_blocks) if in_term else 0,
+        bool(keep_gaps),
     )
     hit = _BD.get(key)
     if hit is None:
@@ -446,6 +455,9 @@ def bad_debt(
             cents=TEST_CENTS,
             graces=gl or None,
             start_stride=stride,
+            claim_path=claim_path,
+            claim_delay_blocks=int(claim_delay_blocks),
+            keep_gaps=keep_gaps,
         )
         _BD[key] = hit
     return hit
@@ -533,29 +545,8 @@ def depth_p10_usd(env: Env | None, pctl: float = 90.0) -> float | None:
 # Claimant incentive (claimThresholdBps)
 
 
-class FirstBelow:
-    """Sparse table over one series: :meth:`first` gives the first ``t ≥ t0`` with ``x[t] < level``
-    (``n`` when none), for any number of queries in O(log n) numpy steps."""
-
-    def __init__(self, x: np.ndarray):
-        x = np.asarray(x)
-        self.n = int(x.shape[0])
-        self.lv = [x]
-        k = 1
-        while (1 << k) <= self.n:
-            prev, h = self.lv[-1], 1 << (k - 1)
-            self.lv.append(np.minimum(prev[: self.n - (1 << k) + 1], prev[h : h + self.n - (1 << k) + 1]))
-            k += 1
-
-    def first(self, t0: np.ndarray, level: np.ndarray) -> np.ndarray:
-        pos = np.clip(np.asarray(t0, dtype=np.int64), 0, self.n).copy()
-        lvl = np.asarray(level)
-        for k in range(len(self.lv) - 1, -1, -1):
-            size = 1 << k
-            fits = pos + size <= self.n
-            v = self.lv[k][np.minimum(pos, self.n - size)]
-            pos = pos + np.where(fits & (v >= lvl), size, 0)
-        return pos
+#: the sparse-table crossing finder lives with the fast path (in-term claims use it there too)
+FirstBelow = M.FirstBelow
 
 
 def _coll_for_coverage(cov: np.ndarray, price: np.ndarray, cents: int = TEST_CENTS) -> np.ndarray:
@@ -565,8 +556,7 @@ def _coll_for_coverage(cov: np.ndarray, price: np.ndarray, cents: int = TEST_CEN
 
 def _underwater_level(coll: np.ndarray, threshold_bps: int, cents: int = TEST_CENTS) -> np.ndarray:
     """``L`` with ``coll · p < cents · threshold · 10^8  ⇔  p < L`` for integer p (exact, int64)."""
-    x = np.int64(cents) * np.int64(threshold_bps) * np.int64(10**8)
-    return -(-x // np.asarray(coll, dtype=np.int64))
+    return M.underwater_level(coll, threshold_bps, cents)
 
 
 def _margin_bps(
@@ -1362,8 +1352,11 @@ class G3Study:
                     term_distribution=pol.term_distribution,
                     n_terms=nt,
                     stride=stride,
+                    claim_path=str(pget(pol, "claim_path", "post-term")),
+                    claim_delay_blocks=int(pget(pol, "claim_delay_blocks", 0)),
                 )
                 values[f"pbad.{name}.{m}"] = fb.p[name]
+                values[f"in_term.{name}.{m}"] = fb.in_term.get(name, 0.0)
                 values[f"pbad_lock.{name}.{m}"] = fb.p_lock[name]
                 h = heterogeneity(fb.by_term[name])
                 values[f"het.{name}.{m}"] = h
@@ -1458,6 +1451,8 @@ class G3Study:
             "stride_hours": stride,
             "terms_per_class": nt,
             "sigma": sigma,
+            "claim_path": str(pget(pol, "claim_path", "post-term")),
+            "claim_delay_blocks": int(pget(pol, "claim_delay_blocks", 0)),
             "crash_scenarios": list(cr.names),
             "depth_p10_usd": depth,
         }

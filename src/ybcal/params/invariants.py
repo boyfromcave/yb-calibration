@@ -45,6 +45,8 @@ class Context:
     ``runbook_buffer_blocks``: operator buffer in the freeze-then-fix runbook (PLAN §5.4).
     ``max_entity_share_bps``: largest single-entity attestor weight share the policy assumes.
     ``worst_price_microusd``: highest YEC price the policy covers (fewest zat per cent of debt).
+    ``waived``: invariant names an owner decision has knowingly given up (``check_all`` skips them;
+    the policy's ``waived_invariants`` carries the decision reference).
     """
 
     release_tip: int | None = None
@@ -53,6 +55,7 @@ class Context:
     runbook_buffer_blocks: int = 0
     max_entity_share_bps: int | None = None
     worst_price_microusd: int = PRICE_MAX
+    waived: tuple[str, ...] = ()
 
     @classmethod
     def from_policy(cls, policy: Any, *, release_tip: int | None = None,
@@ -67,6 +70,7 @@ class Context:
             if getattr(policy, "max_single_entity_weight_share", None) is not None else None,
             worst_price_microusd=round(
                 float(getattr(policy, "worst_price_usd", PRICE_MAX / 1e6)) * 1_000_000),
+            waived=tuple(getattr(policy, "waived_invariants", None) or ()),
         )
 
 
@@ -405,6 +409,8 @@ def check_all(ps: ParamSet, context: Context | None = None, *,
     out: list[Violation] = []
     for inv in (only or INVARIANTS).values():
         if inv.scope == "mainnet-scale" and ps.is_regtest_scale:
+            continue
+        if inv.name in ctx.waived:
             continue
         for msg in inv.fn(ps, ctx):
             out.append(Violation(inv.name, inv.rule, msg, inv.params))

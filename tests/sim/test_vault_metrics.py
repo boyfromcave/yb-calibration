@@ -12,7 +12,7 @@ from ybcal.sim import agents as AG
 from ybcal.sim import engine as E
 from ybcal.sim import metrics as M
 from ybcal.sim import vaults as VB
-from ybcal.units import BLOCKS_PER_HOUR
+from ybcal.units import BLOCKS_PER_HOUR, BPS
 
 PS = mainnet()
 KERNEL = E.OracleTransferKernel.ideal(PS, substeps=4)
@@ -262,3 +262,94 @@ def test_supply_trajectory_and_refusals():
     assert rb["B"]["reasons"].get(VB.MINT_SUPPLY_CAP, 0) > 0  # fact 1.5-2: B/C closed early
     assert rb["A"]["reasons"].get(VB.MINT_SUPPLY_CAP, 0) == 0  # class A bypasses (W20)
     assert math.isclose(res.days, 60.0)
+
+
+# ---------------------------------------------------------------------------------------------------
+# In-term claims (in-term claims plan, T5): the ``claim_path="in-term"`` mode of the fast path
+
+
+def _in_term_brute(ps, ht, hs, fb, theta, delay_blocks, cents=100_000):
+    """The in-term definition as a plain loop: first hour after the mint under θ at pClaim, completion
+    ``delay`` later capped at the post-term opening, bad iff under 100 % at the true price then."""
+    from ybcal.model import vkernels as V
+    from ybcal.units import BPS
+
+    g0, rp, skip = int(ps["grace"]), VB.RuleParams.of(ps), fb.meta["skip_hours"]
+    n, dh = ht.shape[1], -(-delay_blocks // BLOCKS_PER_HOUR)
+    starts = np.arange(skip, n, fb.meta["start_stride"])
+    rates = []
+    for T in fb.terms["A"].tolist():
+        b = k = 0
+        for p in range(ht.shape[0]):
+            sg = int(np.percentile(hs.sigma_mult_bps[p, skip:], 50))
+            for s in starts:
+                e = s + -(-(T + g0 + 1) // BLOCKS_PER_HOUR)
+                pm = hs.p_mint[p, s]
+                if e >= n or pm <= 0 or (hs.halt_mask[p, s] & (E.HALT_NO_PRICE | E.HALT_DIVERGENCE)):
+                    continue
+                coll = int(VB.wallet_collateral(rp, np.array([cents]), np.array([0]), np.array([sg]), np.array([pm]))[0])
+                if coll == VB.UNDEF:
+                    continue
+                k += 1
+                at = e
+                for h in range(s + 1, e):
+                    pc = hs.p_claim[p, h]
+                    if pc > 0 and bool(V.is_underwater(np.array([coll]), np.array([pc]), cents, theta)[0]):
+                        at = min(h + dh, e)
+                        break
+                if bool(V.is_underwater(np.array([coll]), np.array([ht[p, at]]), cents, BPS)[0]):
+                    b += 1
+        rates.append(b / k)
+    return rates
+
+
+@pytest.fixture(scope="module")
+def noisy_hours():
+    ps = PS.replace({"classMin[0]": 48 * 24 * 5, "classMax[0]": 48 * 24 * 12, "claimThresholdBps": 12_500,
+                     "sigmaRefBps": 0, "grace": 48 * 24 * 3, "baseRatioBps[0]": 20_000})
+    rng = np.random.default_rng(7)
+    ht = (400_000 * np.exp(rng.normal(0, 0.03, size=(2, 24 * 120)).cumsum(axis=1))).astype(np.int64)
+    kern = E.OracleTransferKernel.ideal(ps, substeps=4)
+    return ps, ht, E.simulate_hours(ps, ht, kern, noise=False)
+
+
+def test_in_term_matches_brute_force_and_keeps_sample_counts(noisy_hours):
+    ps, ht, hs = noisy_hours
+    post = M.p_bad_debt_fast(ps, ht, hour_series=hs, classes=(0,), n_terms=3, sigma="median", start_stride=12)
+    it = M.p_bad_debt_fast(ps, ht, hour_series=hs, classes=(0,), n_terms=3, sigma="median", start_stride=12,
+                           claim_path="in-term", claim_delay_blocks=1152, keep_gaps=True)
+    assert it.n == post.n and it.p_lock == post.p_lock  # the owner path and the population are untouched
+    assert post.in_term["A"] == 0.0 and 0.0 < it.in_term["A"] <= 1.0
+    want = _in_term_brute(ps, ht, hs, it, 12_500, 1152)
+    assert it.by_term["A"].tolist() == pytest.approx(want, abs=1e-12)
+    assert it.meta["claim_path"] == "in-term" and it.gaps["A"].size > 0
+    assert ((it.gaps["A"] > 0) & (it.gaps["A"] <= 1)).all()
+
+
+def test_in_term_default_is_post_term_and_rejects_unknown():
+    ht = hourly(24 * 200)
+    r = M.p_bad_debt_fast(PS, ht, kernel=KERNEL, classes=(0,), n_terms=2, start_stride=24)
+    assert r.meta["claim_path"] == "post-term" and r.in_term["A"] == 0.0 and r.gaps == {}
+    with pytest.raises(ValueError):
+        M.p_bad_debt_fast(PS, ht, kernel=KERNEL, classes=(0,), n_terms=2, start_stride=24, claim_path="never")
+
+
+def test_in_term_crash_is_cut_short_by_the_claim():
+    """A ten-day slide to 22 % of the start, two days flat, then a crash to 5 %: a vault at 500 % minted
+    before the slide crosses θ = 125 % near the slide's end and, under the in-term rule, completes a day
+    later at 22 % (collateral 110 % of the debt: not bad); under the post-term rule the same vault is
+    tested at its opening, after the crash, and is bad."""
+    ps = PS.replace({"classMin[0]": 48 * 24 * 10, "classMax[0]": 48 * 24 * 10, "claimThresholdBps": 12_500,
+                     "sigmaRefBps": 0, "grace": 48 * 24 * 2})
+    n = 24 * 120
+    p = np.full(n, 1_000_000, dtype=np.int64)
+    slide = np.linspace(1.0, 0.22, 24 * 10)
+    p[24 * 60: 24 * 70] = (1_000_000 * slide).astype(np.int64)
+    p[24 * 70: 24 * 72] = 220_000
+    p[24 * 72:] = 50_000
+    kern = E.OracleTransferKernel.ideal(ps, substeps=4)
+    hs = E.simulate_hours(ps, p[None, :], kern, noise=False)
+    kw = dict(hour_series=hs, classes=(0,), n_terms=1, sigma=BPS, start_stride=6)
+    post = M.p_bad_debt_fast(ps, p[None, :], **kw)
+    it = M.p_bad_debt_fast(ps, p[None, :], **kw, claim_path="in-term", claim_delay_blocks=1152)
+    assert post.p["A"] > 0 and it.p["A"] < post.p["A"] and it.in_term["A"] > 0

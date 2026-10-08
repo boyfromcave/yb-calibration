@@ -185,3 +185,31 @@ def test_search_bounds_widen_the_g3_ratio_lattice():
     assert st.bounds == {"baseRatioBps[0]": (30_000, 250_000)}
     with pytest.raises(KeyError):
         Policy(search_bounds={"baseRatioBps[0]": [90_000, 80_000]})
+
+
+# --- in-term claims policy (T5) ------------------------------------------------------------------------
+
+IN_TERM = REPO_ROOT / "policy" / "in-term-2026-10.toml"
+
+
+def test_in_term_policy_loads_and_its_base_passes_with_the_waivers():
+    pol = Policy.load(IN_TERM)
+    assert pol.claim_path == "in-term" and pol.claim_delay_blocks == 1152
+    base = policy_base(pol)
+    assert enabled_classes(base) == (0, 1, 2)
+    assert [int(base[f"baseRatioBps[{i}]"]) for i in range(3)] == [30_000, 40_000, 50_000]
+    assert int(base["globalRatioHaltBps"]) == 20_000 and int(base["recapRatioBps"]) == 50_000
+    assert int(base["claimThresholdBps"]) == 12_500 and int(base["sigmaRefBps"]) == 0
+    assert (int(base["classMin[1]"]), int(base["classMax[2]"])) == (103_681, 420_480)
+    ctx = Context.from_policy(pol)
+    assert set(ctx.waived) == {"recap_double", "regtest_zero_meanings"}
+    assert not check_all(base, ctx)
+    # without the waivers the two given-up invariants fire, nothing else
+    assert _names(base, Context()) == {"recap_double", "regtest_zero_meanings"}
+
+
+def test_policy_rejects_bad_claim_path_and_unknown_waiver():
+    with pytest.raises(ValueError):
+        Policy(claim_path="never")
+    with pytest.raises(KeyError):
+        Policy(waived_invariants={"no_such_invariant": "ref"})

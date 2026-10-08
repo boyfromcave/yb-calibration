@@ -89,6 +89,9 @@ class Policy:
     sigma_mult_at: str = "median"
     price_drift: str = "centred"
     real_price_model: str = "bootstrap"
+    # in-term claims plan (D-IT-1, D-IT-13): the claim path the solvency statistic models
+    claim_path: str = "post-term"
+    claim_delay_blocks: int = 1152
     claimant_min_profit_bps: int = 200
     claimant_slippage_pctl: int = 90
     # oracle (G1, G2)
@@ -219,10 +222,21 @@ class Policy:
     ratio_lock_windows: tuple[str, ...] = ("full", "last365")
     # study search bounds that replace the registry's (G3 ratios only; hardening plan H-3)
     search_bounds: dict[str, Any] = field(default_factory=dict)
+    # invariants an owner decision has knowingly given up, name → decision reference (the check
+    # lists them instead of failing; e.g. recap_double under the in-term claims plan D-IT-12)
+    waived_invariants: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        from ybcal.params.invariants import INVARIANTS
         from ybcal.params.registry import REGISTRY
 
+        if self.claim_path not in ("post-term", "in-term"):
+            raise ValueError(f"claim_path {self.claim_path!r}: choose from post-term, in-term")
+        if int(self.claim_delay_blocks) < 0:
+            raise ValueError("claim_delay_blocks must be >= 0")
+        bad_w = [k for k in self.waived_invariants if k not in INVARIANTS]
+        if bad_w:
+            raise KeyError(f"waived_invariants: unknown invariant(s): {', '.join(bad_w)}")
         bad = [k for k in self.owner_pinned if k not in REGISTRY or not REGISTRY[k].tunable]
         for k, v in self.owner_pinned.items():
             if isinstance(v, dict):

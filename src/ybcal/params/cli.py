@@ -11,7 +11,7 @@ from typing import Any
 
 from ybcal.params.doc import fmt_value, render_markdown
 from ybcal.params.extract import Extracted, ExtractError, check_drift, extract, load_snapshot
-from ybcal.params.invariants import Context
+from ybcal.params.invariants import INVARIANTS, Context
 from ybcal.params.paramset import ParamSet
 from ybcal.params.registry import PINNED_COMMIT, REGISTRY, ParamSpec, specs
 
@@ -112,6 +112,8 @@ def cli_check(args: argparse.Namespace) -> int:
         print(f"drift: none ({len(ex.fields)} fields, {len(REGISTRY)} registry entries)")
     policy = Policy.load(args.policy)
     ctx = Context.from_policy(policy, release_tip=args.release_tip)
+    for name, ref in (policy.waived_invariants or {}).items():
+        print(f"waived by owner decision ({ref}): {name} — {INVARIANTS[name].doc}")
     for net in ("main", "regtest"):
         try:
             ps = ParamSet.from_extracted(ex, net)
