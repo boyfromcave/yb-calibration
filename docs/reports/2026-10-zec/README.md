@@ -436,3 +436,15 @@ months old and censored for the longer horizons; `pMint` is the market price (id
 lever study liquidates at the oracle price with no depth, slippage or claimant behaviour; out-of-sample
 sizing uses a single split (first half → second half), so the YEC second half contains exactly one
 crash (2025-26) and the ranking there is a one-event verdict.
+
+
+## In-term claims, explained for the owner (2026-10-07)
+
+`in-term-claims.html` (open it in a browser; self-contained) walks one example vault — 2,000 YEC locked at $0.40,
+100 YED minted, 90-day term, θ = 125 % — through the same price fall under today's post-term claim rule and under
+the in-term claim lever ranked first in §3 above: who receives what (the claimant's take is capped at θ × debt, the
+owner keeps the residual, as RED-5 already does), why the claim happens (the claimant burns $100 of YED for $125 of
+YEC at the threshold; nobody is ever offered an underwater vault), why the required ratio roughly halves (the
+collateral must survive the cancel window, not the term), and what the study could not model (claimant supply of
+YED, depth, the cancel window as a falling-price window, the change to the product promise). Decision inputs: θ,
+the cancel delay, who may claim.
