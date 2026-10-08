@@ -131,23 +131,21 @@
 <figcaption>With in-term claims. On day 60, when the 2,000 YEC are worth $125 (125 % of the $100 debt), a claimant burns 100 YED and the vault closes. The claim completes after the attestor cancel window, while the collateral is still worth more than the debt.</figcaption>
 </figure>
 
+<h2>Who may claim, and when</h2>
+<p><strong>Nobody can claim before the threshold.</strong> From day 0 to day 59, while the collateral is worth more than 125 % of the debt, a claim transaction is invalid and every node rejects it: the vault is the owner's. <strong>Once collateral is at or below θ × debt, anyone may claim</strong>, by burning the full 100 YED debt, and the first valid claim wins. The owner's own exit is separate and unchanged: the owner can redeem by burning the debt at any time in the term, before or after the threshold. The open design question is only whether, once the threshold is met, the claim is open to anyone at once (what the study assumed) or offered first to a defined party such as the attestor set for a short window.</p>
+
 <h2>Who gets what when the day-60 claim completes</h2>
 <p>The split rule is the one the node already applies to post-term claims (RED-5): the claimant receives collateral worth <code>θ × debt</code> at the claim price, and <strong>everything above that goes back to the owner</strong>. The claimant never receives the whole vault.</p>
 <figure class="wide">
-<svg viewBox="0 0 900 150" role="img" aria-label="The 2,000 YEC collateral at the claim price of 6.25 cents is split: the claimant receives 2,000 YEC worth 125 dollars, having burned 100 YED, so the claimant's reward is 25 dollars; the owner's residual is zero because collateral equals exactly theta times debt at the trigger. A second bar shows a claim at a higher collateral level of 300 dollars, where the claimant still receives 125 dollars and the owner keeps 175.">
+<svg viewBox="0 0 900 70" role="img" aria-label="The 2,000 YEC collateral at the claim price is split: the claimant receives 2,000 YEC worth 125 dollars, having burned 100 YED, so the claimant's reward is 25 dollars; the owner's residual is zero because collateral equals exactly theta times debt at the trigger.">
   <g font-family="IBM Plex Sans, system-ui, sans-serif" font-size="12" fill="currentColor">
     <text x="20" y="28" font-size="12">Claim exactly at θ (collateral $125):</text>
     <rect x="20" y="36" width="760" height="22" fill="var(--claimant)"/>
     <text x="400" y="51" text-anchor="middle" font-size="11" fill="#fff">claimant: all 2,000 YEC, worth $125 → burned 100 YED ($100) → reward $25 (the 25 % margin)</text>
     <text x="790" y="51" font-size="11" fill="var(--muted)">owner: $0</text>
-    <text x="20" y="100" font-size="12">Same claim if it had fired earlier, at collateral $300 (a claimant who moves first):</text>
-    <rect x="20" y="108" width="317" height="22" fill="var(--claimant)"/>
-    <rect x="337" y="108" width="443" height="22" fill="var(--owner)"/>
-    <text x="178" y="123" text-anchor="middle" font-size="11" fill="#fff">claimant: $125 (833 YEC)</text>
-    <text x="558" y="123" text-anchor="middle" font-size="11" fill="#fff">owner's residual: $175 (1,167 YEC)</text>
   </g>
 </svg>
-<figcaption>The claimant's take is capped at θ × debt. The owner keeps the residual. The second bar is not possible under in-term rules as described here, because a claim is only valid once collateral is below θ × debt, but it shows why the owner is protected: a claim above the threshold would still return the excess.</figcaption>
+<figcaption>The claimant's take is capped at θ × debt; the owner keeps any residual. At the trigger the two are equal, so the residual is $0; if the price gaps down past θ between blocks, the claimant still receives at most θ × debt and the owner gets whatever is left.</figcaption>
 </figure>
 <div class="key"><span class="claimant">claimant's share</span><span class="owner">owner's share</span><span class="debt">YED debt (burned)</span><span class="danger">underwater</span></div>
 
