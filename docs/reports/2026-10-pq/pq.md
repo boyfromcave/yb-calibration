@@ -91,16 +91,20 @@
 - Sapling parity needs only m >= 4.22 (a Sapling z->z pays 0.421 zat/byte).
 - At m = 50 the dearest PQ path costs $0.0804 at the policy's worst price $100/YEC (cap $1).
 
-## Validation (structural)
+## Validation (Q1 benchmarks, µs/op: ECDSA 18.9, SLH 235.0, Falcon 18.9)
 
 - `ecdsa_inputs_per_block`: 13513
 - `policy_pq_checks_per_block`: 1000
 - `slh_per_block`: 248
 - `slh_per_block_policy`: 248
-- `slh_break_even_ratio`: 54.49
-- `slh_block_verify_s`: PLACEHOLDER (no benchmark yet)
-- `ecdsa_block_verify_s`: PLACEHOLDER (no benchmark yet)
+- `slh_break_even_ratio`: 54.4879
+- `slh_block_verify_s`: 0.0583
+- `ecdsa_block_verify_s`: 0.2554
+- `slh_measured_ratio`: 12.4339
 - `falcon_per_block`: 1188
 - `falcon_per_block_policy`: 1000
-- `falcon_break_even_ratio`: 11.37
-- `falcon_block_verify_s`: PLACEHOLDER (no benchmark yet)
+- `falcon_break_even_ratio`: 11.3746
+- `falcon_block_verify_s`: 0.0225
+- `falcon_measured_ratio`: 1.0000
+- `sapling_z2z_per_block`: 842
+- `sapling_block_verify_s`: MISSING (no figure in the repo or the Q1 table)

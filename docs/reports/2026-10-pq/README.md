@@ -66,14 +66,27 @@ volumes are assumptions (`EXTRA_VOLUMES`). Even the stress case uses 3.7 % of bl
 transfers dominate. The stress row reproduces the plan §6 estimate (10,000 SLH spends a day ≈ 30 GB a
 year).
 
-## 4. Validation cost (structural; benchmarks pending)
+## 4. Validation cost
 
-- A full block holds 248 SLH-DSA spends or 1,188 Falcon spends. The policy sigop cost caps a template
-  at 1,000 `OP_CHECKPQSIG`. Consensus counts 0 (spec F-5), so a miner's own block can hold 1,188.
-- The comparison is a block of 13,513 P2PKH inputs, one ECDSA verify each. A PQ-filled block verifies
-  no slower than that while `t_SLH ≤ 54.5 × t_ECDSA` and `t_Falcon ≤ 11.4 × t_ECDSA`.
-- **Placeholders:** `VERIFY_US` is unset. `q/pqlib` (ycash-dd `d4038d544`, WIP) has committed no
-  benchmark output yet. Fill it from the Q1 benchmark table to get seconds per block.
+Verify times come from the Q1 benchmark table (ycash-dd `q/pqlib` 7838d66ce, `src/crypto/pq/README`).
+They were measured on Apple arm64 at -O3, single thread, under load of about 8.
+
+| Full 2 MB block of | Signatures | µs per verify | Verify time | Break-even ratio vs ECDSA | Measured ratio |
+|---|---:|---:|---:|---:|---:|
+| P2PKH inputs (ECDSA) | 13,513 | 18.9 | 0.255 s | — | — |
+| SLH-DSA-SHA2-128s spends | 248 | 235.0 | **0.058 s** | 54.5 | 12.4 |
+| Falcon-512 spends | 1,188 (1,000 under the policy cap) | 18.9 | **0.022 s** | 11.4 | 1.0 |
+| Sapling z→z (1 spend, 2 outputs) | 842 txs | missing | **missing** | — | — |
+
+- A block full of PQ spends verifies about 4× (SLH) to 11× (Falcon) faster than a block of ECDSA
+  inputs. Bytes, not verification, are the scarce resource, so the multiplier is set on bytes.
+- **Sapling is missing.** There is no Sapling proof-verify figure in this repo or in the Q1 table, so
+  the Sapling-full block is reported as missing rather than estimated. A Groth16 spend + 2 output
+  benchmark on the same machine would fill `VERIFY_US["sapling"]`.
+- The policy sigop cost caps a template at 1,000 `OP_CHECKPQSIG`. Consensus counts 0 (spec F-5), so a
+  miner's own block can hold 1,188 Falcon spends: 0.022 s, which is harmless.
+- Signing is wallet-side only: SLH-DSA 237,527 µs (0.24 s per owner signature), Falcon 2,358 µs.
+  Key generation: SLH-DSA 30,965 µs, Falcon 11,097 µs.
 
 ## 5. Other effects
 

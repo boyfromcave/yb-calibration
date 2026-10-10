@@ -48,10 +48,12 @@ declared in `EXTRA_VOLUMES` (transfers, claims, bridge locks and recovers per da
 not data) and a `stress` scenario (10,000 transfers a day, the plan §6 figure). Bytes per day are
 `Σ count × size`, a year is 365 days, block space is 2 MB × 1,152 blocks a day.
 
-**Validation.** Structural only: SLH/Falcon spends per full block, the policy cap of 1,000
-`OP_CHECKPQSIG` per template (20,000 sigops ÷ 20, spec F-5), and the verify-time ratio below which a
-PQ-filled block verifies no slower than a block of P2PKH inputs. Measured times are `VERIFY_US`
-placeholders (`None`) until the Q1 benchmarks exist.
+**Validation.** SLH/Falcon spends per full block, the policy cap of 1,000 `OP_CHECKPQSIG` per
+template (20,000 sigops ÷ 20, spec F-5), the verify-time ratio below which a PQ-filled block verifies
+no slower than a block of P2PKH inputs, and seconds per full block from `VERIFY_US`: the Q1 benchmark
+table (ycash-dd `q/pqlib` 7838d66ce, Apple arm64, -O3, single thread; ECDSA 18.9, SLH-DSA 235.0,
+Falcon 18.9 µs per verify). No Sapling verify figure exists in this repo or the Q1 table, so the
+Sapling-full block's time is reported as missing.
 
 ## Limits
 

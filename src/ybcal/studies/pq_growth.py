@@ -17,7 +17,7 @@ in ``docs/plans/yellowback-quantum-spec.md``):
    release multiplier ``m`` with the rule that chose it.
 4. **Validation cost.** Structural bounds (PQ verifications per full block, the verify-time budget
    that keeps a PQ-filled block no slower than an ECDSA-stuffed one); measured times are
-   parameters (``VERIFY_US``) and stay ``None`` until the Q1 benchmarks exist.
+   (``VERIFY_US``) come from the Q1 benchmark table; the Sapling figure is missing.
 
 Node constants (cited at ``wt/q-dd`` = ycash-dd ``upgrade/quantum-vaults`` @ ``ec9abe852`` and
 ``wt/q6`` = ycash6 @ ``0f150defb``) are module constants; tests pin them.
@@ -442,11 +442,15 @@ def growth(variant: str, scenario: str, vol: Mapping[str, float], **kw: int) -> 
 
 
 # ---------------------------------------------------------------------------------------------------
-# Validation cost (structural; measured times are placeholders)
+# Validation cost (structural bounds × the Q1 benchmark times)
 
-#: Verify time per signature in microseconds on the CI runner / reference machine. PLACEHOLDERS: fill from
-#: the Q1 benchmarks (ycash-dd ``q/pqlib``: no bench output committed as of d4038d544).
-VERIFY_US: dict[str, float | None] = {"ecdsa": None, "slh": None, "falcon": None}
+#: Verify time per signature in microseconds: the Q1 benchmark table (ycash-dd ``q/pqlib`` 7838d66ce,
+#: ``src/crypto/pq/README``; Apple arm64, -O3, single thread, load ~8). ``sapling`` (one Sapling spend
+#: with its two outputs' proofs) has no figure in this repo or in the Q1 table: MISSING, left ``None``.
+VERIFY_US: dict[str, float | None] = {"ecdsa": 18.9, "slh": 235.0, "falcon": 18.9, "sapling": None}
+#: The rest of the Q1 table (µs/op), for the record: signing and key generation are wallet-side only.
+SIGN_US: dict[str, float] = {"ecdsa": 12.1, "slh": 237_527.0, "falcon": 2_358.0}
+KEYGEN_US: dict[str, float] = {"slh": 30_965.0, "falcon": 11_097.0}
 
 
 def validation(verify_us: Mapping[str, float | None] = VERIFY_US) -> dict[str, object]:
@@ -470,6 +474,13 @@ def validation(verify_us: Mapping[str, float | None] = VERIFY_US) -> dict[str, o
         t, te = verify_us.get(s), verify_us.get("ecdsa")
         out[f"{s}_block_verify_s"] = None if t is None else n * t / 1e6
         out["ecdsa_block_verify_s"] = None if te is None else ecdsa_per_block * te / 1e6
+        out[f"{s}_measured_ratio"] = None if t is None or te is None else t / te
+    # A Sapling-full block: z->z transactions of one spend and two outputs (one spend proof, two output
+    # proofs, spendAuthSig and bindingSig each); the per-transaction verify time is missing.
+    n_sap = MAX_BLOCK_SIZE // references()["sapling_z2z"].size
+    ts = verify_us.get("sapling")
+    out["sapling_z2z_per_block"] = n_sap
+    out["sapling_block_verify_s"] = None if ts is None else n_sap * ts / 1e6
     return out
 
 
@@ -603,8 +614,8 @@ def dust(policy: Policy, mult: float | None = None) -> dict[str, float]:
 
 def _fmt_val(v: object) -> str:
     if v is None:
-        return "PLACEHOLDER (no benchmark yet)"
-    return f"{v:,.2f}" if isinstance(v, float) else str(v)
+        return "MISSING (no figure in the repo or the Q1 table)"
+    return f"{v:,.4f}" if isinstance(v, float) else str(v)
 
 
 def _fmt_int(x: float) -> str:
@@ -670,7 +681,7 @@ def render_markdown(res: Mapping[str, object], multipliers: Sequence[float]) -> 
     )
     for r in rec["reasons"]:  # type: ignore[union-attr]
         L.append(f"- {r}")
-    L.append("\n## Validation (structural)\n")
+    L.append("\n## Validation (Q1 benchmarks, µs/op: ECDSA 18.9, SLH 235.0, Falcon 18.9)\n")
     for k, v in res["validation"].items():  # type: ignore[union-attr]
         L.append(
             f"- `{k}`: {_fmt_val(v)}"

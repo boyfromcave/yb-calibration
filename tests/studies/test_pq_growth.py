@@ -89,7 +89,13 @@ def test_validation_structure():
     assert v["policy_pq_checks_per_block"] == 1_000
     assert v["slh_per_block"] == 248 and v["slh_per_block_policy"] == 248
     assert v["falcon_per_block_policy"] == 1_000 < v["falcon_per_block"]
-    assert v["slh_block_verify_s"] is None  # placeholder until the Q1 benchmarks
+    # Q1 benchmark table (q/pqlib 7838d66ce): SLH 235.0 µs, Falcon 18.9 µs, ECDSA 18.9 µs
+    assert v["slh_block_verify_s"] == pytest.approx(248 * 235.0e-6)
+    assert v["falcon_block_verify_s"] == pytest.approx(1_188 * 18.9e-6)
+    assert v["ecdsa_block_verify_s"] == pytest.approx(13_513 * 18.9e-6)
+    assert v["slh_measured_ratio"] < v["slh_break_even_ratio"]
+    assert v["falcon_measured_ratio"] < v["falcon_break_even_ratio"]
+    assert v["sapling_block_verify_s"] is None and v["sapling_z2z_per_block"] == 842
     w = Q.validation({"ecdsa": 50.0, "slh": 1_000.0, "falcon": 100.0})
     assert w["slh_block_verify_s"] == pytest.approx(0.248)
 

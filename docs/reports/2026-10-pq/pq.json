@@ -1145,15 +1145,19 @@
   }
  },
  "validation": {
-  "ecdsa_block_verify_s": null,
+  "ecdsa_block_verify_s": 0.2553957,
   "ecdsa_inputs_per_block": 13513,
-  "falcon_block_verify_s": null,
+  "falcon_block_verify_s": 0.022453199999999996,
   "falcon_break_even_ratio": 11.374579124579125,
+  "falcon_measured_ratio": 1.0,
   "falcon_per_block": 1188,
   "falcon_per_block_policy": 1000,
   "policy_pq_checks_per_block": 1000,
-  "slh_block_verify_s": null,
+  "sapling_block_verify_s": null,
+  "sapling_z2z_per_block": 842,
+  "slh_block_verify_s": 0.05828,
   "slh_break_even_ratio": 54.48790322580645,
+  "slh_measured_ratio": 12.433862433862435,
   "slh_per_block": 248,
   "slh_per_block_policy": 248
  }
