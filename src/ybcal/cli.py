@@ -59,6 +59,7 @@ ROUTES: dict[tuple[str, ...], Route] = {
     ("recommend",): Route("ybcal.report.cli", "cli_recommend", "WP-8"),
     ("robust",): Route("ybcal.report.robust", "cli_robust", "infra"),
     ("verify",): Route("ybcal.model.cli", "cli_verify", "WP-1"),
+    ("pq",): Route("ybcal.studies.pq_growth", "cli_pq", "Q7"),
     ("devnet", "build"): Route("ybcal.devnet.cli", "cli_build", "WP-9"),
     ("devnet", "run"): Route("ybcal.devnet.cli", "cli_run", "WP-9"),
     ("devnet", "validate"): Route("ybcal.devnet.cli", "cli_validate", "WP-9"),
@@ -226,6 +227,8 @@ def build_parser() -> argparse.ArgumentParser:
         "robust", help="recommend across seeds × data windows × price models; stability tables")
     _common_run_args(p)
     subs[("verify",)] = top.add_parser("verify", help="kernel parity vs reference model + C++ examples")
+    subs[("pq",)] = top.add_parser(
+        "pq", help="post-quantum tx sizes, chain growth and the -pqfeerate multiplier")
 
     # devnet
     vg = group("devnet", "regtest devnet of real ycashd nodes (optional)")
