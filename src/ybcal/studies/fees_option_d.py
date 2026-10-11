@@ -819,6 +819,436 @@ def recommend(policy: Policy, d: OptionD, height: int) -> Recommendation:
 
 
 # ---------------------------------------------------------------------------------------------------
+# 6. Attestor economics (quantum plan D-Q-25, red flag 3 of D-Q-23a): adoption tier × mint-size model ×
+# YEC price × bond rule → revenue per seat and return on bond; the attestor share and the bond are the
+# levers. ``ybcal fees --attestors`` writes attestors.md.
+
+ATTEST_PRICES: tuple[float, ...] = (0.40, 1.0, 5.0, 10.0)
+ATTEST_SHARES: tuple[float, ...] = (0.50, 0.75, 1.00)  #: attestFeeBps candidates (50 % today)
+ATTEST_MODELS: tuple[str, ...] = ("supply", "d24")  #: supply-consistent mean; log-uniform to $100k
+BOND_FLOOR_YEC = 2_000  #: D-Q-23a: a dollar bondMin keeps a 2,000-YEC floor
+BOND_RULES: tuple[str, ...] = ("usd2k", "usd8k", "yec20k")
+BOND_RULE_LABEL = {"usd2k": "$2,000 pinned", "usd8k": "$8,000 pinned", "yec20k": "20,000 YEC"}
+WHALE_MINTS_PER_YEAR = 10  #: the whale tier: ten $100k vaults a year on top of mid
+HARM_SEATS = 7  #: hardening plan C-4 / D-RD-ATT-4: harmful capture needs 7 of 9 seats by splitting
+LOW_MEAN_DEBT_USD = 50_000.0 / (2.0 * MEAN_LIFE_DAYS)  #: ≈ $139, the low tier's supply-consistent mean
+
+
+def adoption_tiers(policy: Policy) -> dict[str, dict[str, float]]:
+    """The tiers, explicit: the policy's low / mid / high (mints, redeems per day) with ``pq_growth``'s
+    transfers and claims per day, plus ``whale`` = mid with ten $100k mints (and redeems) a year on top.
+    Only mints pay the attestors (AFEE-1); redeems pay the pool, transfers and claims pay network fees."""
+    sc = PQ.scenarios(policy)
+    out: dict[str, dict[str, float]] = {}
+    for name in ("low", "mid", "high"):
+        v = sc[name]
+        out[name] = {
+            "mints_per_day": v["mints_per_day"],
+            "redeems_per_day": v["redeems_per_day"],
+            "transfers_per_day": v["transfers_per_day"],
+            "claims_per_day": v["claims_per_day"],
+            "yed_supply_usd": float(policy.adoption_scenarios[name]["yed_supply_usd"]),
+            "whale_mints_per_year": 0.0,
+        }
+    w = dict(out["mid"])
+    w["whale_mints_per_year"] = float(WHALE_MINTS_PER_YEAR)
+    out["whale"] = w
+    return out
+
+
+def bond_yec(rule: str, price_usd: float) -> float:
+    """The bond in YEC under a rule: ``yec20k`` is 20,000 YEC; ``usdNk`` is $N,000 at the registration
+    price with the 2,000-YEC floor (D-Q-23a)."""
+    if rule == "yec20k":
+        return float(BOND_MIN_YEC)
+    usd = {"usd2k": 2_000.0, "usd8k": 8_000.0}[rule]
+    return max(usd / price_usd, float(BOND_FLOOR_YEC))
+
+
+def bond_usd(rule: str, price_usd: float) -> float:
+    return bond_yec(rule, price_usd) * price_usd
+
+
+def tier_mean_fee_usd(tier: Mapping[str, float], model: str, d: OptionD = DEFAULT) -> float:
+    """Mean protocol fee per ordinary mint under the size model (the whale mints are added separately)."""
+    return mean_fee_usd(model, tier, d, 0.40, "option_d")
+
+
+def set_revenue_usd_year(tier: Mapping[str, float], model: str, share: float, d: OptionD = DEFAULT) -> float:
+    """AFEE-1 to the whole seated set per year: ``share`` of FEE-1 on every mint (price-invariant: the fee
+    is dollars at pMint)."""
+    ordinary = tier["mints_per_day"] * 365 * tier_mean_fee_usd(tier, model, d)
+    whale = tier["whale_mints_per_year"] * protocol_fee_usd(MAX_MINT_USD, d)
+    return (ordinary + whale) * share
+
+
+def seat_revenue_usd_year(tier: Mapping[str, float], model: str, share: float, d: OptionD = DEFAULT) -> float:
+    return set_revenue_usd_year(tier, model, share, d) / SEATS
+
+
+@dataclass
+class SeatRevenue:
+    tier: str
+    size_model: str
+    mints_per_year: float
+    mean_debt_usd: float
+    mean_fee_usd: float
+    whale_fee_usd_year: float
+    set_usd_year: float  #: at the current 50 % share
+    seat_usd_year: float
+    seat_usd_month: float
+    seat_usd_month_by_share: dict[str, float]
+
+
+def seat_revenue_rows(policy: Policy, d: OptionD = DEFAULT) -> list[SeatRevenue]:
+    out = []
+    for name, t in adoption_tiers(policy).items():
+        for model in ATTEST_MODELS:
+            s = seat_revenue_usd_year(t, model, ATTEST_FEE_BPS / BPS, d)
+            out.append(
+                SeatRevenue(
+                    name,
+                    model,
+                    t["mints_per_day"] * 365 + t["whale_mints_per_year"],
+                    mean_debt_usd(model, t),
+                    tier_mean_fee_usd(t, model, d),
+                    t["whale_mints_per_year"] * protocol_fee_usd(MAX_MINT_USD, d),
+                    set_revenue_usd_year(t, model, ATTEST_FEE_BPS / BPS, d),
+                    s,
+                    s / 12,
+                    {f"{sh:.0%}": seat_revenue_usd_year(t, model, sh, d) / 12 for sh in ATTEST_SHARES},
+                )
+            )
+    return out
+
+
+@dataclass
+class BondReturn:
+    tier: str
+    size_model: str
+    price_usd: float
+    bond_rule: str
+    bond_yec: float
+    bond_usd: float
+    seat_usd_year: float  #: at the current 50 % share
+    return_apr: float  #: seat revenue / bond value, per year
+    cost_of_capital_usd_year: float
+    clears_cost_of_capital: bool
+
+
+def bond_return_rows(policy: Policy, d: OptionD = DEFAULT) -> list[BondReturn]:
+    apr = float(policy.bond_opportunity_cost_apr)
+    out = []
+    for name, t in adoption_tiers(policy).items():
+        for model in ATTEST_MODELS:
+            s = seat_revenue_usd_year(t, model, ATTEST_FEE_BPS / BPS, d)
+            for p in ATTEST_PRICES:
+                for rule in BOND_RULES:
+                    b = bond_usd(rule, p)
+                    out.append(
+                        BondReturn(
+                            name, model, p, rule, bond_yec(rule, p), b, s, s / b, b * apr, s >= b * apr
+                        )
+                    )
+    return out
+
+
+def break_even_mints_per_day(mean_fee: float, share: float, bond: float, apr: float) -> float:
+    """Mints a day at which a seat's yearly AFEE-1 revenue equals the bond's cost of capital (closed form:
+    ``apr × bond × SEATS / (365 × mean_fee × share)``)."""
+    return apr * bond * SEATS / (365 * mean_fee * share)
+
+
+@dataclass
+class BreakEven:
+    size_model: str
+    mean_fee_usd: float
+    share: float
+    bond_rule: str
+    bond_usd_by_price: dict[str, float]
+    mints_per_day_by_price: dict[str, float]
+
+
+def break_even_rows(policy: Policy, d: OptionD = DEFAULT) -> list[BreakEven]:
+    """Break-even adoption for each share × bond rule, at each price. The supply-consistent fee is the
+    low tier's (mean mint ≈ $139 → $1.39), the conservative end: that model's mean mint grows with the
+    tier (mid $278, high $556)."""
+    apr = float(policy.bond_opportunity_cost_apr)
+    low = {"yed_supply_usd": 50_000.0, "mints_per_day": 2.0}
+    out = []
+    for model in ATTEST_MODELS:
+        fee = mean_fee_usd(model, low, d, 0.40, "option_d")
+        for share in ATTEST_SHARES:
+            for rule in BOND_RULES:
+                out.append(
+                    BreakEven(
+                        model,
+                        fee,
+                        share,
+                        rule,
+                        {f"{p:g}": bond_usd(rule, p) for p in ATTEST_PRICES},
+                        {
+                            f"{p:g}": break_even_mints_per_day(fee, share, bond_usd(rule, p), apr)
+                            for p in ATTEST_PRICES
+                        },
+                    )
+                )
+    return out
+
+
+def capture_rows(height: int) -> list[dict[str, float | str]]:
+    """What the bond buys as security: the capital to split into ``HARM_SEATS`` seats against the YED cap
+    at each price — D-RD-ATT-4's yardstick (one year of MINT-6 cap growth, the old base) and D-Q-25's cap
+    (15 % of circulating supply × price)."""
+    sup = cumulative_supply_zat(height) / COIN
+    year_yec = issued_since(height, height + BLOCKS_PER_YEAR) / COIN * SUPPLY_CAP_BPS / BPS
+    out: list[dict[str, float | str]] = []
+    for p in ATTEST_PRICES:
+        cap = sup * p * SUPPLY_CAP_BPS / BPS
+        for rule in BOND_RULES:
+            cap_capital = HARM_SEATS * bond_usd(rule, p)
+            out.append(
+                {
+                    "price_usd": p,
+                    "bond_rule": rule,
+                    "bond_usd": bond_usd(rule, p),
+                    "capture_capital_usd": cap_capital,
+                    "cap_d_q_25_usd": cap,
+                    "capture_to_cap": cap_capital / cap,
+                    "cap_year_old_rule_usd": year_yec * p,
+                    "capture_to_old_cap_year": cap_capital / (year_yec * p),
+                    "bond_per_seat_to_meet_d_rd_att_4_usd": cap / HARM_SEATS,
+                }
+            )
+    return out
+
+
+def attestor_economics(policy: Policy, d: OptionD = DEFAULT, today: date | None = None) -> dict[str, object]:
+    height = height_today(policy, today)
+    tiers = adoption_tiers(policy)
+    low_fee = mean_fee_usd("supply", tiers["low"], d, 0.40, "option_d")
+    return {
+        "constants": {
+            "height": height,
+            "seats": SEATS,
+            "attest_fee_bps": ATTEST_FEE_BPS,
+            "shares": list(ATTEST_SHARES),
+            "prices_usd": list(ATTEST_PRICES),
+            "bond_rules": {r: BOND_RULE_LABEL[r] for r in BOND_RULES},
+            "bond_floor_yec": BOND_FLOOR_YEC,
+            "cost_of_capital_apr": float(policy.bond_opportunity_cost_apr),
+            "attestor_min_monthly_revenue_usd": float(policy.attestor_min_monthly_revenue_usd),
+            "harm_seats": HARM_SEATS,
+            "low_mean_debt_usd": LOW_MEAN_DEBT_USD,
+            "low_mean_fee_usd": low_fee,
+            "d24_mean_debt_usd": mean_debt_usd("d24", tiers["low"]),
+            "d24_mean_fee_usd": mean_fee_usd("d24", tiers["low"], d, 0.40, "option_d"),
+            "whale_fee_usd": protocol_fee_usd(MAX_MINT_USD, d),
+        },
+        "tiers": tiers,
+        "seat_revenue": [asdict(r) for r in seat_revenue_rows(policy, d)],
+        "bond_return": [asdict(r) for r in bond_return_rows(policy, d)],
+        "break_even": [asdict(r) for r in break_even_rows(policy, d)],
+        "capture": capture_rows(height),
+    }
+
+
+def _pct(x: float) -> str:
+    return f"{x:.1%}" if x < 10 else f"{x:.0%}"
+
+
+def _row(rows: Sequence[Mapping[str, object]], **where: object) -> Mapping[str, object]:
+    return next(r for r in rows if all(r[k] == v for k, v in where.items()))
+
+
+def render_attestors_markdown(res: Mapping[str, object]) -> str:
+    C: Mapping[str, object] = res["constants"]  # type: ignore[assignment]
+    tiers: Mapping[str, Mapping[str, float]] = res["tiers"]  # type: ignore[assignment]
+    seat_rows: list[Mapping[str, object]] = res["seat_revenue"]  # type: ignore[assignment]
+    ret_rows: list[Mapping[str, object]] = res["bond_return"]  # type: ignore[assignment]
+    be_rows: list[Mapping[str, object]] = res["break_even"]  # type: ignore[assignment]
+    cap_rows: list[Mapping[str, object]] = res["capture"]  # type: ignore[assignment]
+    apr = float(C["cost_of_capital_apr"])  # type: ignore[arg-type]
+    seats = int(C["seats"])  # type: ignore[arg-type]
+    share_pct = int(C["attest_fee_bps"]) / 100  # type: ignore[arg-type]
+    low_fee = float(C["low_mean_fee_usd"])  # type: ignore[arg-type]
+    d24_fee = float(C["d24_mean_fee_usd"])  # type: ignore[arg-type]
+    prices = " / ".join(f"${p:,.2f}" for p in ATTEST_PRICES)
+    L: list[str] = []
+    L.append("# Attestor economics — adoption tier × YEC price × bond rule (D-Q-25, red flag 3)\n")
+    L.append(
+        f"Analytic, frozen data only (`ybcal fees --attestors`). {seats} seated attestors (`mSelect` 4 + "
+        f"`kSlack` 2); the attestor share is `attestFeeBps` = {share_pct:.0f} % of FEE-1, paid by the "
+        "minter **on top of** the pool fee (AFEE-1), on mints only — owner redeems pay the pool alone, "
+        "transfers and claims pay network fees. Under Option D the fee is dollars at `pMint`, so **every "
+        "revenue figure below is price-invariant**; only the bond's dollar value (and so the return on it) "
+        f"moves with the YEC price. Cost of capital: {apr:.0%}/yr on the bond's dollar value (policy "
+        "`bond_opportunity_cost_apr`), stated separately from revenue throughout.\n"
+    )
+    # 1. tiers
+    L.append("## 1. Adoption tiers and mint-size models\n")
+    L.append("| Tier | mints/day | redeems/day | transfers/day | claims/day | YED outstanding | on top |")
+    L.append("|---|---:|---:|---:|---:|---:|---|")
+    for name, t in tiers.items():
+        w = t["whale_mints_per_year"]
+        extra = f"{w:.0f} × ${MAX_MINT_USD:,.0f} mints a year (each redeemed once)" if w else "—"
+        L.append(
+            f"| {name} | {t['mints_per_day']:g} | {t['redeems_per_day']:g} | {t['transfers_per_day']:,.0f} | "
+            f"{t['claims_per_day']:g} | ${t['yed_supply_usd']:,.0f} | {extra} |"
+        )
+    L.append(
+        "\nlow / mid / high are the policy's `adoption_scenarios` (mints, redeems, YED outstanding) with "
+        "`pq_growth`'s transfers and claims; whale is mid plus ten $100k vaults a year. Mint-size models "
+        "(no real size data): **supply-consistent** — the mean mint that keeps the tier's YED outstanding "
+        f"over {MEAN_LIFE_DAYS:.0f}-day mean lives (${LOW_MEAN_DEBT_USD:,.0f} in the low tier, "
+        f"${2 * LOW_MEAN_DEBT_USD:,.0f} mid, ${4 * LOW_MEAN_DEBT_USD:,.0f} high; fee ${low_fee:.2f} / "
+        f"${2 * low_fee:.2f} / ${4 * low_fee:.2f} per mint); **log-uniform to $100k** (`d24`) — mean mint "
+        f"${C['d24_mean_debt_usd']:,.0f}, mean fee ${d24_fee:.2f} per mint, dominated by the top decade. "
+        f"A $100k whale mint pays ${C['whale_fee_usd']:.0f}.\n"
+    )
+    # 2. revenue
+    L.append("## 2. Revenue per seat (price-invariant)\n")
+    L.append(
+        "| Tier | sizes | mints/yr | mean mint | fee/mint | whale fees $/yr | set $/yr at 50 % | "
+        "**$/seat/month at 50 %** | $/seat/yr at 50 % | $/seat/month at 75 % | at 100 % |"
+    )
+    L.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for r in seat_rows:
+        by: Mapping[str, float] = r["seat_usd_month_by_share"]  # type: ignore[assignment]
+        L.append(
+            f"| {r['tier']} | {r['size_model']} | {r['mints_per_year']:,.0f} | "
+            f"{_usd(float(r['mean_debt_usd']))} | ${float(r['mean_fee_usd']):.2f} | "  # type: ignore[arg-type]
+            f"{_usd(float(r['whale_fee_usd_year']))} | {_usd(float(r['set_usd_year']))} | "  # type: ignore[arg-type]
+            f"**{_usd(float(r['seat_usd_month']))}** | {_usd(float(r['seat_usd_year']))} | "  # type: ignore[arg-type]
+            f"{_usd(by['75%'])} | {_usd(by['100%'])} |"
+        )
+    low_s = _row(seat_rows, tier="low", size_model="supply")
+    mid_s = _row(seat_rows, tier="mid", size_model="supply")
+    low_100 = low_s["seat_usd_month_by_share"]["100%"]  # type: ignore[index]
+    L.append(
+        f"\nThe policy's attestor floor is ${C['attestor_min_monthly_revenue_usd']:.0f}/seat/month. Raising "
+        "the share raises the minter's cost (the attestor output is on top of FEE-1, so 100 % doubles what "
+        "a mint pays in protocol fee) and never changes the pool's cut; it scales every row linearly and "
+        f"changes no verdict: at the low tier 100 % is still {_usd(low_100)}/seat/month.\n"
+    )
+    # 3. return on bond
+    L.append("## 3. Return on bond (% per year, at the 50 % share)\n")
+    L.append(
+        "Return = a seat's yearly revenue ÷ the bond's dollar value at the price shown. Bond rules: "
+        "(a) **20,000 YEC** (today's `bondMin`), (b) **$8,000 pinned** at the registration price with the "
+        f"{BOND_FLOOR_YEC:,}-YEC floor (D-Q-23a), and $2,000 pinned with the same floor. Bond value by "
+        "price:\n"
+    )
+    L.append("| Bond rule | " + " | ".join(f"${p:,.2f}" for p in ATTEST_PRICES) + " |")
+    L.append("|---|" + "---:|" * len(ATTEST_PRICES))
+    for rule in BOND_RULES:
+        cells = " | ".join(f"{bond_yec(rule, p):,.0f} YEC = {_usd(bond_usd(rule, p))}" for p in ATTEST_PRICES)
+        L.append(f"| {BOND_RULE_LABEL[rule]} | {cells} |")
+    L.append(
+        f"\nThe {BOND_FLOOR_YEC:,}-YEC floor binds on the $2,000 bond above $1 and on the $8,000 bond above "
+        "$4, so at $5 and $10 both pinned bonds are the floor ($10,000 / $20,000) and the two rules are the "
+        "same bond.\n"
+    )
+    L.append("| Tier | sizes | $/seat/yr | " + " | ".join(BOND_RULE_LABEL[r] for r in BOND_RULES) + " |")
+    L.append("|---|---|---:|" + "---|" * len(BOND_RULES))
+    for s in seat_rows:
+        cells = []
+        for rule in BOND_RULES:
+            parts = []
+            for p in ATTEST_PRICES:
+                x = _row(ret_rows, tier=s["tier"], size_model=s["size_model"], price_usd=p, bond_rule=rule)
+                mark = "**" if x["clears_cost_of_capital"] else ""
+                parts.append(f"{mark}{_pct(float(x['return_apr']))}{mark}")  # type: ignore[arg-type]
+            cells.append(" / ".join(parts))
+        year = _usd(float(s["seat_usd_year"]))  # type: ignore[arg-type]
+        L.append(f"| {s['tier']} | {s['size_model']} | {year} | " + " | ".join(cells) + " |")
+    L.append(
+        f"\nCells: return at {prices}; **bold** clears the {apr:.0%} cost of capital. The 20,000-YEC bond's "
+        "return falls 25× from $0.40 to $10 at the same adoption; the pinned bond's falls only through its "
+        "YEC floor (2.5× from $1 to $10).\n"
+    )
+    # 4. break-even
+    L.append(f"## 4. Break-even adoption: mints/day for return ≥ {apr:.0%}\n")
+    L.append(
+        "Closed form: `mints/day = apr × bond × seats / (365 × fee per mint × share)`. Fee per mint: the "
+        f"low tier's supply-consistent ${low_fee:.2f} (conservative: that model's mean grows with the tier) "
+        f"and log-uniform-to-$100k ${d24_fee:.2f}. For reference: low 2, mid 10, high 50 mints a day.\n"
+    )
+    heads = " | ".join(f"mints/day at ${p:,.2f}" for p in ATTEST_PRICES)
+    L.append(f"| sizes | share | bond | {heads} |")
+    L.append("|---|---:|---|" + "---:|" * len(ATTEST_PRICES))
+    for r in be_rows:
+        be: Mapping[str, float] = r["mints_per_day_by_price"]  # type: ignore[assignment]
+        cells = " | ".join(f"{be[f'{p:g}']:,.1f}" for p in ATTEST_PRICES)
+        label = BOND_RULE_LABEL[str(r["bond_rule"])]
+        L.append(f"| {r['size_model']} | {r['share']:.0%} | {label} | {cells} |")
+    # 5. slashing
+    L.append("\n## 5. The slashing side: what a seat risks against what it earns\n")
+    L.append(
+        "| YEC price | bond rule | bond | capture capital (7 seats) | D-Q-25 cap (15 % of supply × price) | "
+        "capture ÷ cap | old base: one year of MINT-6 growth | capture ÷ old | bond/seat to meet D-RD-ATT-4 |"
+    )
+    L.append("|---:|---|---:|---:|---:|---:|---:|---:|---:|")
+    for r in cap_rows:
+        f = {k: float(v) for k, v in r.items() if k != "bond_rule"}  # type: ignore[arg-type]
+        L.append(
+            f"| ${f['price_usd']:,.2f} | {BOND_RULE_LABEL[str(r['bond_rule'])]} | {_usd(f['bond_usd'])} | "
+            f"{_usd(f['capture_capital_usd'])} | {_usd(f['cap_d_q_25_usd'])} | {f['capture_to_cap']:.1%} | "
+            f"{_usd(f['cap_year_old_rule_usd'])} | {f['capture_to_old_cap_year']:.2f}× | "
+            f"{_usd(f['bond_per_seat_to_meet_d_rd_att_4_usd'])} |"
+        )
+    cap40 = _row(cap_rows, price_usd=0.40, bond_rule="usd8k")
+    cap2k = _row(cap_rows, price_usd=0.40, bond_rule="usd2k")
+    c8, c2 = float(cap40["capture_capital_usd"]), float(cap2k["capture_capital_usd"])  # type: ignore[arg-type]
+    low_yr, mid_yr = _usd(float(low_s["seat_usd_year"])), _usd(float(mid_s["seat_usd_year"]))  # type: ignore[arg-type]
+    L.append(
+        "\n**Judgement.** A seat risks its whole bond — burned on equivocation (two signatures over two "
+        "spends of one outpoint; upgrade plan §3.6, EQV-1 for prices) or on a `SET_REMOVE burn=1` by 7 "
+        f"members — to earn {low_yr}/yr at the low tier and {mid_yr}/yr at mid: the fee never pays for a "
+        "seat's misbehaviour, so the stake-at-risk argument holds at any bond in this range. What the bond's "
+        "*size* buys is the cost of capturing the quantile by seat splitting (§3.2: a set referenced by id "
+        f"can be slashed; C-4 / D-RD-ATT-4: 7 of 9 seats). That cost is {_usd(c8)} with the $8,000 bond and "
+        f"{_usd(c2)} with $2,000 at $0.40 — against a D-Q-25 cap of {_usd(float(cap40['cap_d_q_25_usd']))}, "  # type: ignore[arg-type]
+        f"i.e. {float(cap40['capture_to_cap']):.1%} / {float(cap2k['capture_to_cap']):.1%} of what a "  # type: ignore[arg-type]
+        "captured price could mint. D-RD-ATT-4's yardstick (capture capital ≥ one year of cap growth) was "
+        f"met by the old issuance base ({float(cap40['capture_to_old_cap_year']):.2f}× with $8,000) and "  # type: ignore[arg-type]
+        "**is not met by any affordable bond under D-Q-25** — it would take "
+        f"{_usd(float(cap40['bond_per_seat_to_meet_d_rd_att_4_usd']))} a seat at $0.40. So the security "  # type: ignore[arg-type]
+        "argument the upgrade plan makes does not rest on the bond alone: it rests on H-1 "
+        "(`pMint = min(xMint, aMint)`: a captured attestor set can raise the mint price only up to the "
+        "pools' own price), the arming bar (H-2, seven matured distinct bonds), slashing, and the per-vault "
+        "share limit. A lower bond weakens the one leg it does carry — the splitting cost — "
+        f"{c8 / c2:.0f}× (from {_usd(c8)} to {_usd(c2)}) and the equivocation stake {c8 / c2:.0f}×, for a "
+        "return-on-bond gain that still does not make the low tier pay (§3). A lower bond buys no revenue; "
+        "it only changes the denominator.\n"
+    )
+    # 6. recommendation
+    L.append("## 6. Recommendation for launch\n")
+    be8 = _row(be_rows, size_model="supply", share=0.5, bond_rule="usd8k")["mints_per_day_by_price"]
+    be2 = _row(be_rows, size_model="supply", share=0.5, bond_rule="usd2k")["mints_per_day_by_price"]
+    low_75 = low_s["seat_usd_month_by_share"]["75%"]  # type: ignore[index]
+    L.append(
+        "**Share 50 % (`attestFeeBps` 5,000), bond $8,000 pinned at the registration price with the "
+        f"{BOND_FLOOR_YEC:,}-YEC floor.** Reasoning: (1) **revenue is set by adoption, not by bond size** — "
+        "a seat's income is mints/day × fee × share ÷ 6 and contains no bond term; the bond only sets the "
+        f"hurdle, and the $8,000 bond's hurdle ({be8['0.4']:.1f} mints/day at 50 %) is the mid tier, "  # type: ignore[index]
+        "exactly where the Option D bands start paying the set anyway (§2); (2) the $2,000 bond lowers the "
+        f"hurdle to {be2['0.4']:.1f} mints/day but cuts the splitting cost to {_usd(c2)} for the whole set "  # type: ignore[index]
+        f"(§5), and the low tier still earns {_usd(float(low_s['seat_usd_month']))}/seat/month either way; "  # type: ignore[arg-type]
+        "(3) 20,000 YEC is $8,000 today but $200,000 at $10, where even the high tier (supply-consistent "
+        "sizes) returns under 5 % — the pin removes the price dependence that D-Q-23a already flagged; "
+        "(4) a higher share is a module "
+        "parameter the owner can raise later without touching the primitive, but at launch it only taxes "
+        "minters (75 % adds a quarter to every mint's protocol fee) to move the low tier from "
+        f"{_usd(float(low_s['seat_usd_month']))} to {_usd(low_75)} a month. At launch the seats are run the "  # type: ignore[arg-type]
+        "way the pools are at $25/pool/month: by operators who hold YEC and want the system to exist, not "
+        "for the fee. The lever that pays attestors is mints per day; a renewal release can revisit the "
+        "share once the real mint count is known.\n"
+    )
+    return "\n".join(L) + "\n"
+
+
+# ---------------------------------------------------------------------------------------------------
 # Run and report
 
 
@@ -1035,18 +1465,29 @@ def render_markdown(res: Mapping[str, object]) -> str:
 def configure_fees(p: argparse.ArgumentParser) -> None:
     p.add_argument("--policy", default=None, help="policy TOML (default policy/default.toml)")
     p.add_argument("--today", default=None, help="date for the height estimate (YYYY-MM-DD; default today)")
-    p.add_argument("--out", default=None, help="write fees.json and fees.md here")
+    p.add_argument("--out", default=None, help="write fees.json and fees.md (or attestors.*) here")
+    p.add_argument(
+        "--attestors",
+        action="store_true",
+        help="attestor economics only (D-Q-25): tiers × price × bond rule → attestors.md / attestors.json",
+    )
 
 
 def cli_fees(args: argparse.Namespace) -> int:
     policy = Policy.load(args.policy)
     today = date.fromisoformat(args.today) if args.today else None
-    res = run(policy, today=today)
-    md = render_markdown(res)
+    if getattr(args, "attestors", False):
+        res = attestor_economics(policy, today=today)
+        md = render_attestors_markdown(res)
+        stem = "attestors"
+    else:
+        res = run(policy, today=today)
+        md = render_markdown(res)
+        stem = "fees"
     if args.out:
         d = Path(args.out)
         d.mkdir(parents=True, exist_ok=True)
-        (d / "fees.json").write_text(json.dumps(res, indent=1, sort_keys=True, default=str) + "\n")
-        (d / "fees.md").write_text(md)
+        (d / f"{stem}.json").write_text(json.dumps(res, indent=1, sort_keys=True, default=str) + "\n")
+        (d / f"{stem}.md").write_text(md)
     sys.stdout.write(md)
     return 0

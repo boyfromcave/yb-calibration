@@ -47,6 +47,17 @@ the $/KB target pays fewer zat per byte than a 245-byte P2PKH payment (4.08 zat/
 `residualMinZat` restated in dollars with a YEC floor. **Sensitivity** ±50 % on each band rate and each
 $/KB target.
 
+**Attestor economics** (`ybcal fees --attestors`, quantum plan D-Q-25 red flag 3; report
+[attestors.md](../reports/2026-10-fees/attestors.md)). The adoption tiers made explicit (the policy's
+low / mid / high with `pq_growth`'s transfers and claims, plus `whale` = mid with ten $100k mints a year)
+× two mint-size models (supply-consistent; log-uniform to $100k) → AFEE-1 revenue per seat per month and
+year at shares 50 / 75 / 100 % (price-invariant: the fee is dollars at `pMint`); return on bond per year
+under 20,000 YEC and the dollar-pinned $8,000 / $2,000 bonds (2,000-YEC floor) at $0.40 / $1 / $5 / $10,
+against the policy's 5 %/yr cost of capital; the break-even mints/day in closed form
+(`apr × bond × seats / (365 × fee × share)`); and the capture side — seven seats' worth of bond against
+the D-Q-25 cap (15 % of circulating supply × price) and against D-RD-ATT-4's old yardstick (one year of
+MINT-6 growth) — with one recommendation.
+
 ## Assumptions to re-check
 
 - Mint sizes: no real data; three models are reported side by side.

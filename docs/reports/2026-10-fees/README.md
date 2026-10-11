@@ -181,6 +181,18 @@ the cap binds at $0.40 at every setting, parity fails at the ceiling at every se
 5. **The bands do not pay the attestor set at low adoption** with supply-consistent sizes ($7 a seat a
    month against a $33 bond cost and a $50 floor) — nor does today's rule ($3); the owner decides (§3).
 
+## Attestor economics (D-Q-25, red flag 3 above)
+
+[attestors.md](attestors.md) (`ybcal fees --attestors --today 2026-10-11 --out docs/reports/2026-10-fees`,
+numbers in [attestors.json](attestors.json)): adoption tier × mint-size model × YEC price × bond rule →
+revenue per seat and return on bond, break-even mints/day for shares 50 / 75 / 100 % and bonds $2,000 /
+$8,000 / 20,000 YEC, the capture-capital table and the launch recommendation (**share 50 %, bond $8,000
+pinned, 2,000-YEC floor**). Headline: revenue is price-invariant and has no bond term — $7 / $70 / $704 a
+seat a month at low / mid / high with supply-consistent sizes; the $8,000 bond clears 5 %/yr from 9.5
+mints/day (the mid tier); a $2,000 bond lowers that to 2.4 but cuts the splitting cost to $14k; under
+D-Q-25 no affordable bond meets D-RD-ATT-4's cap yardstick ($145k a seat at $0.40), so the security
+argument rests on H-1 / H-2 / slashing / the share limit, not on bond size.
+
 ## Assumptions (all stated in the code)
 
 Mint sizes (no real data; three models). Depth from 87 snapshots of three venues on 2026-10-04; 24 h

@@ -154,3 +154,82 @@ def test_run_and_cli(tmp_path, capsys):
     md = (tmp_path / "fees.md").read_text()
     assert "## Recommendation" in md and "maxVaultShareBps" in md
     assert "Recommendation" in capsys.readouterr().out
+
+
+def test_attestor_tiers_bonds_and_break_even():
+    pol = Policy.load(None)
+    tiers = F.adoption_tiers(pol)
+    assert list(tiers) == ["low", "mid", "high", "whale"]
+    assert tiers["low"]["transfers_per_day"] == 10.0 and tiers["low"]["claims_per_day"] == 0.2
+    assert tiers["high"]["transfers_per_day"] == 1_000.0 and tiers["high"]["mints_per_day"] == 50.0
+    assert tiers["whale"]["mints_per_day"] == 10.0 and tiers["whale"]["whale_mints_per_year"] == 10.0
+    # bond rules: 20,000 YEC scales with price; the pinned bonds keep the 2,000-YEC floor (D-Q-23a)
+    assert F.bond_usd("yec20k", 0.40) == 8_000.0 and F.bond_usd("yec20k", 10.0) == 200_000.0
+    assert F.bond_yec("usd8k", 0.40) == 20_000.0 and F.bond_yec("usd8k", 1.0) == 8_000.0
+    assert F.bond_yec("usd8k", 5.0) == 2_000.0 and F.bond_usd("usd8k", 10.0) == 20_000.0
+    assert F.bond_usd("usd2k", 0.40) == 2_000.0 and F.bond_usd("usd2k", 5.0) == 10_000.0
+    # revenue has no bond term and no price term: low tier, supply-consistent sizes, 50 %
+    low = tiers["low"]
+    assert F.seat_revenue_usd_year(low, "supply", 0.5) == pytest.approx(730 * (50_000 / 360) * 0.01 * 0.5 / 6)
+    assert F.seat_revenue_usd_year(low, "supply", 1.0) == pytest.approx(
+        2 * F.seat_revenue_usd_year(low, "supply", 0.5)
+    )
+    # the whale tier adds ten $145 fees a year on top of mid
+    mid, whale = tiers["mid"], tiers["whale"]
+    assert F.set_revenue_usd_year(whale, "supply", 0.5) - F.set_revenue_usd_year(mid, "supply", 0.5) == (
+        pytest.approx(10 * 145 * 0.5)
+    )
+    # break-even closed form inverts the return
+    fee = F.tier_mean_fee_usd(low, "supply")
+    be = F.break_even_mints_per_day(fee, 0.5, 8_000.0, 0.05)
+    assert be == pytest.approx(0.05 * 8_000 * 6 / (365 * fee * 0.5))
+    assert 9 < be < 10  # the $8,000 bond's hurdle is the mid tier
+    assert F.break_even_mints_per_day(fee, 0.5, 2_000.0, 0.05) == pytest.approx(be / 4)
+    assert F.break_even_mints_per_day(fee, 1.0, 8_000.0, 0.05) == pytest.approx(be / 2)
+
+
+def test_attestor_return_and_capture_rows():
+    pol = Policy.load(None)
+    rows = F.bond_return_rows(pol)
+    r = next(
+        x
+        for x in rows
+        if (x.tier, x.size_model, x.price_usd, x.bond_rule) == ("low", "supply", 0.40, "usd8k")
+    )
+    assert r.return_apr == pytest.approx(84.49 / 8_000, rel=1e-3) and not r.clears_cost_of_capital
+    m = next(
+        x
+        for x in rows
+        if (x.tier, x.size_model, x.price_usd, x.bond_rule) == ("mid", "supply", 0.40, "usd8k")
+    )
+    assert m.clears_cost_of_capital
+    h = next(
+        x
+        for x in rows
+        if (x.tier, x.size_model, x.price_usd, x.bond_rule) == ("high", "supply", 10.0, "yec20k")
+    )
+    assert not h.clears_cost_of_capital  # 20,000 YEC at $10 is a $200k bond
+    cap = F.capture_rows(3_062_423)
+    c8 = next(c for c in cap if c["price_usd"] == 0.40 and c["bond_rule"] == "usd8k")
+    assert c8["capture_capital_usd"] == 7 * 8_000
+    assert c8["cap_d_q_25_usd"] == pytest.approx(0.15 * 16_972_535.9375 * 0.40)
+    assert c8["capture_to_old_cap_year"] == pytest.approx(
+        56_000 / 39_420, rel=1e-3
+    )  # D-RD-ATT-4 met on the old base
+    assert c8["capture_to_cap"] < 0.06  # and not under D-Q-25
+    # the 20,000-YEC bond keeps the same capture/cap ratio at every price; the pinned bond's falls
+    ratios = {c["price_usd"]: c["capture_to_cap"] for c in cap if c["bond_rule"] == "yec20k"}
+    assert len({round(v, 6) for v in ratios.values()}) == 1
+
+
+def test_attestors_cli(tmp_path, capsys):
+    rc = cli.main(["fees", "--attestors", "--today", "2026-10-11", "--out", str(tmp_path)])
+    assert rc == 0
+    res = json.loads((tmp_path / "attestors.json").read_text())
+    assert res["constants"]["height"] == 3_062_423 and res["constants"]["seats"] == 6
+    assert len(res["seat_revenue"]) == 8 and len(res["break_even"]) == 18
+    md = (tmp_path / "attestors.md").read_text()
+    assert "## 6. Recommendation for launch" in md and "revenue is set by adoption, not by bond size" in md
+    assert "Share 50 %" in md and "$8,000 pinned" in md
+    assert not (tmp_path / "fees.md").exists()
+    assert "Attestor economics" in capsys.readouterr().out
