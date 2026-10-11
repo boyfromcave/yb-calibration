@@ -65,3 +65,30 @@ MINT-6 growth) — with one recommendation.
   placeholder `p10_daily_volume_usd` = $25,000.
 - Early-redeem volumes are unknown; early fees are left out of the revenue.
 - The attestor share stays `attestFeeBps` of the (new) FEE-1, as the module computes it today.
+
+## Release constants as built (2026-10-11)
+
+`RELEASE_CONSTANTS` / `RELEASE` in `fees_option_d.py` record the fee-line constants as implemented on ycash-dd
+`q/fees` @ `430002b16` (quantum plan D-Q-23..D-Q-26; the ycash6 port must carry the same values), and
+`test_release_constants_are_the_recommendation_as_built` holds them to this study's recommendation:
+
+| Constant | Value | Source |
+|---|---|---|
+| `maxMint` | $100,000 | D-Q-24 (H-12's $2,500 reversed on the quantum line) |
+| Protocol fee | 1.0 % ≤ $1k, 0.5 % to $10k, 0.1 % above; $1 floor per action; on the debt at `pMint` | D-Q-23 FEE-1′ |
+| Early-redeem fee | 5 / 2.5 / 1 % of the debt at `pMint` | IT-9′ |
+| Attestor share | 50 % of the protocol fee | AFEE-1′ (D-Q-25 recommendation kept) |
+| Network fee | $0.02/KB plain PQ, $0.05/KB vault / Yellowback, at the max of the tip's window medians (none under a halt) | D-Q-26, review M-1 |
+| Network floor | max(5,000 zat/KB, `-pqfeerate`) | D-Q-23a, review A-7 |
+| Network cap | min(max(`-maxtxfee` 0.1 YEC, $2 at the price), `-yellowbackmaxtxfee` 10 YEC); plain PQ transfers share it | D-Q-23a, review M-1, D-Q-26 |
+| Residual | $0.48 at `pMint`, floor 100,000 zat | D-Q-23a RED-5′ |
+| Supply cap | 15 % of circulating supply × `xMint(R)` | D-Q-25 MINT-6 |
+| Per-vault share | 10 % of the cap, floor $10,000 (per vault, not per owner) | D-Q-23a MINT-6b |
+| `bondMin` | $8,000 at the registration price, floor 2,000 YEC — **recommended, not yet in the node** (q/fees keeps 20,000 YEC) | D-Q-23a / D-Q-25 |
+
+The parameter registry (`src/ybcal/params/registry.py`) is still pinned to ycash6 `7702d22` (the v3 values:
+`feeMin` / `feeBps`, `maxMint` $10,000, `attestFeeBps` 2,500, `bondMin` 20,000 YEC) and is checked against
+that source by `ybcal params check`; moving it to the fee line is a re-pin onto the merged node (new fields:
+the bands, floor, `maxVaultShareBps`, `vaultShareFloorCents`, `residualMinCents`; `feeMin` / `feeBps` gone),
+not done here. No policy TOML on this branch encodes release values (`policy/harden-2026-10.toml` exists only
+on `harden/yellowback`, which keeps H-12's $2,500).

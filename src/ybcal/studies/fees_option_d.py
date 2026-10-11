@@ -145,6 +145,7 @@ MAX_MINT_USD = 100_000.0  #: D-Q-24
 MIN_MINT_USD = 100.0
 BOND_MIN_YEC = 20_000  #: params.cpp:86
 RESIDUAL_MIN_ZAT = 100_000  #: params.cpp:84
+BOND_FLOOR_YEC_RELEASE = 2_000  #: D-Q-23a: a dollar bondMin keeps a 2,000-YEC floor (= BOND_FLOOR_YEC below)
 PRICE_MAX_USD = 4_294.967295  #: D-Q-22
 MAX_TX_FEE_ZAT = 10_000_000  #: -maxtxfee default 0.1 YEC (dd main.h:74, 6 main.h:77)
 SEATS = 6  #: mSelect 4 + kSlack 2 (registry), the seated attestor set paid by AFEE-1
@@ -170,6 +171,8 @@ class OptionD:
     floor_mult: float = 1.0  #: network-fee floor as a multiple of the relay floor (100 zat/KB)
     maxtxfee_zat: int = MAX_TX_FEE_ZAT
     maxtxfee_usd: float | None = None  #: a dollar cap at the attested price, never below ``maxtxfee_zat``
+    #: an absolute YEC ceiling on the cap (-yellowbackmaxtxfee); None = no ceiling
+    maxtxfee_ceiling_zat: int | None = None
 
     def scaled(self, **mult: float) -> OptionD:
         """A copy with band rate ``b0..b2`` or ``pq`` / ``yb`` targets multiplied (sensitivity)."""
@@ -183,20 +186,62 @@ class OptionD:
             self.floor_mult,
             self.maxtxfee_zat,
             self.maxtxfee_usd,
+            self.maxtxfee_ceiling_zat,
         )
 
     def cap_zat(self, price_usd: float) -> int:
-        return (
+        cap = (
             max(self.maxtxfee_zat, usd_to_zat(self.maxtxfee_usd, price_usd))
             if self.maxtxfee_usd
             else self.maxtxfee_zat
         )
+        return min(cap, self.maxtxfee_ceiling_zat) if self.maxtxfee_ceiling_zat is not None else cap
 
 
 #: The set this study recommends (§5): the decided bands and targets, the network floor at P2PKH parity
 #: (the pq study's m = 50) and a dollar -maxtxfee for the vault / Yellowback builders.
 DEFAULT = OptionD()
 RECOMMENDED = OptionD(floor_mult=50.0, maxtxfee_usd=2.0)
+
+
+# ---------------------------------------------------------------------------------------------------
+# The release constants as built (quantum plan D-Q-23..D-Q-26; ycash-dd ``q/fees`` @ ``430002b16``)
+
+#: The network-fee set the node implements: RECOMMENDED plus review M-1's absolute ceiling
+#: (``-yellowbackmaxtxfee`` 10 YEC, policy.h DEFAULT_YED_MAX_TX_FEE), which plain PQ transfers share (D-Q-26).
+RELEASE = OptionD(floor_mult=50.0, maxtxfee_usd=2.0, maxtxfee_ceiling_zat=10 * COIN)
+
+
+@dataclass(frozen=True)
+class ReleaseConstants:
+    """The Yellowback fee-line constants a release bakes in, as implemented on ycash-dd ``q/fees``
+    (``430002b16``; ``src/yellowback/params.cpp`` SetCommon, ``src/policy/policy.h``), with the decision
+    each comes from. The ycash6 port must carry the same values (fix both node lines)."""
+
+    max_mint_usd: float = 100_000.0  #: D-Q-24, params.cpp:20 maxMint 10,000,000 cents (H-12 reversed)
+    bands: tuple[tuple[float, float], ...] = OptionD().bands  #: D-Q-23 FEE-1', params.cpp:41-43
+    floor_usd: float = 1.0  #: D-Q-23, params.cpp:44 feeFloorCents 100 (on the debt at pMint, per action)
+    early_bps: tuple[int, int, int] = (500, 250, 100)  #: IT-9' of the debt at pMint, params.cpp:61
+    attest_fee_bps: int = ATTEST_FEE_BPS  #: AFEE-1': half the protocol fee, params.cpp:95
+    pq_usd_per_kb: float = 0.02  #: D-Q-26 plain PQ ($0.02/KB), policy.h:129
+    yb_usd_per_kb: float = 0.05  #: D-Q-26 vault / Yellowback ($0.05/KB), policy.h:130
+    network_floor_zat_per_kb: int = 5_000  #: D-Q-23a, policy.h:131; max(this, -pqfeerate) (review A-7)
+    maxtxfee_usd: float = 2.0  #: D-Q-23a, policy.h:132; max(-maxtxfee 0.1 YEC, $2 at the price)
+    maxtxfee_ceiling_zat: int = 10 * COIN  #: review M-1, policy.h:133 (-yellowbackmaxtxfee)
+    plain_pq_shares_cap: bool = True  #: D-Q-26: PQMaxTxFee() = YedMaxTxFee()
+    residual_min_usd: float = 0.48  #: D-Q-23a RED-5', params.cpp:94 residualMinCents 48 at pMint
+    residual_min_floor_zat: int = RESIDUAL_MIN_ZAT  #: RED-5 floor, params.cpp:93
+    supply_cap_bps: int = SUPPLY_CAP_BPS  #: MINT-6: 15 % ...
+    #: ... of the circulating supply x xMint(R) (D-Q-25; no longer the coinbase issued since the start)
+    supply_cap_base: str = "circulating"
+    max_vault_share_bps: int = 1_000  #: D-Q-23a MINT-6b, params.cpp:17 (per vault, not per owner)
+    max_vault_share_floor_usd: float = 10_000.0  #: params.cpp:18 vaultShareFloorCents 1,000,000
+    bond_min_usd: float = 8_000.0  #: D-Q-23a / D-Q-25 recommendation at the registration price ...
+    #: ... floor 2,000 YEC; NOT yet in the node (q/fees keeps bondMin 20,000 YEC, params.cpp:96)
+    bond_min_floor_yec: float = float(BOND_FLOOR_YEC_RELEASE)
+
+
+RELEASE_CONSTANTS = ReleaseConstants()
 
 
 def protocol_fee_usd(debt_usd: float, d: OptionD = DEFAULT) -> float:
@@ -826,7 +871,7 @@ def recommend(policy: Policy, d: OptionD, height: int) -> Recommendation:
 ATTEST_PRICES: tuple[float, ...] = (0.40, 1.0, 5.0, 10.0)
 ATTEST_SHARES: tuple[float, ...] = (0.50, 0.75, 1.00)  #: attestFeeBps candidates (50 % today)
 ATTEST_MODELS: tuple[str, ...] = ("supply", "d24")  #: supply-consistent mean; log-uniform to $100k
-BOND_FLOOR_YEC = 2_000  #: D-Q-23a: a dollar bondMin keeps a 2,000-YEC floor
+BOND_FLOOR_YEC = BOND_FLOOR_YEC_RELEASE  #: D-Q-23a: a dollar bondMin keeps a 2,000-YEC floor
 BOND_RULES: tuple[str, ...] = ("usd2k", "usd8k", "yec20k")
 BOND_RULE_LABEL = {"usd2k": "$2,000 pinned", "usd8k": "$8,000 pinned", "yec20k": "20,000 YEC"}
 WHALE_MINTS_PER_YEAR = 10  #: the whale tier: ten $100k vaults a year on top of mid
