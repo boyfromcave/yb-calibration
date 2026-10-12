@@ -233,3 +233,32 @@ def test_attestors_cli(tmp_path, capsys):
     assert "Share 50 %" in md and "$8,000 pinned" in md
     assert not (tmp_path / "fees.md").exists()
     assert "Attestor economics" in capsys.readouterr().out
+
+
+def test_release_constants_are_the_recommendation_as_built():
+    # ycash-dd q/fees 430002b16: the study's recommendation is what the node implements, plus the
+    # -yellowbackmaxtxfee ceiling (review M-1) and maxMint / the circulating-supply cap (D-Q-24, D-Q-25)
+    pol = Policy.load("policy/real-data-2026-10.toml")
+    rec = F.recommend(pol, F.RECOMMENDED, 3_062_423)
+    r = F.RELEASE_CONSTANTS
+    assert (r.bands, r.floor_usd, r.early_bps) == (rec.bands, rec.floor_usd, rec.early_bps)
+    assert (r.pq_usd_per_kb, r.yb_usd_per_kb) == (rec.pq_usd_per_kb, rec.yb_usd_per_kb) == (0.02, 0.05)
+    assert r.network_floor_zat_per_kb == rec.network_floor_zat_per_kb == 5_000
+    assert r.maxtxfee_usd == rec.maxtxfee_usd == 2.0
+    assert r.max_vault_share_bps == rec.max_vault_share_bps == 1_000
+    assert r.max_vault_share_floor_usd == rec.max_vault_share_floor_usd == 10_000.0
+    assert r.bond_min_usd == rec.bond_min_usd == 8_000.0
+    assert r.bond_min_floor_yec == rec.bond_min_floor_yec == 2_000.0
+    assert r.residual_min_usd == rec.residual_min_usd
+    assert r.residual_min_floor_zat == rec.residual_min_floor_zat
+    assert r.residual_min_usd == 0.48 and r.max_mint_usd == F.MAX_MINT_USD == 100_000.0
+    assert (r.supply_cap_bps, r.supply_cap_base, r.attest_fee_bps) == (1_500, "circulating", 5_000)
+    assert r.maxtxfee_ceiling_zat == F.RELEASE.maxtxfee_ceiling_zat == 10 * COIN and r.plain_pq_shares_cap
+
+
+def test_release_cap_has_the_ten_yec_ceiling():
+    # min(max(-maxtxfee 0.1 YEC, $2 at the price), 10 YEC): $0.40 -> 5 YEC; $0.10 -> 20 YEC capped at 10
+    assert F.RELEASE.cap_zat(0.40) == 5 * COIN
+    assert F.RELEASE.cap_zat(0.10) == 10 * COIN and F.RECOMMENDED.cap_zat(0.10) == 20 * COIN
+    assert F.RELEASE.cap_zat(100.0) == F.MAX_TX_FEE_ZAT  # $2 = 0.02 YEC < 0.1 YEC
+    assert F.RELEASE.scaled(pq=2.0).maxtxfee_ceiling_zat == 10 * COIN
