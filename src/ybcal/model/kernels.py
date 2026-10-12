@@ -298,7 +298,11 @@ def class_for_lock_blocks(lock_blocks: int, class_min: Sequence[int], class_max:
 
 def bond_weight(bond_zat: int, age_blocks: int, age_cap: int) -> int:
     """math.h:202-207 BondWeight = bondZat · clamp(age, 0, ageCap); 0 for any non-positive input.
-    The caller derives ``age = H − ageOrigin`` (founding cohort: triggerHeight)."""
+    The caller derives ``age = H − ageOrigin`` (founding cohort: triggerHeight).
+
+    Since the owner's 2026-10-11 seat rules (quantum plan D-Q-29) this is the weight of the price
+    statistic and W9 selection only; seat ranking and eviction use ``bond × fQ16(tenure)``
+    (:mod:`ybcal.model.seats`, ycash-dd ``q/attest`` math.h SeatWeight)."""
     if bond_zat <= 0 or age_blocks <= 0 or age_cap <= 0:
         return 0
     return _ref_attest.bond_weight(bond_zat, age_blocks, age_cap)

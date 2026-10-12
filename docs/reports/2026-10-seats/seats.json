@@ -1,0 +1,1225 @@
+{
+ "bond_min": [
+  {
+   "bond_min_yec": 10000.0,
+   "collateral_yec": 0,
+   "seats_share_of_collateral": NaN,
+   "seats_total_yec": 90000.0,
+   "yed_usd_at_300pct_ref": 0.0
+  },
+  {
+   "bond_min_yec": 10000.0,
+   "collateral_yec": 500000,
+   "seats_share_of_collateral": 0.18,
+   "seats_total_yec": 90000.0,
+   "yed_usd_at_300pct_ref": 66666.66666666667
+  },
+  {
+   "bond_min_yec": 10000.0,
+   "collateral_yec": 1000000,
+   "seats_share_of_collateral": 0.09,
+   "seats_total_yec": 90000.0,
+   "yed_usd_at_300pct_ref": 133333.33333333334
+  },
+  {
+   "bond_min_yec": 10000.0,
+   "collateral_yec": 1800000,
+   "seats_share_of_collateral": 0.05,
+   "seats_total_yec": 90000.0,
+   "yed_usd_at_300pct_ref": 240000.0
+  },
+  {
+   "bond_min_yec": 11111.11111112,
+   "collateral_yec": 2000000,
+   "seats_share_of_collateral": 0.050000000000040005,
+   "seats_total_yec": 100000.00000008,
+   "yed_usd_at_300pct_ref": 266666.6666666667
+  },
+  {
+   "bond_min_yec": 20000.0,
+   "collateral_yec": 3600000,
+   "seats_share_of_collateral": 0.05,
+   "seats_total_yec": 180000.0,
+   "yed_usd_at_300pct_ref": 480000.0
+  },
+  {
+   "bond_min_yec": 20000.0,
+   "collateral_yec": 5000000,
+   "seats_share_of_collateral": 0.036,
+   "seats_total_yec": 180000.0,
+   "yed_usd_at_300pct_ref": 666666.6666666666
+  },
+  {
+   "bond_min_yec": 20000.0,
+   "collateral_yec": 10000000,
+   "seats_share_of_collateral": 0.018,
+   "seats_total_yec": 180000.0,
+   "yed_usd_at_300pct_ref": 1333333.3333333333
+  }
+ ],
+ "capture": [
+  {
+   "all_seats_capital_yec": 94500.00000009,
+   "harm_capital_open_set_yec": 73500.00000007001,
+   "harm_capital_usd_at_ref": 29400.000000028005,
+   "harm_capital_yec": 73500.00000007001,
+   "honest_bond_yec": 10000,
+   "honest_tenure_days": 0,
+   "per_seat_open_set_yec": 10500.00000001,
+   "per_seat_yec": 10500.00000001
+  },
+  {
+   "all_seats_capital_yec": 143979.26330574,
+   "harm_capital_open_set_yec": 82214.01572426,
+   "harm_capital_usd_at_ref": 44793.54858400801,
+   "harm_capital_yec": 111983.87146002,
+   "honest_bond_yec": 10000,
+   "honest_tenure_days": 30,
+   "per_seat_open_set_yec": 11744.85938918,
+   "per_seat_yec": 15997.69592286
+  },
+  {
+   "all_seats_capital_yec": 169403.82385257,
+   "harm_capital_open_set_yec": 93844.34532816,
+   "harm_capital_usd_at_ref": 52703.41186524401,
+   "harm_capital_yec": 131758.52966311,
+   "honest_bond_yec": 10000,
+   "honest_tenure_days": 180,
+   "per_seat_open_set_yec": 13406.33504688,
+   "per_seat_yec": 18822.64709473
+  },
+  {
+   "all_seats_capital_yec": 179549.42321781002,
+   "harm_capital_open_set_yec": 98838.75113399,
+   "harm_capital_usd_at_ref": 55859.820556652005,
+   "harm_capital_yec": 139649.55139163,
+   "honest_bond_yec": 10000,
+   "honest_tenure_days": 365,
+   "per_seat_open_set_yec": 14119.82159057,
+   "per_seat_yec": 19949.93591309
+  },
+  {
+   "all_seats_capital_yec": 179549.42321781002,
+   "harm_capital_open_set_yec": 98838.75113399,
+   "harm_capital_usd_at_ref": 55859.820556652005,
+   "harm_capital_yec": 139649.55139163,
+   "honest_bond_yec": 10000,
+   "honest_tenure_days": 730,
+   "per_seat_open_set_yec": 14119.82159057,
+   "per_seat_yec": 19949.93591309
+  },
+  {
+   "all_seats_capital_yec": 141750.00000009002,
+   "harm_capital_open_set_yec": 110250.00000007001,
+   "harm_capital_usd_at_ref": 44100.000000028005,
+   "harm_capital_yec": 110250.00000007001,
+   "honest_bond_yec": 15000,
+   "honest_tenure_days": 0,
+   "per_seat_open_set_yec": 15750.00000001,
+   "per_seat_yec": 15750.00000001
+  },
+  {
+   "all_seats_capital_yec": 215968.89495852,
+   "harm_capital_open_set_yec": 123321.02358639,
+   "harm_capital_usd_at_ref": 67190.322875984,
+   "harm_capital_yec": 167975.80718996,
+   "honest_bond_yec": 15000,
+   "honest_tenure_days": 30,
+   "per_seat_open_set_yec": 17617.28908377,
+   "per_seat_yec": 23996.54388428
+  },
+  {
+   "all_seats_capital_yec": 254105.73577881,
+   "harm_capital_open_set_yec": 140766.51799217,
+   "harm_capital_usd_at_ref": 79055.11779785201,
+   "harm_capital_yec": 197637.79449463,
+   "honest_bond_yec": 15000,
+   "honest_tenure_days": 180,
+   "per_seat_open_set_yec": 20109.50257031,
+   "per_seat_yec": 28233.97064209
+  },
+  {
+   "all_seats_capital_yec": 269324.13482667,
+   "harm_capital_open_set_yec": 148258.12670095,
+   "harm_capital_usd_at_ref": 83789.73083496401,
+   "harm_capital_yec": 209474.32708741,
+   "honest_bond_yec": 15000,
+   "honest_tenure_days": 365,
+   "per_seat_open_set_yec": 21179.73238585,
+   "per_seat_yec": 29924.90386963
+  },
+  {
+   "all_seats_capital_yec": 269324.13482667,
+   "harm_capital_open_set_yec": 148258.12670095,
+   "harm_capital_usd_at_ref": 83789.73083496401,
+   "harm_capital_yec": 209474.32708741,
+   "honest_bond_yec": 15000,
+   "honest_tenure_days": 730,
+   "per_seat_open_set_yec": 21179.73238585,
+   "per_seat_yec": 29924.90386963
+  },
+  {
+   "all_seats_capital_yec": 189000.00000009002,
+   "harm_capital_open_set_yec": 147000.00000007,
+   "harm_capital_usd_at_ref": 58800.000000028,
+   "harm_capital_yec": 147000.00000007,
+   "honest_bond_yec": 20000,
+   "honest_tenure_days": 0,
+   "per_seat_open_set_yec": 21000.00000001,
+   "per_seat_yec": 21000.00000001
+  },
+  {
+   "all_seats_capital_yec": 287958.52661139,
+   "harm_capital_open_set_yec": 164428.03144845,
+   "harm_capital_usd_at_ref": 89587.09716798802,
+   "harm_capital_yec": 223967.74291997,
+   "honest_bond_yec": 20000,
+   "honest_tenure_days": 30,
+   "per_seat_open_set_yec": 23489.71877835,
+   "per_seat_yec": 31995.39184571
+  },
+  {
+   "all_seats_capital_yec": 338807.64770514,
+   "harm_capital_open_set_yec": 187688.69065625,
+   "harm_capital_usd_at_ref": 105406.82373048802,
+   "harm_capital_yec": 263517.05932622,
+   "honest_bond_yec": 20000,
+   "honest_tenure_days": 180,
+   "per_seat_open_set_yec": 26812.67009375,
+   "per_seat_yec": 37645.29418946
+  },
+  {
+   "all_seats_capital_yec": 359098.84643562004,
+   "harm_capital_open_set_yec": 197677.50226798,
+   "harm_capital_usd_at_ref": 111719.64111330401,
+   "harm_capital_yec": 279299.10278326,
+   "honest_bond_yec": 20000,
+   "honest_tenure_days": 365,
+   "per_seat_open_set_yec": 28239.64318114,
+   "per_seat_yec": 39899.87182618
+  },
+  {
+   "all_seats_capital_yec": 359098.84643562004,
+   "harm_capital_open_set_yec": 197677.50226798,
+   "harm_capital_usd_at_ref": 111719.64111330401,
+   "harm_capital_yec": 279299.10278326,
+   "honest_bond_yec": 20000,
+   "honest_tenure_days": 730,
+   "per_seat_open_set_yec": 28239.64318114,
+   "per_seat_yec": 39899.87182618
+  }
+ ],
+ "constants": {
+  "attestor_seats": 15,
+  "bond_maturity": 16128,
+  "bond_min_cap_yec": 20000.0,
+  "bond_min_floor_yec": 10000.0,
+  "bond_share_bps": 500,
+  "cap_binds_from_collateral_yec": 3599999.99999821,
+  "evict_margin_bps": 500,
+  "floor_binds_below_collateral_yec": 1800000.0,
+  "harm_seats": 7,
+  "n_slots": 9,
+  "ref_price_usd": 0.4,
+  "seat_age_cap": 420480,
+  "seat_age_unit": 1152,
+  "seat_margin_bps": 500,
+  "source_commit": "f07a9aef6866145318a20aaa3c985e27b5043f35"
+ },
+ "evict": [
+  {
+   "least_evicting_bond_yec_by_tenure": {
+    "0": 10500.00000001,
+    "1": 11609.664917,
+    "14": 14835.47973633,
+    "180": 18822.64709473,
+    "30": 15997.69592286,
+    "365": 19949.93591309,
+    "7": 13828.99475098,
+    "730": 19949.93591309,
+    "90": 17721.79412842
+   },
+   "member_bond_yec": 10000
+  },
+  {
+   "least_evicting_bond_yec_by_tenure": {
+    "0": 15750.00000001,
+    "1": 17414.49737549,
+    "14": 22253.2196045,
+    "180": 28233.97064209,
+    "30": 23996.54388428,
+    "365": 29924.90386963,
+    "7": 20743.49212647,
+    "730": 29924.90386963,
+    "90": 26582.69119263
+   },
+   "member_bond_yec": 15000
+  },
+  {
+   "least_evicting_bond_yec_by_tenure": {
+    "0": 21000.00000001,
+    "1": 23219.32983399,
+    "14": 29670.95947266,
+    "180": 37645.29418946,
+    "30": 31995.39184571,
+    "365": 39899.87182618,
+    "7": 27657.98950196,
+    "730": 39899.87182618,
+    "90": 35443.58825684
+   },
+   "member_bond_yec": 20000
+  }
+ ],
+ "fill": [
+  {
+   "fresh_20k_beats_year_old_seated_floor": true
+  },
+  {
+   "bonders_20k": 0,
+   "bonders_floor": 15,
+   "seats_20k": 0,
+   "seats_floor": 9
+  },
+  {
+   "bonders_20k": 3,
+   "bonders_floor": 12,
+   "seats_20k": 3,
+   "seats_floor": 6
+  },
+  {
+   "bonders_20k": 6,
+   "bonders_floor": 9,
+   "seats_20k": 6,
+   "seats_floor": 3
+  },
+  {
+   "bonders_20k": 9,
+   "bonders_floor": 6,
+   "seats_20k": 9,
+   "seats_floor": 0
+  },
+  {
+   "bonders_20k": 12,
+   "bonders_floor": 3,
+   "seats_20k": 9,
+   "seats_floor": 0
+  },
+  {
+   "bonders_20k": 15,
+   "bonders_floor": 0,
+   "seats_20k": 9,
+   "seats_floor": 0
+  }
+ ],
+ "tenure": [
+  {
+   "days": 0,
+   "evict_multiple": 1.05,
+   "factor": 1.0,
+   "factor_q16": 65536,
+   "seat_multiple_vs_seated": 0.7431508920471727
+  },
+  {
+   "days": 1,
+   "evict_multiple": 1.1609664916992188,
+   "factor": 1.105682373046875,
+   "factor_q16": 72462,
+   "seat_multiple_vs_seated": 0.8216888418506199
+  },
+  {
+   "days": 7,
+   "evict_multiple": 1.3828994750976562,
+   "factor": 1.317047119140625,
+   "factor_q16": 86314,
+   "seat_multiple_vs_seated": 0.9787647414575144
+  },
+  {
+   "days": 14,
+   "evict_multiple": 1.4835479736328125,
+   "factor": 1.41290283203125,
+   "factor_q16": 92596,
+   "seat_multiple_vs_seated": 1.05
+  },
+  {
+   "days": 30,
+   "evict_multiple": 1.5997695922851562,
+   "factor": 1.523590087890625,
+   "factor_q16": 99850,
+   "seat_multiple_vs_seated": 1.1322573329301482
+  },
+  {
+   "days": 90,
+   "evict_multiple": 1.772179412841797,
+   "factor": 1.6877899169921875,
+   "factor_q16": 110611,
+   "seat_multiple_vs_seated": 1.2542825824009676
+  },
+  {
+   "days": 180,
+   "evict_multiple": 1.8822647094726563,
+   "factor": 1.792633056640625,
+   "factor_q16": 117482,
+   "seat_multiple_vs_seated": 1.3321968551557302
+  },
+  {
+   "days": 365,
+   "evict_multiple": 1.9949935913085937,
+   "factor": 1.899993896484375,
+   "factor_q16": 124518,
+   "seat_multiple_vs_seated": 1.4119821590565467
+  },
+  {
+   "days": 730,
+   "evict_multiple": 1.9949935913085937,
+   "factor": 1.899993896484375,
+   "factor_q16": 124518,
+   "seat_multiple_vs_seated": 1.4119821590565467
+  }
+ ],
+ "time_to_seat": [
+  {
+   "days_by_incumbent_tenure": {
+    "0": null,
+    "180": null,
+    "30": null,
+    "365": null,
+    "730": null
+   },
+   "ratio": 1.0
+  },
+  {
+   "days_by_incumbent_tenure": {
+    "0": null,
+    "180": null,
+    "30": null,
+    "365": null,
+    "730": null
+   },
+   "ratio": 1.05
+  },
+  {
+   "days_by_incumbent_tenure": {
+    "0": 14.0,
+    "180": 324.4166666666667,
+    "30": 245.29166666666666,
+    "365": 324.4166666666667,
+    "730": 324.4166666666667
+   },
+   "ratio": 1.06
+  },
+  {
+   "days_by_incumbent_tenure": {
+    "0": 14.0,
+    "180": 206.75,
+    "30": 45.791666666666664,
+    "365": 206.75,
+    "730": 206.75
+   },
+   "ratio": 1.1
+  },
+  {
+   "days_by_incumbent_tenure": {
+    "0": 14.0,
+    "180": 30.458333333333332,
+    "30": 14.0,
+    "365": 48.875,
+    "730": 48.875
+   },
+   "ratio": 1.25
+  },
+  {
+   "days_by_incumbent_tenure": {
+    "0": 14.0,
+    "180": 14.0,
+    "30": 14.0,
+    "365": 14.0,
+    "730": 14.0
+   },
+   "ratio": 1.5
+  },
+  {
+   "days_by_incumbent_tenure": {
+    "0": 14.0,
+    "180": 14.0,
+    "30": 14.0,
+    "365": 14.0,
+    "730": 14.0
+   },
+   "ratio": 2.0
+  },
+  {
+   "days_by_incumbent_tenure": {
+    "0": 14.0,
+    "180": 14.0,
+    "30": 14.0,
+    "365": 14.0,
+    "730": 14.0
+   },
+   "ratio": 4.0
+  }
+ ],
+ "trace": [
+  {
+   "entrant_bond_yec": 10500,
+   "events": [
+    {
+     "day": 1,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 2,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 3,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 4,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 5,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 6,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 7,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 8,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 9,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 10,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 11,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 12,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 13,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 14,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 15,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 16,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 17,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 18,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 19,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 20,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 21,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 22,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 23,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 24,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 25,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 26,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 27,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 28,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 29,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    },
+    {
+     "day": 30,
+     "entrant_members": 0,
+     "entrant_seats": 0,
+     "evicted": null,
+     "honest_members": 15,
+     "joined": false
+    }
+   ],
+   "final": {
+    "day": 30,
+    "entrant_members": 0,
+    "entrant_seats": 0,
+    "evicted": null,
+    "honest_members": 15,
+    "joined": false
+   },
+   "first_day_harm_seats": null
+  },
+  {
+   "entrant_bond_yec": 19950,
+   "events": [
+    {
+     "day": 1,
+     "entrant_members": 1,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 14,
+     "joined": true
+    },
+    {
+     "day": 2,
+     "entrant_members": 2,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 13,
+     "joined": true
+    },
+    {
+     "day": 3,
+     "entrant_members": 3,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 12,
+     "joined": true
+    },
+    {
+     "day": 4,
+     "entrant_members": 4,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 11,
+     "joined": true
+    },
+    {
+     "day": 5,
+     "entrant_members": 5,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 10,
+     "joined": true
+    },
+    {
+     "day": 6,
+     "entrant_members": 6,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 9,
+     "joined": true
+    },
+    {
+     "day": 7,
+     "entrant_members": 7,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 8,
+     "joined": true
+    },
+    {
+     "day": 8,
+     "entrant_members": 8,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 7,
+     "joined": true
+    },
+    {
+     "day": 9,
+     "entrant_members": 9,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 6,
+     "joined": true
+    },
+    {
+     "day": 10,
+     "entrant_members": 10,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 5,
+     "joined": true
+    },
+    {
+     "day": 11,
+     "entrant_members": 11,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 4,
+     "joined": true
+    },
+    {
+     "day": 12,
+     "entrant_members": 12,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 3,
+     "joined": true
+    },
+    {
+     "day": 13,
+     "entrant_members": 13,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 2,
+     "joined": true
+    },
+    {
+     "day": 14,
+     "entrant_members": 14,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 1,
+     "joined": true
+    },
+    {
+     "day": 15,
+     "entrant_members": 15,
+     "entrant_seats": 1,
+     "evicted": "honest",
+     "honest_members": 0,
+     "joined": true
+    },
+    {
+     "day": 16,
+     "entrant_members": 15,
+     "entrant_seats": 2,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 17,
+     "entrant_members": 15,
+     "entrant_seats": 3,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 18,
+     "entrant_members": 15,
+     "entrant_seats": 4,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 19,
+     "entrant_members": 15,
+     "entrant_seats": 5,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 20,
+     "entrant_members": 15,
+     "entrant_seats": 6,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 21,
+     "entrant_members": 15,
+     "entrant_seats": 7,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 22,
+     "entrant_members": 15,
+     "entrant_seats": 8,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 23,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 24,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 25,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 26,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 27,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 28,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 29,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 30,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    }
+   ],
+   "final": {
+    "day": 30,
+    "entrant_members": 15,
+    "entrant_seats": 9,
+    "evicted": null,
+    "honest_members": 0,
+    "joined": false
+   },
+   "first_day_harm_seats": 21
+  },
+  {
+   "entrant_bond_yec": 20000,
+   "events": [
+    {
+     "day": 1,
+     "entrant_members": 1,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 14,
+     "joined": true
+    },
+    {
+     "day": 2,
+     "entrant_members": 2,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 13,
+     "joined": true
+    },
+    {
+     "day": 3,
+     "entrant_members": 3,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 12,
+     "joined": true
+    },
+    {
+     "day": 4,
+     "entrant_members": 4,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 11,
+     "joined": true
+    },
+    {
+     "day": 5,
+     "entrant_members": 5,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 10,
+     "joined": true
+    },
+    {
+     "day": 6,
+     "entrant_members": 6,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 9,
+     "joined": true
+    },
+    {
+     "day": 7,
+     "entrant_members": 7,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 8,
+     "joined": true
+    },
+    {
+     "day": 8,
+     "entrant_members": 8,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 7,
+     "joined": true
+    },
+    {
+     "day": 9,
+     "entrant_members": 9,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 6,
+     "joined": true
+    },
+    {
+     "day": 10,
+     "entrant_members": 10,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 5,
+     "joined": true
+    },
+    {
+     "day": 11,
+     "entrant_members": 11,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 4,
+     "joined": true
+    },
+    {
+     "day": 12,
+     "entrant_members": 12,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 3,
+     "joined": true
+    },
+    {
+     "day": 13,
+     "entrant_members": 13,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 2,
+     "joined": true
+    },
+    {
+     "day": 14,
+     "entrant_members": 14,
+     "entrant_seats": 0,
+     "evicted": "honest",
+     "honest_members": 1,
+     "joined": true
+    },
+    {
+     "day": 15,
+     "entrant_members": 15,
+     "entrant_seats": 1,
+     "evicted": "honest",
+     "honest_members": 0,
+     "joined": true
+    },
+    {
+     "day": 16,
+     "entrant_members": 15,
+     "entrant_seats": 2,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 17,
+     "entrant_members": 15,
+     "entrant_seats": 3,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 18,
+     "entrant_members": 15,
+     "entrant_seats": 4,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 19,
+     "entrant_members": 15,
+     "entrant_seats": 5,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 20,
+     "entrant_members": 15,
+     "entrant_seats": 6,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 21,
+     "entrant_members": 15,
+     "entrant_seats": 7,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 22,
+     "entrant_members": 15,
+     "entrant_seats": 8,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 23,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 24,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 25,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 26,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 27,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 28,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 29,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    },
+    {
+     "day": 30,
+     "entrant_members": 15,
+     "entrant_seats": 9,
+     "evicted": null,
+     "honest_members": 0,
+     "joined": false
+    }
+   ],
+   "final": {
+    "day": 30,
+    "entrant_members": 15,
+    "entrant_seats": 9,
+    "evicted": null,
+    "honest_members": 0,
+    "joined": false
+   },
+   "first_day_harm_seats": 21
+  }
+ ]
+}

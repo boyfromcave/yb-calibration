@@ -10,11 +10,11 @@
 name: ci
 
 # The branch list lives once, here: pull_request is unfiltered (every PR runs), push runs on the
-# hardening and upgrade lines, main (the branch of record) and the ci/* branches that carry CI
-# changes before they merge.
+# hardening and upgrade lines, the post-quantum line (upgrade/quantum-vaults, cut from main), main
+# (the branch of record) and the ci/* branches that carry CI changes before they merge.
 on:
   push:
-    branches: [ harden/yellowback, upgrade/vault, main, 'ci/**' ]
+    branches: [ harden/yellowback, upgrade/vault, upgrade/quantum-vaults, main, 'ci/**' ]
   pull_request:
   workflow_dispatch:
 
