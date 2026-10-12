@@ -1,37 +1,40 @@
 # yb-calibration
 
-`ybcal` is the parameter calibration tool for **Ycash Yellowback (YED)**, the decentralized dollar
-overlay on Ycash. It takes the Yellowback parameter set (`yellowback::Params` in
-`boyfromcave/ycash6`, `src/yellowback/params.cpp`, branch `feature/yellowback`, pinned at commit
-`7702d22`) and produces, for **every** parameter, a recommended value, the current value, a verdict,
-the decision rule that produced it, the evidence and a plain-English explanation, plus a
-ready-to-review `params.cpp` patch.
+`ybcal` is the parameter calibration tool for **Ycash Yellowback (YED)**, the dollar built on the
+proposed Ycash vault upgrade (see the parent project,
+[Ycash vaults and Yellowback](https://github.com/boyfromcave/yellowback)). It derives and checks
+the constants each release builds into the node, on both node lines
+([ycash-dd](https://github.com/boyfromcave/ycash-dd) and
+[ycash6](https://github.com/boyfromcave/ycash6)): for **every** parameter, a recommended value, the
+current value, a verdict, the decision rule that produced it, the evidence and a plain-English
+explanation, plus a ready-to-review `params.cpp` patch.
 
 It does that by:
 
 - reading the parameter set straight from source and classifying each field as **locked**
   (consensus-shaped; changes only with a new parameter set), **excluded** (wallet/agent/node-local;
   a patch release can change it), per-release, derived or constant;
-- simulating the overlay with the node's **exact integer arithmetic** (checked against ycash6's own
-  reference model, golden vector and C++ worked examples);
+- simulating Yellowback with the node's **exact integer arithmetic** (checked against the node's
+  own reference model, golden vectors and C++ worked examples);
 - stressing each parameter group against real or synthetic YEC price histories and a library of
   stress scenarios (crashes, oracle attacks, feed outages, hashrate loss, attestor capture, absent
   owners and developers);
 - scoring every candidate against a **risk policy the owner writes** (`policy/default.toml`);
 - optionally checking the results on a regtest devnet of real `ycashd` nodes.
 
-The report stays in this repo. `ybcal` never writes to ycash6; applying the patch is a human
-decision.
+The report stays in this repo. `ybcal` never writes to a node repository; applying a patch, or
+changing a constant, is a human decision backed by the study that justifies it.
 
 ## Why
 
-- **Risk mitigation.** A locked value is frozen among enforcing miners for a whole parameter-set
-  year, and the first set is the one most likely to stick. Each value is tested, before it is
-  frozen, against the failure it guards: bad debt when the claim path opens, oracle manipulation,
-  false halts, attestor capture, liquidation larger than the market can absorb.
-- **Continuity.** Owners, pools, attestors and the developers each get a quantified window:
-  owner grace against P(miss), false-halt hours per year, bundle liveness, the abandonment window
-  against the freeze-then-fix runbook, the renewal deadline before the sunset.
+- **Risk mitigation.** A locked value ships in a release and is hard to change afterwards, and the
+  first set is the one most likely to stick. Each value is tested, before it ships, against the
+  failure it guards: bad debt when the claim path opens, oracle manipulation, false halts,
+  attestor capture, liquidation larger than the market can absorb, fees that miners or users
+  cannot live with.
+- **Continuity.** Owners, pools, attestors and the developers each get a quantified window: owner
+  grace against P(miss), false-halt hours per year, attestation liveness, the abandonment window
+  against the freeze-then-fix runbook.
 - **Minimal change.** A value moves off its shipped setting only when the evidence shows a
   *material* improvement (policy `materiality`, 20 % by default) or the shipped value violates the
   policy. Otherwise the verdict is KEEP, with the evidence. Findings that no parameter can fix are
@@ -39,22 +42,48 @@ decision.
 
 ## Status
 
-**The first real-data recommendation is in [docs/reports/2026-10-real/](docs/reports/2026-10-real/README.md)**
-(October 2026: real YEC prices, the real pool landscape, validated on regtest devnets of both node
-lines; not yet lock-ready — see its §7).
+**The release constants for the post-quantum vault line** (`upgrade/quantum-vaults`) come from
+three short, exact studies. Each runs in seconds and writes a dated report:
+
+| Study | Command | Report | What it settles |
+|---|---|---|---|
+| Post-quantum sizes | `ybcal pq` | [2026-10-pq](docs/reports/2026-10-pq/README.md) | PQ transaction sizes, chain growth and the `-pqfeerate` floor (5,000 zat/KB, 50× the relay floor) |
+| Fees (Option D) | `ybcal fees` | [2026-10-fees](docs/reports/2026-10-fees/README.md) | the fee structure the nodes ship as `rpcversion` 8: protocol fee bands, early-redeem fee, network fees in dollars per KB, `maxMint` and the supply cap |
+| Attestor seats | `ybcal seats` | [2026-10-seats](docs/reports/2026-10-seats/README.md) | who holds the nine attestor seats under the open set, eviction, the cost of capturing 7 of 9 seats, and the bond minimum |
+
+The constants as built (`RELEASE_CONSTANTS` in `src/ybcal/studies/fees_option_d.py`, held to the
+studies by tests):
+
+| Constant | Value |
+|---|---|
+| Protocol fee (on the debt, per mint or redeem) | 1.0 % up to $1,000, 0.5 % to $10,000, 0.1 % above; at least $1 |
+| Attestors' share | on mints, a further 50 % of the protocol fee, paid to the attestors |
+| Early-redeem fee | 5 / 2.5 / 1 % of the debt (lock classes A / B / C) |
+| Network fee | $0.02 per KB for post-quantum transfers, $0.05 per KB for vault and Yellowback transactions; at least 5,000 zat/KB; capped at the larger of $2 and 0.1 YEC, never above 10 YEC |
+| `maxMint` | $100,000 per vault; one vault at most 10 % of the supply cap (floor $10,000) |
+| Supply cap | 15 % of the circulating YEC supply |
+| Attestor bond minimum | 5 % of the YED vault collateral ÷ 9 seats, clamped to **10,000–20,000 YEC**; no price input |
+| Leaving the attestor set | any time; the bond returns 16,128 blocks (14 days) after the exit and stays slashable until then |
+
+> **The bond floor is 10,000 YEC** (owner, 2026-10-11, raised from 5,000 after the seat study).
+> The seat study and the bit-exact seat mirrors in `src/ybcal/model/seats.py` were run against
+> ycash-dd `4bb710b4c`, which still had the 5,000-YEC floor; they will be re-run at 10,000.
+
+**The full parameter recommendation** (`ybcal recommend`) is the first real-data run in
+[docs/reports/2026-10-real/](docs/reports/2026-10-real/README.md) (October 2026: real YEC prices,
+the real pool landscape, validated on regtest devnets of both node lines; not yet lock-ready, see
+its §7). Its parameter registry and simulator are still pinned to the v3 parameter set (ycash6
+`7702d22`); the new fee and seat fields above live in the three studies.
 
 All work packages of [the plan](docs/PLAN.md) are built (see its "Status (implementation)"
 section). `ybcal recommend --budget quick --synthetic` produces a complete report covering all 96
-registry entries in about 10 minutes on 4 cores (milestone M5).
+registry entries in about 10 minutes on 4 cores.
 
-Two milestones need the owner's machine:
-
-- **M6, devnet validation**: done 2026-10-03. The differential suite (8 scenarios, incl. vaults,
-  claims, attestation and PIN) passes block for block on ycash6 (pin `7702d22`) and ycash-dd, with
-  the shipped regtest column and the scaled shipped mainnet set. See
-  [docs/devnet.md §7](docs/devnet.md#7-validation-results-2026-10-m6) and D-RD-DEV-1..7.
-- **M7, real data**: until real YEC prices and exchange spreads are supplied, every price-driven
-  verdict is **PROVISIONAL** and the lock-readiness checklist fails by design. See
+- **Devnet validation**: done 2026-10-03. The differential suite (8 scenarios, incl. vaults,
+  claims, attestation and PIN) passes block for block on ycash6 (pin `7702d22`) and ycash-dd. See
+  [docs/devnet.md §7](docs/devnet.md#7-validation-results-2026-10-m6).
+- **Real data**: without real YEC prices and exchange spreads, every price-driven verdict is
+  **PROVISIONAL** and the lock-readiness checklist fails by design. See
   [Real-data workflow](#real-data-workflow).
 
 ## Quickstart (synthetic data, no network)
@@ -65,7 +94,8 @@ Requires Python 3.11 or later and `make`.
 make setup                      # .venv + pip install -e '.[dev]'
 source .venv/bin/activate       # puts `ybcal` on PATH (or call .venv/bin/ybcal)
 
-ybcal verify                    # 126 exactness checks: golden replay, C++ worked examples, parity
+ybcal verify                    # 132 exactness checks: golden replay, C++ worked examples, parity, seats
+ybcal pq; ybcal fees; ybcal seats   # the release-constant studies (seconds each; --out <dir>)
 ybcal params show --group G3    # the parameter table (from the committed snapshot of ycash6 @ 7702d22)
 ybcal params show --class excluded
 ybcal params check              # drift vs registry + PLAN §1.4 invariants; non-zero on failure
