@@ -66,8 +66,9 @@ studies by tests):
 | Leaving the attestor set | any time; the bond returns 16,128 blocks (14 days) after the exit and stays slashable until then |
 
 > **The bond floor is 10,000 YEC** (owner, 2026-10-11, raised from 5,000 after the seat study).
-> The seat study and the bit-exact seat mirrors in `src/ybcal/model/seats.py` were run against
-> ycash-dd `4bb710b4c`, which still had the 5,000-YEC floor; they will be re-run at 10,000.
+> The seat study and the bit-exact seat mirrors in `src/ybcal/model/seats.py` run against
+> ycash-dd `f07a9aef6` at the 10,000-YEC floor: capturing 7 of the 9 seats from year-old floor
+> seats costs about 139,650 YEC.
 
 **The full parameter recommendation** (`ybcal recommend`) is the first real-data run in
 [docs/reports/2026-10-real/](docs/reports/2026-10-real/README.md) (October 2026: real YEC prices,
