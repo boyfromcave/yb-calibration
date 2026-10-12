@@ -8,7 +8,9 @@ Runs, and prints as a pass/fail table:
 3. the kernels and vkernels recomputing every snapshot of the golden chain;
 4. the C++ worked examples of ``src/test/yellowback_math_tests.cpp``;
 5. a quick seeded parity sample (vkernels == kernels == reference);
-6. (informational) the reference model's own mainnet column against the registry.
+6. the attestor seat rules (D-Q-29..D-Q-31, :mod:`ybcal.model.seats`) against vectors from the node's
+   Python model at ycash-dd ``q/attest``;
+7. (informational) the reference model's own mainnet column against the registry.
 
 ``ybcal verify --revendor --ycash6 PATH [--ref REF]`` re-vendors the reference files from a ycash6
 clone (read-only towards it) and exits; run ``ybcal verify`` again afterwards.
@@ -105,6 +107,9 @@ def cli_verify(args: argparse.Namespace) -> int:
         detail = f"math_tests:{ex.cpp_line}" + ("" if ok else f" got {got!r} want {ex.expected!r}")
         rows.append((ex.rule, ex.name, ok, detail))
     rows += [("parity", n, ok, d) for n, ok, d in parity.quick_parity(args.samples, args.seed)]
+    from ybcal.model import seats
+
+    rows += [("seats", n, ok, d) for n, ok, d in seats.check_vectors()]
     _table(rows, getattr(args, "quiet", False))
 
     drift = examples.reference_param_drift()

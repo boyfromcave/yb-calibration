@@ -40,6 +40,8 @@ from itertools import pairwise
 from pathlib import Path
 
 from ybcal.config import Policy
+from ybcal.model.seats import MAINNET as SEATS_MAINNET
+from ybcal.model.seats import bond_min_from_collateral_zat
 from ybcal.studies import pq_growth as PQ
 from ybcal.units import BLOCKS_PER_DAY, BLOCKS_PER_YEAR, BPS, COIN
 
@@ -143,7 +145,17 @@ CLAIM_THRESHOLD_BPS = 12_500  #: θ (D-IT-2)
 MAX_MINT_USD_TODAY = 2_500.0  #: params.cpp:17 (H-12)
 MAX_MINT_USD = 100_000.0  #: D-Q-24
 MIN_MINT_USD = 100.0
-BOND_MIN_YEC = 20_000  #: params.cpp:86
+#: the flat v3 BOND_MIN (q/fees params.cpp:96): the "20,000 YEC" rule below, now D-Q-30's cap
+BOND_MIN_YEC = 20_000
+#: D-Q-30 (owner 2026-10-11, ycash-dd q/attest 4bb710b4c params.cpp:96-98): bondMin = clamp(ceil(collateral
+#: x 500 bps / 9 seats), 5,000 YEC, 20,000 YEC) of the YEC in YED vaults at the snapshot before the join;
+#: no price
+BOND_MIN_FLOOR_YEC_DQ30 = SEATS_MAINNET.bond_min_floor_zat // COIN
+BOND_MIN_CAP_YEC_DQ30 = SEATS_MAINNET.bond_min_cap_zat // COIN
+BOND_SHARE_BPS_DQ30 = SEATS_MAINNET.bond_share_bps
+#: the collateral per dollar of YED the D-Q-30 rule is evaluated at: class A's 300 % base ratio, the least
+#: collateral a vault can hold (so the lowest bond a tier implies)
+DQ30_COLLATERAL_MULT = 3.0
 RESIDUAL_MIN_ZAT = 100_000  #: params.cpp:84
 BOND_FLOOR_YEC_RELEASE = 2_000  #: D-Q-23a: a dollar bondMin keeps a 2,000-YEC floor (= BOND_FLOOR_YEC below)
 PRICE_MAX_USD = 4_294.967295  #: D-Q-22
@@ -236,9 +248,18 @@ class ReleaseConstants:
     supply_cap_base: str = "circulating"
     max_vault_share_bps: int = 1_000  #: D-Q-23a MINT-6b, params.cpp:17 (per vault, not per owner)
     max_vault_share_floor_usd: float = 10_000.0  #: params.cpp:18 vaultShareFloorCents 1,000,000
-    bond_min_usd: float = 8_000.0  #: D-Q-23a / D-Q-25 recommendation at the registration price ...
-    #: ... floor 2,000 YEC; NOT yet in the node (q/fees keeps bondMin 20,000 YEC, params.cpp:96)
-    bond_min_floor_yec: float = float(BOND_FLOOR_YEC_RELEASE)
+    #: D-Q-30 (owner 2026-10-11; supersedes D-Q-23a / D-Q-25's $8,000 pinned bond and D-Q-28's price-based
+    #: minimum), as built on ycash-dd q/attest 4bb710b4c (params.cpp:96-98, math.h:375
+    #: BondMinFromCollateralZat):
+    #: clamp(ceil(YED vault collateral x 500 bps / N_SLOTS 9), 5,000 YEC, 20,000 YEC), no price
+    bond_min_floor_yec: float = float(BOND_MIN_FLOOR_YEC_DQ30)
+    bond_min_cap_yec: float = float(BOND_MIN_CAP_YEC_DQ30)
+    bond_share_bps: int = BOND_SHARE_BPS_DQ30
+    bond_slots: int = SEATS_MAINNET.n_slots
+    #: D-Q-30 / D-Q-31: exit any time, the bond returns BOND_MATURITY (16,128 blocks, 14 days) after the exit;
+    #: BOND_MIN_LOCK 0 (was 420,480, params.cpp:99)
+    bond_exit_delay_blocks: int = SEATS_MAINNET.bond_maturity
+    bond_min_lock_blocks: int = SEATS_MAINNET.bond_min_lock
 
 
 RELEASE_CONSTANTS = ReleaseConstants()
@@ -752,8 +773,9 @@ class Recommendation:
     maxtxfee_floor_yec: float
     max_vault_share_bps: int
     max_vault_share_floor_usd: float
-    bond_min_usd: float
     bond_min_floor_yec: float
+    bond_min_cap_yec: float
+    bond_share_bps: int
     residual_min_usd: float
     residual_min_floor_zat: int
     reasons: list[str] = field(default_factory=list)
@@ -785,8 +807,9 @@ def recommend(policy: Policy, d: OptionD, height: int) -> Recommendation:
         MAX_TX_FEE_ZAT / COIN,
         1_000,
         10_000.0,
-        BOND_MIN_YEC * 0.40,
-        2_000.0,
+        float(BOND_MIN_FLOOR_YEC_DQ30),
+        float(BOND_MIN_CAP_YEC_DQ30),
+        BOND_SHARE_BPS_DQ30,
         dollar_constants(d)[1].proposed_usd,
         RESIDUAL_MIN_ZAT,
     )
@@ -856,9 +879,12 @@ def recommend(policy: Policy, d: OptionD, height: int) -> Recommendation:
         f"{MAX_MINT_USD / exec50:.0f}× the largest claim the frozen books can absorb, so D-Q-24's maxMint "
         "is a "
         f"depth bet, not a parameter the data supports.",
-        "bondMin and residualMinZat follow the fee pattern: $8,000 at the registration price (floor 2,000 "
-        "YEC) "
-        f"and ${rec.residual_min_usd:.2f} at pMint (floor 100,000 zat).",
+        "residualMinZat follows the fee pattern: "
+        f"${rec.residual_min_usd:.2f} at pMint (floor 100,000 zat). bondMin does not: this study proposed "
+        "$8,000 at the registration price (floor 2,000 YEC), and the owner replaced it with D-Q-30 "
+        "(2026-10-11): clamp(5 % of all YED vault collateral / 9 seats, 5,000 YEC, 20,000 YEC), read in YEC "
+        "from the snapshot before the join, no price -- so no price case (no price, divergence, pool "
+        "inflation) reaches it, and three attestor systems need not each bond 9 x 20,000 YEC.",
     ]
     return rec
 
@@ -872,8 +898,15 @@ ATTEST_PRICES: tuple[float, ...] = (0.40, 1.0, 5.0, 10.0)
 ATTEST_SHARES: tuple[float, ...] = (0.50, 0.75, 1.00)  #: attestFeeBps candidates (50 % today)
 ATTEST_MODELS: tuple[str, ...] = ("supply", "d24")  #: supply-consistent mean; log-uniform to $100k
 BOND_FLOOR_YEC = BOND_FLOOR_YEC_RELEASE  #: D-Q-23a: a dollar bondMin keeps a 2,000-YEC floor
-BOND_RULES: tuple[str, ...] = ("usd2k", "usd8k", "yec20k")
-BOND_RULE_LABEL = {"usd2k": "$2,000 pinned", "usd8k": "$8,000 pinned", "yec20k": "20,000 YEC"}
+BOND_RULES: tuple[str, ...] = ("usd2k", "usd8k", "yec20k", "dq30")
+BOND_RULE_LABEL = {
+    "usd2k": "$2,000 pinned",
+    "usd8k": "$8,000 pinned",
+    "yec20k": "20,000 YEC",
+    "dq30": "D-Q-30 (collateral)",
+}
+#: the YED outstanding the D-Q-30 rule reads when no tier is given: the low tier's
+DQ30_DEFAULT_YED_USD = 50_000.0
 WHALE_MINTS_PER_YEAR = 10  #: the whale tier: ten $100k vaults a year on top of mid
 HARM_SEATS = 7  #: hardening plan C-4 / D-RD-ATT-4: harmful capture needs 7 of 9 seats by splitting
 LOW_MEAN_DEBT_USD = 50_000.0 / (2.0 * MEAN_LIFE_DAYS)  #: ≈ $139, the low tier's supply-consistent mean
@@ -901,17 +934,28 @@ def adoption_tiers(policy: Policy) -> dict[str, dict[str, float]]:
     return out
 
 
-def bond_yec(rule: str, price_usd: float) -> float:
+def dq30_bond_yec(yed_usd: float, price_usd: float) -> float:
+    """D-Q-30 through the node's exact kernel (:func:`ybcal.model.seats.bond_min_from_collateral_zat`):
+    the bond minimum when ``yed_usd`` of YED is outstanding at ``DQ30_COLLATERAL_MULT`` collateral and the
+    YEC price ``price_usd`` (the price only converts the scenario's dollars to collateral YEC; the node
+    reads no price)."""
+    collateral_zat = int(yed_usd * DQ30_COLLATERAL_MULT / price_usd * COIN)
+    return bond_min_from_collateral_zat(collateral_zat, SEATS_MAINNET) / COIN
+
+
+def bond_yec(rule: str, price_usd: float, yed_usd: float = DQ30_DEFAULT_YED_USD) -> float:
     """The bond in YEC under a rule: ``yec20k`` is 20,000 YEC; ``usdNk`` is $N,000 at the registration
-    price with the 2,000-YEC floor (D-Q-23a)."""
+    price with the 2,000-YEC floor (D-Q-23a); ``dq30`` is the D-Q-30 minimum at ``yed_usd`` outstanding."""
     if rule == "yec20k":
         return float(BOND_MIN_YEC)
+    if rule == "dq30":
+        return dq30_bond_yec(yed_usd, price_usd)
     usd = {"usd2k": 2_000.0, "usd8k": 8_000.0}[rule]
     return max(usd / price_usd, float(BOND_FLOOR_YEC))
 
 
-def bond_usd(rule: str, price_usd: float) -> float:
-    return bond_yec(rule, price_usd) * price_usd
+def bond_usd(rule: str, price_usd: float, yed_usd: float = DQ30_DEFAULT_YED_USD) -> float:
+    return bond_yec(rule, price_usd, yed_usd) * price_usd
 
 
 def tier_mean_fee_usd(tier: Mapping[str, float], model: str, d: OptionD = DEFAULT) -> float:
@@ -989,10 +1033,11 @@ def bond_return_rows(policy: Policy, d: OptionD = DEFAULT) -> list[BondReturn]:
             s = seat_revenue_usd_year(t, model, ATTEST_FEE_BPS / BPS, d)
             for p in ATTEST_PRICES:
                 for rule in BOND_RULES:
-                    b = bond_usd(rule, p)
+                    y = t["yed_supply_usd"]
+                    b = bond_usd(rule, p, y)
                     out.append(
                         BondReturn(
-                            name, model, p, rule, bond_yec(rule, p), b, s, s / b, b * apr, s >= b * apr
+                            name, model, p, rule, bond_yec(rule, p, y), b, s, s / b, b * apr, s >= b * apr
                         )
                     )
     return out
@@ -1051,12 +1096,13 @@ def capture_rows(height: int) -> list[dict[str, float | str]]:
     for p in ATTEST_PRICES:
         cap = sup * p * SUPPLY_CAP_BPS / BPS
         for rule in BOND_RULES:
-            cap_capital = HARM_SEATS * bond_usd(rule, p)
+            # D-Q-30 at the cap: the YED outstanding is the whole cap (the case the bond secures)
+            cap_capital = HARM_SEATS * bond_usd(rule, p, cap)
             out.append(
                 {
                     "price_usd": p,
                     "bond_rule": rule,
-                    "bond_usd": bond_usd(rule, p),
+                    "bond_usd": bond_usd(rule, p, cap),
                     "capture_capital_usd": cap_capital,
                     "cap_d_q_25_usd": cap,
                     "capture_to_cap": cap_capital / cap,
@@ -1181,8 +1227,10 @@ def render_attestors_markdown(res: Mapping[str, object]) -> str:
     L.append(
         "Return = a seat's yearly revenue ÷ the bond's dollar value at the price shown. Bond rules: "
         "(a) **20,000 YEC** (today's `bondMin`), (b) **$8,000 pinned** at the registration price with the "
-        f"{BOND_FLOOR_YEC:,}-YEC floor (D-Q-23a), and $2,000 pinned with the same floor. Bond value by "
-        "price:\n"
+        f"{BOND_FLOOR_YEC:,}-YEC floor (D-Q-23a), $2,000 pinned with the same floor, and (d) **D-Q-30** "
+        "(owner 2026-10-11, the rule as built): clamp(5 % of all YED vault collateral ÷ 9, 5,000 YEC, 20,000 "
+        f"YEC), evaluated at {DQ30_COLLATERAL_MULT:.0%} collateral on each tier's YED outstanding (the table "
+        "below: the low tier's $50,000). Bond value by price:\n"
     )
     L.append("| Bond rule | " + " | ".join(f"${p:,.2f}" for p in ATTEST_PRICES) + " |")
     L.append("|---|" + "---:|" * len(ATTEST_PRICES))
@@ -1269,6 +1317,13 @@ def render_attestors_markdown(res: Mapping[str, object]) -> str:
     )
     # 6. recommendation
     L.append("## 6. Recommendation for launch\n")
+    L.append(
+        "> **Superseded for the bond (owner, 2026-10-11, D-Q-30):** the minimum is clamp(5 % of all YED "
+        "vault collateral ÷ 9 seats, 5,000 YEC, 20,000 YEC), counted in YEC with no price; bigger bonds win "
+        "seats (D-Q-29, `ybcal seats`), and a bond returns 14 days after exit. The 5,000-YEC floor binds "
+        "below 900,000 YEC of vault collateral, so at launch the D-Q-30 column above is the floor. The share "
+        "recommendation below stands.\n"
+    )
     be8 = _row(be_rows, size_model="supply", share=0.5, bond_rule="usd8k")["mints_per_day_by_price"]
     be2 = _row(be_rows, size_model="supply", share=0.5, bond_rule="usd2k")["mints_per_day_by_price"]
     low_75 = low_s["seat_usd_month_by_share"]["75%"]  # type: ignore[index]
@@ -1498,8 +1553,10 @@ def render_markdown(res: Mapping[str, object]) -> str:
         "price, "
         f"{rec['maxtxfee_floor_yec']:g} YEC); maxVaultShareBps {rec['max_vault_share_bps']:,} of the cap "
         "with a "
-        f"${rec['max_vault_share_floor_usd']:,.0f} floor; bondMin ${rec['bond_min_usd']:,.0f} (floor "
-        f"{rec['bond_min_floor_yec']:,.0f} YEC); residualMin ${rec['residual_min_usd']:.2f} at pMint (floor "
+        f"${rec['max_vault_share_floor_usd']:,.0f} floor; bondMin (D-Q-30) "
+        f"clamp({rec['bond_share_bps']} bps of "
+        f"the YED vault collateral / 9, {rec['bond_min_floor_yec']:,.0f} YEC, {rec['bond_min_cap_yec']:,.0f} "
+        "YEC); residualMin ${rec['residual_min_usd']:.2f} at pMint (floor "
         f"{rec['residual_min_floor_zat']:,} zat).\n"
     )
     for r in rec["reasons"]:  # type: ignore[union-attr]

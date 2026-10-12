@@ -84,11 +84,13 @@ MINT-6 growth) — with one recommendation.
 | Residual | $0.48 at `pMint`, floor 100,000 zat | D-Q-23a RED-5′ |
 | Supply cap | 15 % of circulating supply × `xMint(R)` | D-Q-25 MINT-6 |
 | Per-vault share | 10 % of the cap, floor $10,000 (per vault, not per owner) | D-Q-23a MINT-6b |
-| `bondMin` | $8,000 at the registration price, floor 2,000 YEC — **recommended, not yet in the node** (q/fees keeps 20,000 YEC) | D-Q-23a / D-Q-25 |
+| `bondMin` | clamp(ceil(YED vault collateral × 500 bps ÷ 9), 5,000 YEC, 20,000 YEC) from the snapshot before the join, no price; exit any time, the bond returns 16,128 blocks (14 days) after exit, `bondMinLock` 0 — as built on ycash-dd `q/attest` `4bb710b4c` (this study's $8,000 pinned bond was superseded) | D-Q-30, D-Q-31 |
 
 The parameter registry (`src/ybcal/params/registry.py`) is still pinned to ycash6 `7702d22` (the v3 values:
-`feeMin` / `feeBps`, `maxMint` $10,000, `attestFeeBps` 2,500, `bondMin` 20,000 YEC) and is checked against
+`feeMin` / `feeBps`, `maxMint` $10,000, `attestFeeBps` 2,500, `bondMin` 20,000 YEC, `bondMinLock` 420,480) and is checked against
 that source by `ybcal params check`; moving it to the fee line is a re-pin onto the merged node (new fields:
-the bands, floor, `maxVaultShareBps`, `vaultShareFloorCents`, `residualMinCents`; `feeMin` / `feeBps` gone),
+the bands, floor, `maxVaultShareBps`, `vaultShareFloorCents`, `residualMinCents`, and from D-Q-29/30 `bondMinFloorZat`,
+`bondMinCapZat`, `bondShareBps`, `seatAgeUnit`, `seatAgeCap`, `seatMarginBps`, `evictMarginBps`, `attestorSeats`,
+`attestorLivenessMin`; `feeMin` / `feeBps` / `bondMin` gone),
 not done here. No policy TOML on this branch encodes release values (`policy/harden-2026-10.toml` exists only
 on `harden/yellowback`, which keeps H-12's $2,500).

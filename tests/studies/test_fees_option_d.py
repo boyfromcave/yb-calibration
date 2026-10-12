@@ -168,6 +168,11 @@ def test_attestor_tiers_bonds_and_break_even():
     assert F.bond_yec("usd8k", 0.40) == 20_000.0 and F.bond_yec("usd8k", 1.0) == 8_000.0
     assert F.bond_yec("usd8k", 5.0) == 2_000.0 and F.bond_usd("usd8k", 10.0) == 20_000.0
     assert F.bond_usd("usd2k", 0.40) == 2_000.0 and F.bond_usd("usd2k", 5.0) == 10_000.0
+    # D-Q-30 through the node kernel: 5 % of the collateral (300 % of the YED outstanding) over 9 seats
+    assert F.bond_yec("dq30", 0.40) == 5_000.0  # low tier: 375,000 YEC of collateral, the floor binds
+    assert F.bond_yec("dq30", 0.40, 500_000.0) == 20_000.0  # mid at $0.40: 3.75 M YEC, the cap binds
+    assert F.bond_yec("dq30", 1.0, 500_000.0) == 8_333.33333334  # mid at $1: ceil(1.5 M x 5 % / 9) in zat
+    assert F.bond_yec("dq30", 10.0, 5_000_000.0) == 8_333.33333334  # high at $10: the same collateral
     # revenue has no bond term and no price term: low tier, supply-consistent sizes, 50 %
     low = tiers["low"]
     assert F.seat_revenue_usd_year(low, "supply", 0.5) == pytest.approx(730 * (50_000 / 360) * 0.01 * 0.5 / 6)
@@ -227,7 +232,7 @@ def test_attestors_cli(tmp_path, capsys):
     assert rc == 0
     res = json.loads((tmp_path / "attestors.json").read_text())
     assert res["constants"]["height"] == 3_062_423 and res["constants"]["seats"] == 6
-    assert len(res["seat_revenue"]) == 8 and len(res["break_even"]) == 18
+    assert len(res["seat_revenue"]) == 8 and len(res["break_even"]) == 24
     md = (tmp_path / "attestors.md").read_text()
     assert "## 6. Recommendation for launch" in md and "revenue is set by adoption, not by bond size" in md
     assert "Share 50 %" in md and "$8,000 pinned" in md
@@ -247,8 +252,11 @@ def test_release_constants_are_the_recommendation_as_built():
     assert r.maxtxfee_usd == rec.maxtxfee_usd == 2.0
     assert r.max_vault_share_bps == rec.max_vault_share_bps == 1_000
     assert r.max_vault_share_floor_usd == rec.max_vault_share_floor_usd == 10_000.0
-    assert r.bond_min_usd == rec.bond_min_usd == 8_000.0
-    assert r.bond_min_floor_yec == rec.bond_min_floor_yec == 2_000.0
+    # D-Q-30 (owner 2026-10-11) as built on ycash-dd q/attest 4bb710b4c replaced the $8,000 pinned bond
+    assert r.bond_min_floor_yec == rec.bond_min_floor_yec == 5_000.0
+    assert r.bond_min_cap_yec == rec.bond_min_cap_yec == 20_000.0
+    assert r.bond_share_bps == rec.bond_share_bps == 500 and r.bond_slots == 9
+    assert (r.bond_exit_delay_blocks, r.bond_min_lock_blocks) == (16_128, 0)
     assert r.residual_min_usd == rec.residual_min_usd
     assert r.residual_min_floor_zat == rec.residual_min_floor_zat
     assert r.residual_min_usd == 0.48 and r.max_mint_usd == F.MAX_MINT_USD == 100_000.0
