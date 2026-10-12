@@ -2,7 +2,7 @@
 
 An analytic study like ``fees_option_d``: no simulation engine, no price pulls, no sweeps; every number is
 an exact integer evaluation of the node's own rules through :mod:`ybcal.model.seats` (bit for bit with
-ycash-dd ``q/attest`` ``4bb710b4c``), and the only market input is the $0.40 reference price the fees
+ycash-dd ``q/attest`` ``f07a9aef6``), and the only market input is the $0.40 reference price the fees
 study took from the frozen 2026-10-04 data. Runs in about a second. ``ybcal seats [--out DIR]``.
 
 Questions:
@@ -14,11 +14,12 @@ Questions:
    days to a seat by ``r`` and the incumbent's tenure ``T``, or never.
 3. **Eviction.** The least bond that evicts a live member of bond ``b`` and tenure ``t`` from a full set
    (tenure 0 for the joiner, EVICT_MARGIN); a not-live member goes to any bond ≥ the floor.
-4. **Filling and capturing nine seats.** How many 20,000-YEC and 5,000-YEC bonders it takes to fill
-   N_SLOTS, and the capital to take 7 (harmful capture, D-RD-ATT-4) or 9 seats from an honest set by bond
-   and tenure, against the D-Q-30 minimum.
-5. **A trace.** A full 15-member set of 5,000-YEC members (9 seated at one year, 6 waiting at 30 days)
-   and an entrant who joins one bond a day: who is evicted, when the entrant holds the seats.
+4. **Filling and capturing nine seats.** How many 20,000-YEC and floor-sized (10,000-YEC) bonders it
+   takes to fill N_SLOTS, and the capital to take 7 (harmful capture, D-RD-ATT-4) or 9 seats from an
+   honest set by bond and tenure, against the D-Q-30 minimum.
+5. **A trace.** A full 15-member set of floor-sized (10,000-YEC) members (9 seated at one year, 6
+   waiting at 30 days) and an entrant who joins one bond a day: who is evicted, when the entrant holds
+   the seats.
 6. **Bond minimum.** D-Q-30 against vault collateral, with the YED outstanding it implies at 300 %.
 """
 
@@ -41,7 +42,9 @@ HARM_SEATS = 7  #: hardening plan C-4 / D-RD-ATT-4: harmful capture needs 7 of 9
 TENURE_DAYS: tuple[int, ...] = (0, 1, 7, 14, 30, 90, 180, 365, 730)
 RATIOS: tuple[float, ...] = (1.0, 1.05, 1.06, 1.1, 1.25, 1.5, 2.0, 4.0)
 INCUMBENT_DAYS: tuple[int, ...] = (0, 30, 180, 365, 730)
-BONDS_YEC: tuple[int, ...] = (5_000, 10_000, 20_000)
+#: the D-Q-30 floor (10,000 YEC since the owner amended D-Q-30, 2026-10-11; was 5,000)
+FLOOR_YEC = P.bond_min_floor_zat // COIN
+BONDS_YEC: tuple[int, ...] = (FLOOR_YEC, 15_000, 20_000)
 SEAT_SCAN_DAYS = 3 * 365  #: horizon of the time-to-seat scan
 TRACE_DAYS = 30
 
@@ -141,19 +144,24 @@ def least_seating_bond_zat(bond_zat: int, tenure_blocks: int) -> int:
 
 
 def fill_rows() -> list[dict[str, object]]:
-    """Seats held by ``m`` fresh 20,000-YEC bonders among ``n`` 5,000-YEC bonders of any tenure (the set
-    holds 15 members, N_SLOTS 9 seats): the ranking is exact, so a 20,000 bond (×f(14 d) at eligibility)
-    beats a 5,000 bond at any tenure (×1.9 ×1.05)."""
+    """Seats held by ``m`` fresh 20,000-YEC bonders among ``n`` floor-sized (10,000-YEC) bonders of any
+    tenure (the set holds 15 members, N_SLOTS 9 seats): the ranking is exact, so a 20,000 bond (×f(14 d)
+    at eligibility) beats a floor bond at any tenure (×1.9 ×1.05)."""
     a20 = S.seat_rank(20_000 * COIN, P.bond_maturity, False, P)
-    a5_max = S.seat_rank(5_000 * COIN, P.seat_age_cap, True, P)
+    a5_max = S.seat_rank(FLOOR_YEC * COIN, P.seat_age_cap, True, P)
     out = []
     for m in range(0, P.attestor_seats + 1, 3):
         n = P.attestor_seats - m
         seats20 = min(m, P.n_slots)
         out.append(
-            {"bonders_20k": m, "bonders_5k": n, "seats_20k": seats20, "seats_5k": min(n, P.n_slots - seats20)}
+            {
+                "bonders_20k": m,
+                "bonders_floor": n,
+                "seats_20k": seats20,
+                "seats_floor": min(n, P.n_slots - seats20),
+            }
         )
-    return [{"fresh_20k_beats_year_old_seated_5k": a20 > a5_max}, *out]
+    return [{"fresh_20k_beats_year_old_seated_floor": a20 > a5_max}, *out]
 
 
 def capture_rows() -> list[dict[str, object]]:
@@ -189,8 +197,8 @@ def _key(i: int) -> bytes:
 
 
 def trace(entrant_bond_yec: int, days: int = TRACE_DAYS) -> dict[str, object]:
-    """15 honest 5,000-YEC members (9 at one year's tenure, seated; 6 at 30 days, waiting), all live; the
-    entrant joins one bond of ``entrant_bond_yec`` a day. Each join into the full set runs
+    """15 honest floor-sized (10,000-YEC) members (9 at one year's tenure, seated; 6 at 30 days, waiting),
+    all live; the entrant joins one bond of ``entrant_bond_yec`` a day. Each join into the full set runs
     EvictionVictim; seats are re-ranked daily with SeatRank (hysteresis on the seated) over the ELIGIBLE
     members (BOND_MATURITY after joining). Returns the day-by-day counts."""
     h0 = 3_100_000
@@ -198,7 +206,7 @@ def trace(entrant_bond_yec: int, days: int = TRACE_DAYS) -> dict[str, object]:
     for i in range(15):
         ten = 365 if i < 9 else 30
         members[_key(i)] = {
-            "bond": 5_000 * COIN,
+            "bond": FLOOR_YEC * COIN,
             "join": h0 - ten * BLOCKS_PER_DAY,
             "honest": True,
             "seated": i < 9,
@@ -250,8 +258,8 @@ def trace(entrant_bond_yec: int, days: int = TRACE_DAYS) -> dict[str, object]:
 
 
 def trace_cases() -> list[dict[str, object]]:
-    year = least_evicting_bond_zat(5_000 * COIN, 365 * BLOCKS_PER_DAY) / COIN
-    return [trace(b) for b in (5_250, int(year) + 1, 20_000)]
+    year = least_evicting_bond_zat(FLOOR_YEC * COIN, 365 * BLOCKS_PER_DAY) / COIN
+    return [trace(b) for b in (FLOOR_YEC * (BPS + P.evict_margin_bps) // BPS, int(year) + 1, 20_000)]
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -260,7 +268,7 @@ def trace_cases() -> list[dict[str, object]]:
 
 def bond_min_rows() -> list[dict[str, float]]:
     out = []
-    for c in (0, 500_000, 900_000, 1_000_000, 2_000_000, 3_600_000, 5_000_000, 10_000_000):
+    for c in (0, 500_000, 1_000_000, 1_800_000, 2_000_000, 3_600_000, 5_000_000, 10_000_000):
         b = S.bond_min_from_collateral_zat(c * COIN, P) / COIN
         out.append(
             {
@@ -364,21 +372,21 @@ def render_markdown(res: Mapping[str, object]) -> str:
         L.append(f"| {_y(r['member_bond_yec'])} | " + " | ".join(_y(by[str(d)]) for d in TENURE_DAYS) + " |")
     L.append(
         "\nA member that is not live (no act within the set's liveness window) is evicted by any bond at or "
-        "above the 5,000-YEC floor; an evicted member is not slashed and gets its bond back 14 days later.\n"
+        "above the 10,000-YEC floor; an evicted member is not slashed and gets its bond back 14 days later.\n"
     )
     fill: list[Mapping[str, object]] = res["fill"]  # type: ignore[assignment]
     L.append("## 4. Filling and capturing the nine seats\n")
     L.append(
-        f"A fresh 20,000-YEC bond outranks a year-old seated 5,000-YEC bond: "
-        f"**{'yes' if fill[0]['fresh_20k_beats_year_old_seated_5k'] else 'no'}** (20,000 × 1.413 = 28,260 "
-        "against 5,000 × 1.9 × 1.05 = 9,975). So the seats go to the biggest bonds: nine 20,000-YEC bonders "
-        "fill all nine seats whatever the number of 5,000-YEC members, and 5,000-YEC bonders hold only the "
-        "seats the bigger bonds leave.\n"
+        f"A fresh 20,000-YEC bond outranks a year-old seated floor bond (10,000 YEC): "
+        f"**{'yes' if fill[0]['fresh_20k_beats_year_old_seated_floor'] else 'no'}** (20,000 × 1.413 = 28,260 "
+        "against 10,000 × 1.9 × 1.05 = 19,950). So the seats go to the biggest bonds: nine 20,000-YEC "
+        "bonders fill all nine seats whatever the number of floor-sized members, and floor-sized bonders "
+        "hold only the seats the bigger bonds leave.\n"
     )
-    L.append("| 20,000-YEC bonders | 5,000-YEC bonders | seats to 20,000 | seats to 5,000 |")
+    L.append("| 20,000-YEC bonders | 10,000-YEC bonders | seats to 20,000 | seats to 10,000 |")
     L.append("|---:|---:|---:|---:|")
     for r in fill[1:]:
-        L.append(f"| {r['bonders_20k']} | {r['bonders_5k']} | {r['seats_20k']} | {r['seats_5k']} |")
+        L.append(f"| {r['bonders_20k']} | {r['bonders_floor']} | {r['seats_20k']} | {r['seats_floor']} |")
     L.append(
         f"\nCapture capital (an entrant taking {C['harm_seats']} or {C['n_slots']} seats from an honest "
         "seated "
@@ -400,9 +408,10 @@ def render_markdown(res: Mapping[str, object]) -> str:
         "\nA full set (15 members) must also be entered by eviction (§3, joiner at tenure 0), which binds "
         "over the seating bond at every tenure here; with room in the set only the seating bond binds (the "
         "entrant ranked at 14 days' tenure). For comparison, v3's flat 20,000-YEC minimum made 7 seats "
-        "cost at least 140,000 YEC.\n"
+        "cost at least 140,000 YEC; the 10,000-YEC floor (owner, 2026-10-11) puts 7 seats from a year-old "
+        "floor-sized full set back at about that (139,650 YEC).\n"
     )
-    L.append("\n## 5. Trace: an entrant joining one bond a day into a full set of 5,000-YEC members\n")
+    L.append("\n## 5. Trace: an entrant joining one bond a day into a full set of 10,000-YEC members\n")
     L.append(
         "| entrant bond | day 7: honest / entrant members, entrant seats | day 30 | first day with 7 seats |"
     )
@@ -419,7 +428,7 @@ def render_markdown(res: Mapping[str, object]) -> str:
     L.append(
         "\nThe 9 honest members are seated at one year's tenure, the 6 others waiting at 30 days; all live. "
         "EvictionVictim takes the least seat weight first: the youngest honest members, then the entrant's "
-        "own newest bonds once they weigh least (a bond just above 5,000 × 1.05 only evicts honest members "
+        "own newest bonds once they weigh least (a bond just above 10,000 × 1.05 only evicts honest members "
         "younger than about a day, then its own). Seats follow 14 days after each join.\n"
     )
     L.append("## 6. Bond minimum against vault collateral (D-Q-30)\n")

@@ -1,32 +1,32 @@
 {
  "bond_min": [
   {
-   "bond_min_yec": 5000.0,
+   "bond_min_yec": 10000.0,
    "collateral_yec": 0,
    "seats_share_of_collateral": NaN,
-   "seats_total_yec": 45000.0,
+   "seats_total_yec": 90000.0,
    "yed_usd_at_300pct_ref": 0.0
   },
   {
-   "bond_min_yec": 5000.0,
+   "bond_min_yec": 10000.0,
    "collateral_yec": 500000,
-   "seats_share_of_collateral": 0.09,
-   "seats_total_yec": 45000.0,
+   "seats_share_of_collateral": 0.18,
+   "seats_total_yec": 90000.0,
    "yed_usd_at_300pct_ref": 66666.66666666667
   },
   {
-   "bond_min_yec": 5000.0,
-   "collateral_yec": 900000,
-   "seats_share_of_collateral": 0.05,
-   "seats_total_yec": 45000.0,
-   "yed_usd_at_300pct_ref": 120000.0
+   "bond_min_yec": 10000.0,
+   "collateral_yec": 1000000,
+   "seats_share_of_collateral": 0.09,
+   "seats_total_yec": 90000.0,
+   "yed_usd_at_300pct_ref": 133333.33333333334
   },
   {
-   "bond_min_yec": 5555.55555556,
-   "collateral_yec": 1000000,
-   "seats_share_of_collateral": 0.050000000000040005,
-   "seats_total_yec": 50000.00000004,
-   "yed_usd_at_300pct_ref": 133333.33333333334
+   "bond_min_yec": 10000.0,
+   "collateral_yec": 1800000,
+   "seats_share_of_collateral": 0.05,
+   "seats_total_yec": 90000.0,
+   "yed_usd_at_300pct_ref": 240000.0
   },
   {
    "bond_min_yec": 11111.11111112,
@@ -58,56 +58,6 @@
   }
  ],
  "capture": [
-  {
-   "all_seats_capital_yec": 47250.000000089996,
-   "harm_capital_open_set_yec": 36750.00000007,
-   "harm_capital_usd_at_ref": 14700.000000028002,
-   "harm_capital_yec": 36750.00000007,
-   "honest_bond_yec": 5000,
-   "honest_tenure_days": 0,
-   "per_seat_open_set_yec": 5250.00000001,
-   "per_seat_yec": 5250.00000001
-  },
-  {
-   "all_seats_capital_yec": 71989.63165287,
-   "harm_capital_open_set_yec": 41107.00786213,
-   "harm_capital_usd_at_ref": 22396.774292004004,
-   "harm_capital_yec": 55991.93573001,
-   "honest_bond_yec": 5000,
-   "honest_tenure_days": 30,
-   "per_seat_open_set_yec": 5872.42969459,
-   "per_seat_yec": 7998.84796143
-  },
-  {
-   "all_seats_capital_yec": 84701.91192633001,
-   "harm_capital_open_set_yec": 46922.17266408,
-   "harm_capital_usd_at_ref": 26351.705932636003,
-   "harm_capital_yec": 65879.26483159,
-   "honest_bond_yec": 5000,
-   "honest_tenure_days": 180,
-   "per_seat_open_set_yec": 6703.16752344,
-   "per_seat_yec": 9411.32354737
-  },
-  {
-   "all_seats_capital_yec": 89774.71160894999,
-   "harm_capital_open_set_yec": 49419.37556703,
-   "harm_capital_usd_at_ref": 27929.91027834,
-   "harm_capital_yec": 69824.77569585,
-   "honest_bond_yec": 5000,
-   "honest_tenure_days": 365,
-   "per_seat_open_set_yec": 7059.91079529,
-   "per_seat_yec": 9974.96795655
-  },
-  {
-   "all_seats_capital_yec": 89774.71160894999,
-   "harm_capital_open_set_yec": 49419.37556703,
-   "harm_capital_usd_at_ref": 27929.91027834,
-   "harm_capital_yec": 69824.77569585,
-   "honest_bond_yec": 5000,
-   "honest_tenure_days": 730,
-   "per_seat_open_set_yec": 7059.91079529,
-   "per_seat_yec": 9974.96795655
-  },
   {
    "all_seats_capital_yec": 94500.00000009,
    "harm_capital_open_set_yec": 73500.00000007001,
@@ -157,6 +107,56 @@
    "honest_tenure_days": 730,
    "per_seat_open_set_yec": 14119.82159057,
    "per_seat_yec": 19949.93591309
+  },
+  {
+   "all_seats_capital_yec": 141750.00000009002,
+   "harm_capital_open_set_yec": 110250.00000007001,
+   "harm_capital_usd_at_ref": 44100.000000028005,
+   "harm_capital_yec": 110250.00000007001,
+   "honest_bond_yec": 15000,
+   "honest_tenure_days": 0,
+   "per_seat_open_set_yec": 15750.00000001,
+   "per_seat_yec": 15750.00000001
+  },
+  {
+   "all_seats_capital_yec": 215968.89495852,
+   "harm_capital_open_set_yec": 123321.02358639,
+   "harm_capital_usd_at_ref": 67190.322875984,
+   "harm_capital_yec": 167975.80718996,
+   "honest_bond_yec": 15000,
+   "honest_tenure_days": 30,
+   "per_seat_open_set_yec": 17617.28908377,
+   "per_seat_yec": 23996.54388428
+  },
+  {
+   "all_seats_capital_yec": 254105.73577881,
+   "harm_capital_open_set_yec": 140766.51799217,
+   "harm_capital_usd_at_ref": 79055.11779785201,
+   "harm_capital_yec": 197637.79449463,
+   "honest_bond_yec": 15000,
+   "honest_tenure_days": 180,
+   "per_seat_open_set_yec": 20109.50257031,
+   "per_seat_yec": 28233.97064209
+  },
+  {
+   "all_seats_capital_yec": 269324.13482667,
+   "harm_capital_open_set_yec": 148258.12670095,
+   "harm_capital_usd_at_ref": 83789.73083496401,
+   "harm_capital_yec": 209474.32708741,
+   "honest_bond_yec": 15000,
+   "honest_tenure_days": 365,
+   "per_seat_open_set_yec": 21179.73238585,
+   "per_seat_yec": 29924.90386963
+  },
+  {
+   "all_seats_capital_yec": 269324.13482667,
+   "harm_capital_open_set_yec": 148258.12670095,
+   "harm_capital_usd_at_ref": 83789.73083496401,
+   "harm_capital_yec": 209474.32708741,
+   "honest_bond_yec": 15000,
+   "honest_tenure_days": 730,
+   "per_seat_open_set_yec": 21179.73238585,
+   "per_seat_yec": 29924.90386963
   },
   {
    "all_seats_capital_yec": 189000.00000009002,
@@ -213,34 +213,20 @@
   "attestor_seats": 15,
   "bond_maturity": 16128,
   "bond_min_cap_yec": 20000.0,
-  "bond_min_floor_yec": 5000.0,
+  "bond_min_floor_yec": 10000.0,
   "bond_share_bps": 500,
   "cap_binds_from_collateral_yec": 3599999.99999821,
   "evict_margin_bps": 500,
-  "floor_binds_below_collateral_yec": 900000.0,
+  "floor_binds_below_collateral_yec": 1800000.0,
   "harm_seats": 7,
   "n_slots": 9,
   "ref_price_usd": 0.4,
   "seat_age_cap": 420480,
   "seat_age_unit": 1152,
   "seat_margin_bps": 500,
-  "source_commit": "4bb710b4c5e5036ac5198f98cc0c08bb06077bf8"
+  "source_commit": "f07a9aef6866145318a20aaa3c985e27b5043f35"
  },
  "evict": [
-  {
-   "least_evicting_bond_yec_by_tenure": {
-    "0": 5250.00000001,
-    "1": 5804.8324585,
-    "14": 7417.73986817,
-    "180": 9411.32354737,
-    "30": 7998.84796143,
-    "365": 9974.96795655,
-    "7": 6914.49737549,
-    "730": 9974.96795655,
-    "90": 8860.89706421
-   },
-   "member_bond_yec": 5000
-  },
   {
    "least_evicting_bond_yec_by_tenure": {
     "0": 10500.00000001,
@@ -254,6 +240,20 @@
     "90": 17721.79412842
    },
    "member_bond_yec": 10000
+  },
+  {
+   "least_evicting_bond_yec_by_tenure": {
+    "0": 15750.00000001,
+    "1": 17414.49737549,
+    "14": 22253.2196045,
+    "180": 28233.97064209,
+    "30": 23996.54388428,
+    "365": 29924.90386963,
+    "7": 20743.49212647,
+    "730": 29924.90386963,
+    "90": 26582.69119263
+   },
+   "member_bond_yec": 15000
   },
   {
    "least_evicting_bond_yec_by_tenure": {
@@ -272,43 +272,43 @@
  ],
  "fill": [
   {
-   "fresh_20k_beats_year_old_seated_5k": true
+   "fresh_20k_beats_year_old_seated_floor": true
   },
   {
    "bonders_20k": 0,
-   "bonders_5k": 15,
+   "bonders_floor": 15,
    "seats_20k": 0,
-   "seats_5k": 9
+   "seats_floor": 9
   },
   {
    "bonders_20k": 3,
-   "bonders_5k": 12,
+   "bonders_floor": 12,
    "seats_20k": 3,
-   "seats_5k": 6
+   "seats_floor": 6
   },
   {
    "bonders_20k": 6,
-   "bonders_5k": 9,
+   "bonders_floor": 9,
    "seats_20k": 6,
-   "seats_5k": 3
+   "seats_floor": 3
   },
   {
    "bonders_20k": 9,
-   "bonders_5k": 6,
+   "bonders_floor": 6,
    "seats_20k": 9,
-   "seats_5k": 0
+   "seats_floor": 0
   },
   {
    "bonders_20k": 12,
-   "bonders_5k": 3,
+   "bonders_floor": 3,
    "seats_20k": 9,
-   "seats_5k": 0
+   "seats_floor": 0
   },
   {
    "bonders_20k": 15,
-   "bonders_5k": 0,
+   "bonders_floor": 0,
    "seats_20k": 9,
-   "seats_5k": 0
+   "seats_floor": 0
   }
  ],
  "tenure": [
@@ -460,7 +460,7 @@
  ],
  "trace": [
   {
-   "entrant_bond_yec": 5250,
+   "entrant_bond_yec": 10500,
    "events": [
     {
      "day": 1,
@@ -714,7 +714,7 @@
    "first_day_harm_seats": null
   },
   {
-   "entrant_bond_yec": 9975,
+   "entrant_bond_yec": 19950,
    "events": [
     {
      "day": 1,

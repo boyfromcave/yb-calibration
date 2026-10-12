@@ -1,27 +1,27 @@
 """Attestor seat ranking, eviction and the collateral-based bond minimum (quantum plan D-Q-29..D-Q-31).
 
 Exact integer mirrors of the owner's 2026-10-11 attestor rules as built on ycash-dd ``q/attest``
-(``4bb710b4c``; the ycash6 port follows on the same branch name). Citations are ``file:line`` there:
+(``f07a9aef6``; the ycash6 port follows on the same branch name). Citations are ``file:line`` there:
 
 * ``src/yellowback/math.h:257`` ``Log2Q16`` — log2 in Q16, deterministic but *not* exact (one below the
   true floor for a handful of inputs; the node, its Python model and this module compute the same bits).
 * ``math.h:282`` ``SeatAgeFactorQ16`` — the tenure factor, 65,536 (×1.0) at no tenure rising on a log
   scale to 124,518 (×1.9) at ``SEAT_AGE_CAP`` (one year).
-* ``math.h:297`` ``SeatWeight`` = bond × factor; ``state.cpp:1784`` ``SeatRank`` = SeatWeight × (10,000 +
+* ``math.h:297`` ``SeatWeight`` = bond × factor; ``state.cpp:1839`` ``SeatRank`` = SeatWeight × (10,000 +
   ``SEAT_MARGIN_BPS`` when seated) — seat ranking and eviction **only**. The price statistic and W9
   selection keep ``BondWeight`` = bond × min(age, AGE_CAP) (:func:`ybcal.model.kernels.bond_weight`).
-* ``state.cpp:1825`` ``EvictionVictim`` — a join into a full set evicts the not-live member of least seat
+* ``state.cpp:1890`` ``EvictionVictim`` — a join into a full set evicts the not-live member of least seat
   weight first, else the member of least seat weight when the joiner's (tenure 0) beats it by more than
   ``EVICT_MARGIN_BPS``; ties by key bytes; never for a bond below the bond floor (seats review B2).
 * ``math.h:375`` ``BondMinFromCollateralZat`` (D-Q-30) — clamp(ceil(collateral × BOND_SHARE_BPS /
-  (10^4 × N_SLOTS)), 5,000 YEC, 20,000 YEC); no price is read. The node reads the collateral from the
+  (10^4 × N_SLOTS)), 10,000 YEC, 20,000 YEC); no price is read. The node reads the collateral from the
   snapshot before the join, once, at registration.
 * D-Q-30 / D-Q-31: exit any time; the bond returns ``BOND_MATURITY`` (16,128 blocks, 14 days) after the
   exit and stays slashable until then; ``BOND_MIN_LOCK`` is 0.
 
 The vendored reference model (:mod:`ybcal.model.reference`, ycash6 ``7702d22``) predates these rules, so
 the mirrors here are transcribed from the C++ and held bit for bit to vectors computed by the node's own
-Python model at ``4bb710b4c`` (``seats_vectors.json`` beside this module, written by
+Python model at ``f07a9aef6`` (``seats_vectors.json`` beside this module, written by
 ``gen_seats_vectors.py``; ``ybcal verify`` section ``seats``) and to the C++ unit-test values
 (``src/test/yellowback_math_tests.cpp`` ``seat_weight_log_tenure_factor``). Python integers only.
 """
@@ -34,7 +34,7 @@ from dataclasses import dataclass
 OWNER_WP = "WP-1"
 
 #: The node commit the mirrors are transcribed from (ycash-dd ``q/attest``).
-SOURCE_COMMIT = "4bb710b4c5e5036ac5198f98cc0c08bb06077bf8"
+SOURCE_COMMIT = "f07a9aef6866145318a20aaa3c985e27b5043f35"
 
 COIN = 100_000_000
 BPS = 10_000
@@ -48,26 +48,26 @@ FACTOR_MAX_Q16 = Q16 + (9 * Q16) // 10
 class SeatParams:
     """The attestor-seat constants of ``yellowback::Params`` (params.cpp SetCommon / RegtestParams)."""
 
-    n_slots: int = 9  #: N_SLOTS (params.cpp:78)
-    bond_min_floor_zat: int = 5_000 * COIN  #: D-Q-30 floor (params.cpp:96)
-    bond_min_cap_zat: int = 20_000 * COIN  #: D-Q-30 cap (params.cpp:97)
-    bond_share_bps: int = 500  #: D-Q-30 BOND_SHARE_BPS (params.cpp:98)
-    bond_min_lock: int = 0  #: BOND_MIN_LOCK (params.cpp:99; was 420,480)
-    bond_maturity: int = 16_128  #: BOND_MATURITY: maturity and the exit delay (params.cpp:100)
-    age_cap: int = 207_360  #: AGE_CAP of the price weight (params.cpp:101), unchanged
-    seat_age_unit: int = 1_152  #: SEAT_AGE_UNIT u (params.cpp:103), every network
-    seat_age_cap: int = 420_480  #: SEAT_AGE_CAP (params.cpp:104), every network
-    seat_margin_bps: int = 500  #: SEAT_MARGIN_BPS hysteresis (params.cpp:105)
-    evict_margin_bps: int = 500  #: EVICT_MARGIN_BPS (params.cpp:106)
-    attestor_seats: int = 15  #: ATTESTOR_SEATS: members of the OPEN set (params.cpp:107)
-    attestor_liveness_min: int = 1_152  #: ATTESTOR_LIVENESS_MIN (params.cpp:108)
+    n_slots: int = 9  #: N_SLOTS (params.cpp:80)
+    bond_min_floor_zat: int = 10_000 * COIN  #: D-Q-30 floor (params.cpp:98; owner 2026-10-11, was 5,000)
+    bond_min_cap_zat: int = 20_000 * COIN  #: D-Q-30 cap (params.cpp:99)
+    bond_share_bps: int = 500  #: D-Q-30 BOND_SHARE_BPS (params.cpp:100)
+    bond_min_lock: int = 0  #: BOND_MIN_LOCK (params.cpp:101; was 420,480)
+    bond_maturity: int = 16_128  #: BOND_MATURITY: maturity and the exit delay (params.cpp:102)
+    age_cap: int = 207_360  #: AGE_CAP of the price weight (params.cpp:103), unchanged
+    seat_age_unit: int = 1_152  #: SEAT_AGE_UNIT u (params.cpp:105), every network
+    seat_age_cap: int = 420_480  #: SEAT_AGE_CAP (params.cpp:106), every network
+    seat_margin_bps: int = 500  #: SEAT_MARGIN_BPS hysteresis (params.cpp:107)
+    evict_margin_bps: int = 500  #: EVICT_MARGIN_BPS (params.cpp:108)
+    attestor_seats: int = 15  #: ATTESTOR_SEATS: members of the OPEN set (params.cpp:109)
+    attestor_liveness_min: int = 1_152  #: ATTESTOR_LIVENESS_MIN (params.cpp:110)
 
 
 MAINNET = SeatParams()
-#: RegtestParams: D-Q-30 at 1/2,000 of mainnet, maturity 8, N_SLOTS 5, liveness 16 (params.cpp:237-251).
+#: RegtestParams: D-Q-30 at 1/2,000 of mainnet, maturity 8, N_SLOTS 5, liveness 16 (params.cpp:243-257).
 REGTEST = SeatParams(
     n_slots=5,
-    bond_min_floor_zat=COIN * 5 // 2,
+    bond_min_floor_zat=5 * COIN,
     bond_min_cap_zat=10 * COIN,
     bond_maturity=8,
     age_cap=64,
@@ -122,7 +122,7 @@ def seat_weight(
 
 
 def seat_rank(bond_zat: int, age_blocks: int, seated: bool, p: SeatParams = MAINNET) -> int:
-    """state.cpp:1784 SeatRank: SeatWeight × (10,000 + SEAT_MARGIN_BPS if currently seated else 10,000).
+    """state.cpp:1839 SeatRank: SeatWeight × (10,000 + SEAT_MARGIN_BPS if currently seated else 10,000).
     ``age_blocks`` = H − ageOrigin (the founding cohort's origin is the trigger height, as for the
     price weight). The ``N_SLOTS`` ELIGIBLE records of greatest rank are seated, ties by seq."""
     w = seat_weight(bond_zat, age_blocks, p.seat_age_unit, p.seat_age_cap)
@@ -146,7 +146,7 @@ def eviction_victim(
     liveness_window: int,
     p: SeatParams = MAINNET,
 ) -> bytes | None:
-    """state.cpp:1825 EvictionVictim: the key a SET_JOIN of ``new_bond_zat`` into the full set evicts at
+    """state.cpp:1890 EvictionVictim: the key a SET_JOIN of ``new_bond_zat`` into the full set evicts at
     ``height``, or ``None``. Order (not live first, least SeatWeight at ``height − join``, key bytes);
     a not-live first is evicted outright, a live one only when ``SeatWeight(new, 0) × 10,000 >
     its weight × (10,000 + EVICT_MARGIN_BPS)``. No eviction by a bond below the floor (review B2)."""
