@@ -169,10 +169,11 @@ def test_attestor_tiers_bonds_and_break_even():
     assert F.bond_yec("usd8k", 5.0) == 2_000.0 and F.bond_usd("usd8k", 10.0) == 20_000.0
     assert F.bond_usd("usd2k", 0.40) == 2_000.0 and F.bond_usd("usd2k", 5.0) == 10_000.0
     # D-Q-30 through the node kernel: 5 % of the collateral (300 % of the YED outstanding) over 9 seats
-    assert F.bond_yec("dq30", 0.40) == 5_000.0  # low tier: 375,000 YEC of collateral, the floor binds
+    assert F.bond_yec("dq30", 0.40) == 10_000.0  # low tier: 375,000 YEC of collateral, the floor binds
     assert F.bond_yec("dq30", 0.40, 500_000.0) == 20_000.0  # mid at $0.40: 3.75 M YEC, the cap binds
-    assert F.bond_yec("dq30", 1.0, 500_000.0) == 8_333.33333334  # mid at $1: ceil(1.5 M x 5 % / 9) in zat
-    assert F.bond_yec("dq30", 10.0, 5_000_000.0) == 8_333.33333334  # high at $10: the same collateral
+    assert F.bond_yec("dq30", 1.0, 500_000.0) == 10_000.0  # mid at $1: 1.5 M YEC, below the 10,000 floor
+    assert F.bond_yec("dq30", 1.0, 700_000.0) == 11_666.66666667  # ceil(2.1 M x 5 % / 9) in zat
+    assert F.bond_yec("dq30", 10.0, 5_000_000.0) == 10_000.0  # high at $10: the same collateral
     # revenue has no bond term and no price term: low tier, supply-consistent sizes, 50 %
     low = tiers["low"]
     assert F.seat_revenue_usd_year(low, "supply", 0.5) == pytest.approx(730 * (50_000 / 360) * 0.01 * 0.5 / 6)
@@ -252,8 +253,9 @@ def test_release_constants_are_the_recommendation_as_built():
     assert r.maxtxfee_usd == rec.maxtxfee_usd == 2.0
     assert r.max_vault_share_bps == rec.max_vault_share_bps == 1_000
     assert r.max_vault_share_floor_usd == rec.max_vault_share_floor_usd == 10_000.0
-    # D-Q-30 (owner 2026-10-11) as built on ycash-dd q/attest 4bb710b4c replaced the $8,000 pinned bond
-    assert r.bond_min_floor_yec == rec.bond_min_floor_yec == 5_000.0
+    # D-Q-30 (owner 2026-10-11) as built on ycash-dd q/attest f07a9aef6 (floor 10,000 YEC) replaced the
+    # $8,000 pinned bond
+    assert r.bond_min_floor_yec == rec.bond_min_floor_yec == 10_000.0
     assert r.bond_min_cap_yec == rec.bond_min_cap_yec == 20_000.0
     assert r.bond_share_bps == rec.bond_share_bps == 500 and r.bond_slots == 9
     assert (r.bond_exit_delay_blocks, r.bond_min_lock_blocks) == (16_128, 0)

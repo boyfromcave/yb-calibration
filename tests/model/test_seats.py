@@ -92,7 +92,8 @@ def test_eviction_victim_node_model_vectors():
 
 
 def test_eviction_victim_node_model_unit_cases():
-    # qa/rpc-tests/test_framework/test_yellowback_model.py SeatTests.test_eviction_victim (regtest params)
+    # qa/rpc-tests/test_framework/test_yellowback_model.py SeatTests.test_eviction_victim (regtest params,
+    # f07a9aef6: the 5-YEC regtest floor)
     p = S.REGTEST
     H, LW, C = 100000, 1000, COIN
 
@@ -106,8 +107,8 @@ def test_eviction_victim_node_model_unit_cases():
     assert S.eviction_victim(m(base), H, 8 * C, LW, p) is None
     assert S.eviction_victim(m(base), H, 9 * C, LW, p) == k(2)
     assert S.eviction_victim(m(base), H, 8 * C * 105 // 100, LW, p) is None
-    assert S.eviction_victim(m([(k(0), 2 * C, H - 8064, H)]), H, 3 * C, LW, p) is not None
-    assert S.eviction_victim(m([(k(0), 2 * C, H - 420480, H)]), H, 3 * C, LW, p) is None
+    assert S.eviction_victim(m([(k(0), 6 * C, H - 8064, H)]), H, 9 * C, LW, p) is not None
+    assert S.eviction_victim(m([(k(0), 6 * C, H - 420480, H)]), H, 9 * C, LW, p) is None
     assert S.eviction_victim(m([(k(0), 8000 * C, H - 10 * 420480, H)]), H, 20000 * C, LW, p) is not None
     dead = [*base, (k(3), 1000 * C, H - 420480, H - LW - 1)]
     assert S.eviction_victim(m(dead), H, p.bond_min_floor_zat, LW, p) == k(3)
@@ -124,13 +125,13 @@ def test_bond_min_vectors_and_bounds():
     for net, c, want in VECTORS["bond_min_from_collateral_zat"]:
         assert S.bond_min_from_collateral_zat(c, _params(net)) == want, (net, c)
     p = S.MAINNET
-    assert S.bond_min_from_collateral_zat(0) == 5_000 * COIN
+    assert S.bond_min_from_collateral_zat(0) == 10_000 * COIN
     assert S.bond_min_from_collateral_zat(K.MAX_MONEY) == 20_000 * COIN
     lo, hi = S.bond_neutral_collateral_zat(p)
     assert S.bond_min_from_collateral_zat(lo - 1) == p.bond_min_floor_zat < S.bond_min_from_collateral_zat(lo)
     assert S.bond_min_from_collateral_zat(hi - 1) < p.bond_min_cap_zat == S.bond_min_from_collateral_zat(hi)
     assert (
-        lo == 900_000 * COIN + 1 and hi == 3_600_000 * COIN - 179
+        lo == 1_800_000 * COIN + 1 and hi == 3_600_000 * COIN - 179
     )  # ceil: the cap binds just below 3.6 M YEC
     assert S.bond_return_height(1000) == 1000 + 16_128
     zero_slots = S.SeatParams(n_slots=0)
