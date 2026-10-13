@@ -103,7 +103,7 @@ SPECS: tuple[WholeSpec | ExtractSpec | DataSpec, ...] = (
                 "_SECP", "_ec_add", "secret_to_pubkey", "wif_to_secret", "pubkey_to_address", "fee_zat",
                 "term_class_of", "usd_to_micro", "ATTEST_FEE_BPS", "BPS",
             )),
-            (TF + "util.py", ("assert_equal", "bytes_to_hex_str", "hex_str_to_bytes")),
+            (TF + "util.py", ("assert_equal", "bytes_to_hex_str", "hex_str_to_bytes", "VAULT_BRANCH_ID")),
         ),
         {"yellowback_model": "reference"},
     ),
@@ -245,7 +245,9 @@ def extract_source(spec: ExtractSpec, sources: dict[str, str]) -> str:
             import_lines.append(line)
     out = ['"""Verbatim top-level definitions extracted from the ycash6 test framework (see header)."""', ""]
     out += sorted(import_lines)
-    for path in order:
+    # dependencies first: an earlier source imports from the later ones (``from .util import x``),
+    # never the reverse, so the later sources' definitions are emitted before the earlier ones'
+    for path in reversed(order):
         stmts = sorted(wanted[path], key=lambda s: s.lineno)
         if not stmts:
             continue

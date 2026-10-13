@@ -2,7 +2,7 @@
 # source: boyfromcave/ycash6 qa/rpc-tests/test_framework/yellowback_util.py + qa/rpc-tests/test_framework/util.py
 # commit: 7702d22606d1ec3edf0fca962573fba64dac3904
 # sha256: f980d3e162def16d34a42652b2f6c46f256561ae025509d0a236f8c94c9cc7cd 24636f48435ba60013d2e9d8841be701f6c83c78867964659af255b8c81ffd54
-# body-sha256: 04342349e2e908a330bf3a4a790ea04f0adc295a46ee5cee1b6a48ad564057d2
+# body-sha256: 782dbcde8723a4e36cf279e25c5712fe692157b619a4890d11d9789db2e00070
 # mode: verbatim top-level definitions (transitive closure of the roots in vendor.SPECS)
 # ruff: noqa
 # ==== end of ybcal header; the vendored source follows unchanged ====
@@ -13,6 +13,21 @@ from binascii import hexlify
 from binascii import unhexlify
 from decimal import Decimal
 import hashlib
+
+
+# ---- from qa/rpc-tests/test_framework/util.py
+
+def bytes_to_hex_str(byte_str):
+    return hexlify(byte_str).decode('ascii')
+
+def hex_str_to_bytes(hex_str):
+    return unhexlify(hex_str.encode('ascii'))
+
+def assert_equal(expected, actual, message=""):
+    if expected != actual:
+        if message:
+            message = "; %s" % message
+        raise AssertionError("(left == right)%s\n  left: <%s>\n right: <%s>" % (message, str(expected), str(actual)))
 
 
 # ---- from qa/rpc-tests/test_framework/yellowback_util.py
@@ -152,18 +167,3 @@ def fee_zat(collateral_zat):
 
 def usd_to_micro(usd):
     return int((Decimal(str(usd)) * 1_000_000).to_integral_value())
-
-
-# ---- from qa/rpc-tests/test_framework/util.py
-
-def bytes_to_hex_str(byte_str):
-    return hexlify(byte_str).decode('ascii')
-
-def hex_str_to_bytes(hex_str):
-    return unhexlify(hex_str.encode('ascii'))
-
-def assert_equal(expected, actual, message=""):
-    if expected != actual:
-        if message:
-            message = "; %s" % message
-        raise AssertionError("(left == right)%s\n  left: <%s>\n right: <%s>" % (message, str(expected), str(actual)))
