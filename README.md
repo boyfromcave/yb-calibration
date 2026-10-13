@@ -77,8 +77,8 @@ its §7). Its parameter registry and simulator are still pinned to the v3 parame
 `7702d22`); the new fee and seat fields above live in the three studies.
 
 **The model layer is on the upgrade line** (2026-10-13, [D-MP-1](docs/decisions.md)): the vendored
-reference model, golden vector and `SERIALISATION.md` are pinned at ycash6 `upgrade/vault` `1310a41a1`
-(`SCHEMA_VERSION` 13, the same files as ycash-dd `8af82551b`), and the exact kernels follow it — the vault
+reference model, golden vector and `SERIALISATION.md` are pinned at ycash6 `upgrade/vault` `a983720de`
+(`SCHEMA_VERSION` 14, the per-vault cancel limit; the model, golden and `SERIALISATION.md` as on ycash-dd `d84d372ee`), and the exact kernels follow it — the vault
 upgrade, in-term claims, the post-quantum fees (FEE-1′, IT-9′, MINT-6b, RED-5′) and CAN-1. The activation
 signalling rules (ACT-1..6) and FEE-1's collateral fee are retired. Until the registry and the simulator are
 re-pinned, the simulator's v3 books are checked against a retained, hash-checked copy of the v3 reference;

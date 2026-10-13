@@ -66,7 +66,7 @@ integrator note in decisions.md changed a contract, the text below states the cu
 | `params/snapshot_7702d22.json` | WP-0 | extraction at the pin, used when no ycash6 clone is present (CI) |
 | `params/scaling.py` | WP-9 | mainnet → regtest time scaling (§6.3) |
 | `params/emit.py` | WP-8 | recommended set → `params.cpp` patch + JSON (§7) |
-| `model/` | WP-1 | vendored reference model (upgrade line, SCHEMA 13; a retired v3 copy for the simulator), exact kernels, vectorised kernels, retired v3 kernels, seats, `ybcal verify` |
+| `model/` | WP-1 | vendored reference model (upgrade line, SCHEMA 14; a retired v3 copy for the simulator), exact kernels, vectorised kernels, retired v3 kernels, seats, `ybcal verify` |
 | `data/` | WP-2 | loaders, fetchers, synthetic models, scenarios |
 | `sim/engine,oracle,sigma,supply` | WP-3 | block-mode simulator core |
 | `sim/vaults,agents,fees` | WP-4 | vault book, personas, fees; hour mode + oracle transfer kernel |
@@ -285,7 +285,9 @@ selection inside each study only; there is no cross-group robust pass, D-WP8-7.)
 `src/ybcal/model/` is the exact arithmetic of the overlay. Everything here is checked by
 `ybcal verify` (and by `tests/model/`, which run the same checks plus hypothesis property tests).
 
-**Pin.** ycash6 `upgrade/vault` `1310a41a1` (the pushed head on 2026-10-13); every vendored file is
+**Pin.** ycash6 `upgrade/vault` `a983720de` (2026-10-13; SCHEMA 14, the per-vault cancel limit CAN-2/CAN-3/C4b,
+the model, golden and SERIALISATION files byte-identical on ycash-dd `d84d372ee`; the kernels and the citations below are still those of the previous pin
+`1310a41a1`, which `ybcal verify` checks against the new golden). At `1310a41a1` every vendored file was
 byte-identical at `047b561ac` and on ycash-dd `8af82551b` / `d5206bc57`, and so are `src/yellowback/math.h`,
 `state.cpp` and `src/test/yellowback_math_tests.cpp`, so the citations hold on both node lines. The node
 model is `SCHEMA_VERSION` 13: the vault upgrade (U-21..U-25: the YED V template, claim intents, no
@@ -310,7 +312,7 @@ D-MP-1.
 | `vkernels.py` | numpy kernels (int64, `-1` = undefined), property-tested equal to `kernels` |
 | `retired.py` | **RETIRED** ACT-1..6 and FEE-1 kernels (scalar and vector), frozen at `7702d22`, tested against `reference_v3` |
 | `seats.py` | the 2026-10-11 seat rules (Log2Q16, SeatAgeFactorQ16, SeatWeight, SeatRank, EvictionVictim, D-Q-30 bond minimum) |
-| `golden.py` | golden replay (state hash `0789e4…1d05`, tip 440, totals; 457 entries, 17 rejected) + kernels/vkernels recomputing all 440 stored snapshots and the money rules of every Yellowback transaction |
+| `golden.py` | golden replay (state hash `02f3ce…6a17`, tip 440, totals; 460 entries, 20 rejected) + kernels/vkernels recomputing all 440 stored snapshots and the money rules of every Yellowback transaction |
 | `examples.py` | the numeric assertions of `src/test/yellowback_math_tests.cpp` as data (121), the spec-rational cases (67) and `reference_param_drift()` |
 | `parity.py` | seeded stdlib parity sample (hypothesis is a dev dependency), seats == reference included |
 | `cli.py` | `cli_verify`, `configure_verify` (`--revendor`, `--ycash6`, `--ref`, `--samples`, `--seed`, `--quiet`) |

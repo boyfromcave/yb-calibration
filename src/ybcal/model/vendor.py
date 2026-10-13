@@ -39,10 +39,11 @@ from pathlib import Path
 
 OWNER_WP = "WP-1"
 
-#: The commit the shipped files were vendored from: ycash6 ``upgrade/vault`` ``1310a41a1`` (the pushed head on
-#: 2026-10-13; the vendored files are byte-identical at ``047b561ac`` and on ycash-dd ``8af82551b`` /
-#: ``d5206bc57``). Previous pin: ``7702d22`` (v3, golden SCHEMA_VERSION 4).
-VENDORED_COMMIT = "1310a41a1b1a89ac659a2b30ba9563628966aa6b"
+#: The commit the shipped files were vendored from: ycash6 ``upgrade/vault`` ``a983720de`` (2026-10-13, the
+#: per-vault cancel limit, golden SCHEMA_VERSION 14; the model, golden and SERIALISATION files are
+#: byte-identical on ycash-dd ``d84d372ee``). Previous pins: ``1310a41a1`` (SCHEMA_VERSION 13),
+#: ``7702d22`` (v3, SCHEMA_VERSION 4).
+VENDORED_COMMIT = "a983720de6754257cb0d97b1419ff43f83c068db"
 SOURCE_REPO = "boyfromcave/ycash6"
 TF = "qa/rpc-tests/test_framework/"
 MODEL_DIR = Path(__file__).resolve().parent
@@ -84,11 +85,11 @@ _ATTEST_IMPORT = ("        from . import yellowback_attest as ya",
 
 SPECS: tuple[WholeSpec | ExtractSpec | DataSpec, ...] = (
     WholeSpec("reference.py", TF + "yellowback_model.py", (
-        (*_ATTEST_IMPORT, 8),
+        (*_ATTEST_IMPORT, 10),
         (" " * 16 + _ATTEST_IMPORT[0].lstrip(), " " * 16 + _ATTEST_IMPORT[1].lstrip(), 1),
         (" " * 24 + _ATTEST_IMPORT[0].lstrip(), " " * 24 + _ATTEST_IMPORT[1].lstrip(), 1),
         ("    from . import vault as va", "    from . import reference_vault as va", 1),
-        ("        from . import vault as va", "        from . import reference_vault as va", 2),
+        ("        from . import vault as va", "        from . import reference_vault as va", 4),
     )),
     WholeSpec("reference_attest.py", TF + "yellowback_attest.py", (
         ("from .util import assert_equal, bytes_to_hex_str, hex_str_to_bytes",
@@ -96,7 +97,7 @@ SPECS: tuple[WholeSpec | ExtractSpec | DataSpec, ...] = (
         ("from . import yellowback_model as ym", "from . import reference as ym", 1),
         ("from . import yellowback_util as yu", "from . import reference_util as yu", 1),
         ("from .yellowback_util import (", "from .reference_util import (", 1),
-        ("    from . import vault as va", "    from . import reference_vault as va", 3),
+        ("    from . import vault as va", "    from . import reference_vault as va", 5),
     )),
     ExtractSpec(
         "reference_util.py",

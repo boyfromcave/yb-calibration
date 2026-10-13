@@ -36,8 +36,8 @@ def test_reference_keeps_mit_header_and_only_import_rewrites():
     )
     assert "from . import yellowback_attest" not in body
     assert "from . import vault as va" not in body
-    assert body.count("from . import reference_attest as ya") == 10
-    assert body.count("from . import reference_vault as va") == 3
+    assert body.count("from . import reference_attest as ya") == 12
+    assert body.count("from . import reference_vault as va") == 5
 
 
 def test_reference_modules_are_stdlib_only():

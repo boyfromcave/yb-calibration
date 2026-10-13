@@ -36,6 +36,7 @@ def test_golden_chain_exercises_the_rules():
 
 def test_golden_rejected_entries_are_not_applied():
     doc = golden.load_golden_doc()
-    # one rejected entry per consensus verdict the vector covers (audit 03/T-1)
-    assert sum(1 for b in doc["blocks"] if b.get("invalid")) == 17
+    # one rejected entry per consensus verdict the vector covers (audit 03/T-1; 20 since SCHEMA 14,
+    # the cancel limit)
+    assert sum(1 for b in doc["blocks"] if b.get("invalid")) == 20
     assert len(golden._golden_txs(doc)) > 0

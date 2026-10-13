@@ -1,28 +1,28 @@
 {
- "commit": "1310a41a1b1a89ac659a2b30ba9563628966aa6b",
+ "commit": "a983720de6754257cb0d97b1419ff43f83c068db",
  "files": {
   "SERIALISATION.md": {
-   "sha256": "2fe4772297db3f9109aaa689aa995999d27d6d8d1be4ea5e4f6531f420580a13",
+   "sha256": "c8bc26bc028c02bd08b66debec3ae159560d0333aae1509c0466e4e7b6e70fb1",
    "source": "qa/rpc-tests/test_framework/SERIALISATION.md"
   },
   "reference.py": {
-   "sha256": "9139818db8e2aa99538f6c8649ce2618a0791ef00ac3fb4e8f6a2bc91a45e8eb",
+   "sha256": "f392380f2256416a1a6a256442f62b092f0be8df45a88bf14fb2b34a9170b991",
    "source": "qa/rpc-tests/test_framework/yellowback_model.py"
   },
   "reference_attest.py": {
-   "sha256": "bded5f913d0239f6ad7149baab1e692662abcc78d0e194ce84e6ad19d629ac5f",
+   "sha256": "6ede1c9e28ce5f7d78224060a57579176c95aa9da7fde0c56f9ff5e68395217b",
    "source": "qa/rpc-tests/test_framework/yellowback_attest.py"
   },
   "reference_util.py": {
-   "sha256": "38a40e35bae159eaf4222407de99354c61eba7f457d410bc0eacd8ff8d37627c",
+   "sha256": "5f7ff060c0c10b94f5f762bc245a7cc49972631a24543558753d2ce770a75359",
    "source": "extract"
   },
   "reference_vault.py": {
-   "sha256": "1c02d5873cb75692c359d08205500638c963b27827b7543ffcdc10b5f310de9e",
+   "sha256": "ebbfe0a85b8e757e7d6915f36cac8edac4fadd6d7c25bb555dcefb147c4e99d9",
    "source": "extract"
   },
   "yellowback_golden.json": {
-   "sha256": "24508efe886f4fcf941903b18f46ed7693d981fe003ddf356456ca1b96ba4cd9",
+   "sha256": "88414395be43d2f0444e16b5f661a68e04a5d017d07e3b0fae51768a7d61df85",
    "source": "qa/rpc-tests/test_framework/yellowback_golden.json"
   },
   "yellowback_math_cases.json": {
