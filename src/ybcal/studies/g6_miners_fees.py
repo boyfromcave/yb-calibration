@@ -41,7 +41,7 @@ itself; a test pins it to the kernel).
 **Fee model.** One hour-mode vault book (``ybcal.sim.vaults.simulate_vault_book_hours``, personas from
 the policy incl. the ``[agents]`` keys) over a year from ``startHeight`` at the policy adoption case
 gives every accepted vault's collateral and its mint/close prices. FEE-1 and AFEE-1 are then
-recomputed exactly (``vkernels.fee_zat`` / ``attest_fee_zat``) for every fee candidate on the same
+recomputed exactly (``RK.fee_zat_v`` / ``attest_fee_zat``) for every fee candidate on the same
 vaults (common random numbers; a fee does not change who mints). AFEE-1 is counted on every mint and
 claim (an ARMED chain). The fee share of a ``minMint`` vault is ``ybcal.sim.fees.fee_table`` at the
 reference price, ARMED, worst class.
@@ -59,6 +59,7 @@ from typing import Any
 
 import numpy as np
 
+from ybcal.model import retired as RK
 from ybcal.model import vkernels as V
 from ybcal.params.paramset import ParamSet
 from ybcal.params.registry import REGISTRY, params_for_group
@@ -780,8 +781,8 @@ def fee_revenue_for(res, fee_min: int, fee_bps: int, attest_fee_bps: int) -> dic
     acc = (v["outcome"] == VB.O_ACTIVE) & (v["pool_fee_mint"] > 0)
     close = (v["outcome"] == VB.O_ACTIVE) & (v["close_step"] >= 0) & (v["pool_fee_close"] > 0)
     coll = v["collateral_zat"].astype(np.int64)
-    fm = V.fee_zat(coll[acc], int(fee_min), int(fee_bps))
-    fc = V.fee_zat(coll[close], int(fee_min), int(fee_bps))
+    fm = RK.fee_zat_v(coll[acc], int(fee_min), int(fee_bps))
+    fc = RK.fee_zat_v(coll[close], int(fee_min), int(fee_bps))
     usd = 1.0 / COIN / MICRO_USD_PER_USD
     tpm = v["tp_mint"][acc].astype(np.float64)
     tpc = v["tp_close"][close].astype(np.float64)

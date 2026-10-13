@@ -23,6 +23,19 @@ def test_golden_chain_exercises_the_rules():
     masks = [s.halt_mask for s in m.snapshots.values() if not s.virtual]
     from ybcal.model import reference as ref
 
-    for bit in (ref.HALT_NOT_ACTIVE, ref.HALT_NO_PRICE, ref.HALT_DIVERGENCE):
+    for bit in (ref.HALT_NO_PRICE, ref.HALT_GLOBAL_RATIO, ref.HALT_DIVERGENCE):
         assert any(x & bit for x in masks), bit
+    # U-21: a real snapshot never carries NOT_ACTIVE, PARTICIPATION or ENFORCEMENT
+    for bit in (ref.HALT_NOT_ACTIVE, ref.HALT_PARTICIPATION, ref.HALT_ENFORCEMENT):
+        assert not any(x & bit for x in masks), bit
     assert sum(1 for j in m.judgements.values() if j.evaluated) > 100
+    # the vault lifecycle of the upgrade: an owner redeem, a claim released, a claim cancelled (CAN-1)
+    kinds = {(r.type, r.path) for r in m.txlog.values() if r.verdict == ref.VERDICT_OK}
+    assert {("REDEEM", "owner"), ("REDEEM", "claim"), ("CLAIM_RELEASE", ""), ("CLAIM_CANCEL", "")} <= kinds
+
+
+def test_golden_rejected_entries_are_not_applied():
+    doc = golden.load_golden_doc()
+    # one rejected entry per consensus verdict the vector covers (audit 03/T-1)
+    assert sum(1 for b in doc["blocks"] if b.get("invalid")) == 17
+    assert len(golden._golden_txs(doc)) > 0

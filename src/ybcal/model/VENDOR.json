@@ -1,25 +1,33 @@
 {
- "commit": "7702d22606d1ec3edf0fca962573fba64dac3904",
+ "commit": "1310a41a1b1a89ac659a2b30ba9563628966aa6b",
  "files": {
   "SERIALISATION.md": {
-   "sha256": "a5e1bc8859ff4359c524979da6347f0f3d6e385ad24ed9a5399b6d7d4ac7c278",
+   "sha256": "2fe4772297db3f9109aaa689aa995999d27d6d8d1be4ea5e4f6531f420580a13",
    "source": "qa/rpc-tests/test_framework/SERIALISATION.md"
   },
   "reference.py": {
-   "sha256": "2773276f22b2f37bb14016997d0c8235c7f5ecd58f90a798a45422637db67427",
+   "sha256": "9139818db8e2aa99538f6c8649ce2618a0791ef00ac3fb4e8f6a2bc91a45e8eb",
    "source": "qa/rpc-tests/test_framework/yellowback_model.py"
   },
   "reference_attest.py": {
-   "sha256": "4d20f461a47b480b3e2b6dd5d39c198844e72ec059b5f61f6bcdadf343af505d",
+   "sha256": "bded5f913d0239f6ad7149baab1e692662abcc78d0e194ce84e6ad19d629ac5f",
    "source": "qa/rpc-tests/test_framework/yellowback_attest.py"
   },
   "reference_util.py": {
-   "sha256": "6d2f1cde958ef3e3ab094d9b551057c97e9bf6bf0bc112f8ed88b8939b60ba24",
+   "sha256": "38a40e35bae159eaf4222407de99354c61eba7f457d410bc0eacd8ff8d37627c",
+   "source": "extract"
+  },
+  "reference_vault.py": {
+   "sha256": "1c02d5873cb75692c359d08205500638c963b27827b7543ffcdc10b5f310de9e",
    "source": "extract"
   },
   "yellowback_golden.json": {
-   "sha256": "bdad9820085046e3a1c14e12cc21b723cd35066b13d013ed9ffc83c55cdc7cec",
+   "sha256": "24508efe886f4fcf941903b18f46ed7693d981fe003ddf356456ca1b96ba4cd9",
    "source": "qa/rpc-tests/test_framework/yellowback_golden.json"
+  },
+  "yellowback_math_cases.json": {
+   "sha256": "db792673f777953bb0fad6dae9613bf80041b467e0a1959a56c85b668b577413",
+   "source": "src/test/data/yellowback_math_cases.json"
   }
  },
  "repo": "boyfromcave/ycash6"

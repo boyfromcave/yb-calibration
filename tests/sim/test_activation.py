@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 from ybcal.model import golden
-from ybcal.model import kernels as K
-from ybcal.model import reference as ref
+from ybcal.model import reference_v3 as ref
+from ybcal.model import retired as RK
 from ybcal.params.paramset import mainnet, regtest
 from ybcal.sim import activation as act
 
@@ -54,7 +54,7 @@ def _share_stream(rng, plan):
 
 
 def test_golden_chain_activation_history():
-    m = golden.replayed_model()
+    m = golden.replayed_model_v3()
     n = m.tip_height
     sig = np.array([m.tags[h].signal if h in m.tags else False for h in range(1, n + 1)])
     s = act.simulate(regtest(), sig, start_height=1, height0=1)
@@ -161,17 +161,17 @@ def test_vectorised_paths_equal_scalar_kernels():
     s = act.simulate(P, bits, start_height=0, height0=0)
     W, thr = int(P["signalWindow"]), int(P["activationThreshold"])
     for i in range(4):
-        st = K.ActivationState(K.SIGNALING, 0, 0)
+        st = RK.ActivationState(RK.SIGNALING, 0, 0)
         part = enf = False
         cnt = np.cumsum(bits[i])
         for h in range(n):
             c = int(cnt[h] - (cnt[h - W] if h >= W else 0))
             if h % 997 == 0:
-                assert c == K.signal_count(bits[i].tolist(), h, W)
-            st = K.activation_step(st, h, c, 0, W, thr, int(P["activationDelay"]))
-            active = st.status == K.ACTIVE
-            part = K.participation_halt_step(part, c, active, thr, int(P["participationFloor"]))
-            enf = K.enforcement_halt_step(enf, c, active, int(P["enforcementResume"]),
+                assert c == RK.signal_count(bits[i].tolist(), h, W)
+            st = RK.activation_step(st, h, c, 0, W, thr, int(P["activationDelay"]))
+            active = st.status == RK.ACTIVE
+            part = RK.participation_halt_step(part, c, active, thr, int(P["participationFloor"]))
+            enf = RK.enforcement_halt_step(enf, c, active, int(P["enforcementResume"]),
                                           int(P["enforcementFloor"]))
             assert (int(s.status[i, h]), int(s.signal_count[i, h]), bool(s.participation_halt[i, h]),
                     bool(s.enforcement_halt[i, h])) == (st.status, c, part, enf), (i, h)

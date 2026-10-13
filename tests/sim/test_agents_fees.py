@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from ybcal.model import kernels as K
+from ybcal.model import retired as RK
 from ybcal.params.paramset import mainnet, regtest
 from ybcal.sim import agents as AG
 from ybcal.sim import engine as E
@@ -132,7 +133,7 @@ def test_fees_match_kernels():
     coll = rng.integers(0, 10**15, 500)
     pool, att = F.fees_zat(PS, coll, armed=True)
     for c, p_, a_ in zip(coll.tolist(), pool.tolist(), att.tolist(), strict=True):
-        f = K.fee_zat(c, PS["feeMin"], PS["feeBps"])
+        f = RK.fee_zat(c, PS["feeMin"], PS["feeBps"])
         assert p_ == f and a_ == K.attest_fee_zat(f, PS["attestFeeBps"])
         fb = F.tx_fees(PS, c, armed=True)
         assert (fb.pool_zat, fb.attest_zat) == (f, a_)
@@ -232,6 +233,6 @@ def test_pool_revenue_and_attestor_revenue():
 def test_fee_share_of_value():
     c = np.array([4 * 10**8, 10**12])
     s = F.fee_share_of_value(PS, c, armed=True)
-    f0 = K.fee_zat(int(c[0]), PS["feeMin"], PS["feeBps"])
+    f0 = RK.fee_zat(int(c[0]), PS["feeMin"], PS["feeBps"])
     want0 = (f0 + K.attest_fee_zat(f0, PS["attestFeeBps"]) + f0) / c[0]
     assert s[0] == pytest.approx(want0) and s[1] == pytest.approx((25 + 6.25 + 25) / 10_000, rel=1e-9)

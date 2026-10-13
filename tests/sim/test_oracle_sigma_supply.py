@@ -57,7 +57,7 @@ def test_subsidy_vectorised_and_closed_form(sched):
 
 
 def test_regtest_schedule_is_reference_regtest_subsidy():
-    from ybcal.model import reference as R
+    from ybcal.model import reference_v3 as R
 
     for h in range(0, 5_000, 7):
         assert SUP.REGTEST.subsidy(h) == R.regtest_subsidy(h)

@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import hashlib
 
-from ybcal.model import reference as R
-from ybcal.model import reference_attest as RA
-from ybcal.model import reference_util as RU
+from ybcal.model import reference_v3 as R
+from ybcal.model import reference_v3_attest as RA
+from ybcal.model import reference_v3_util as RU
 from ybcal.sim import vaults as VB
 
 PAYEE = bytes([0xA1]) * 20  #: the E(R) pool key

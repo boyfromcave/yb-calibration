@@ -3,7 +3,7 @@
 Three layers, from exact to fast:
 
 1. **Rule functions** (pure Python integers, ``None`` = undefined) transcribed from
-   ``src/yellowback/state.cpp`` @ 7702d22 and tested verdict-for-verdict against the vendored
+   ``src/yellowback/state.cpp`` @ 7702d22 and tested verdict-for-verdict against the retained v3
    reference model (``YellowbackModel._mint_verdict`` / ``_red_verdict`` / ``_apply_notice``):
 
    * :func:`mint_verdict` — MintVerdict (state.cpp:293-381): MINT-2 amount / class / lock / ref
@@ -44,6 +44,15 @@ Hour mode conventions (documented in docs/architecture.md): step ``t`` is the sn
 block of hour ``t`` (height ``start + offset + 48t + 47``); a transaction "at step t" uses
 ``R = heights[t − 1]`` and confirms at ``R + DEFAULT_REF_LAG + 1``; the 40-block refHeight choice is
 below the hour resolution, so it collapses to that one snapshot.
+
+**Retired rules (model port, 2026-10-13).** The v3 vault book is retired on the upgrade line. The vault
+upgrade removed the P2SH vault, VOID vaults, unbacked spends, the after-grace-only claim, FEE-1's
+collateral fee and the MINT-5 ``4·feeMin`` floor (U-21..U-24, IT-*, D-Q-23); the current rules are in
+:mod:`ybcal.model.kernels` (``SCHEMA_VERSION`` 13 at the vendored pin ycash6 ``1310a41a1``). This module
+still mirrors the v3 rules of ycash6 ``7702d22`` clause for clause, checked against the retained v3
+reference (:mod:`ybcal.model.reference_v3`, ``vendor.V3_SPECS``), because the parameter registry it
+reads is still the 7702d22 set; its outputs describe the v3 design until the registry and simulator are
+re-pinned (``docs/decisions.md`` D-MP-1).
 """
 
 from __future__ import annotations
@@ -61,7 +70,8 @@ from typing import Any, Literal
 import numpy as np
 
 from ybcal.model import kernels as K
-from ybcal.model import reference as REF
+from ybcal.model import reference_v3 as REF
+from ybcal.model import retired as RK
 from ybcal.model import vkernels as V
 from ybcal.sim import agents as AG
 from ybcal.sim import engine as E
@@ -206,7 +216,7 @@ class RuleParams:
 
     def fee(self, collateral_zat: int) -> int:
         """FEE-1."""
-        return K.fee_zat(collateral_zat, self.fee_min, self.fee_bps)
+        return RK.fee_zat(collateral_zat, self.fee_min, self.fee_bps)
 
     def attest_fee(self, collateral_zat: int) -> int:
         """AFEE-1 (on FEE-1 of the same collateral)."""
@@ -1019,7 +1029,7 @@ def _plan_closures(ctx: _Ctx, coll, cents, lock, claim_h, kind, delay, mint_step
     owner_h = np.where(lost, _BIG // 2, lock + 1 + np.minimum(delay, _BIG // 4))
     owner_ready = np.maximum(ctx.step_at_or_after_conf(owner_h), mint_step + 1)
     # owner redeem: first step ≥ ready with the redemption worth it at the true price
-    fee = V.fee_zat(coll, rp.fee_min, rp.fee_bps)
+    fee = RK.fee_zat_v(coll, rp.fee_min, rp.fee_bps)
     net = coll - fee - ag.tx_fee_zat
     lvl = AG.redeem_price_floor(net, cents, ag.owner, ag.market)
     lvl_i = np.where(np.isfinite(lvl), np.ceil(np.minimum(lvl, 9e18)), _BIG).astype(np.int64)

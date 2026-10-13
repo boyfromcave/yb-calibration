@@ -57,7 +57,10 @@ def test_trace_and_bond_min():
 def test_cli_writes_report(tmp_path):
     assert cli.main(["seats", "--out", str(tmp_path)]) == 0
     res = json.loads((tmp_path / "seats.json").read_text())
-    assert res["constants"]["source_commit"].startswith("f07a9aef6")
+    from ybcal.model import seats
+
+    # the vendored pin (the rules of f07a9aef6, unchanged)
+    assert res["constants"]["source_commit"] == seats.SOURCE_COMMIT
     assert res["constants"]["floor_binds_below_collateral_yec"] == 1_800_000
     md = (tmp_path / "seats.md").read_text()
     assert "## 4. Filling and capturing the nine seats" in md and "**yes**" in md

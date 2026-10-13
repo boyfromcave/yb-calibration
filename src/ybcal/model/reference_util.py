@@ -1,8 +1,8 @@
 # ==== ybcal vendored file -- do not edit; re-vendor with `ybcal verify --revendor` ====
 # source: boyfromcave/ycash6 qa/rpc-tests/test_framework/yellowback_util.py + qa/rpc-tests/test_framework/util.py
-# commit: 7702d22606d1ec3edf0fca962573fba64dac3904
-# sha256: f980d3e162def16d34a42652b2f6c46f256561ae025509d0a236f8c94c9cc7cd 24636f48435ba60013d2e9d8841be701f6c83c78867964659af255b8c81ffd54
-# body-sha256: 782dbcde8723a4e36cf279e25c5712fe692157b619a4890d11d9789db2e00070
+# commit: 1310a41a1b1a89ac659a2b30ba9563628966aa6b
+# sha256: 787855d2a261f9142e2bebd32199092a9be7d1b9af887ca9089ab495945e8b4a 6638003e025727d5ce0047a0bae78f71946d4f4d1b0bf30f9e2fa16b65e9c023
+# body-sha256: 340873bdcf32b1549e397e1c2110b9249b19264b19c23d1925e6e5dca1469778
 # mode: verbatim top-level definitions (transitive closure of the roots in vendor.SPECS)
 # ruff: noqa
 # ==== end of ybcal header; the vendored source follows unchanged ====
@@ -16,6 +16,8 @@ import hashlib
 
 
 # ---- from qa/rpc-tests/test_framework/util.py
+
+VAULT_BRANCH_ID = 0x6D5B7A31
 
 def bytes_to_hex_str(byte_str):
     return hexlify(byte_str).decode('ascii')
@@ -32,25 +34,25 @@ def assert_equal(expected, actual, message=""):
 
 # ---- from qa/rpc-tests/test_framework/yellowback_util.py
 
-YCASH_CANOPY_BRANCH_ID = 0x19bd2d2f
-
-SIGNING_BRANCH_ID = YCASH_CANOPY_BRANCH_ID
+SIGNING_BRANCH_ID = VAULT_BRANCH_ID
 
 COIN = 10 ** 8
 
 BPS = 10_000
 
+VAULT_ACTIVATION = 103
+
+ATTESTOR_SET = [None]           # the current run's attestor set id (display hex), set by ``activate``
+
+PRICE_MAX = 4_294_967_295     # UINT32_MAX micro-USD, the attestation field (quantum plan D-Q-22)
+
 REF_WINDOW = 40
 
 REF_LAG = 2
 
-FEE_MIN = 50_000_000           # enforcement fee floor, zat (0.5 YEC)
-
-FEE_BPS = 25
-
 GRACE = 24
 
-CLASS_RANGES = {'A': (48, 96, 50_000), 'B': (97, 144, 40_000), 'C': (145, 240, 30_000)}
+CLASS_RANGES = {'A': (48, 96, 30_000), 'B': (97, 144, 40_000), 'C': (145, 240, 50_000)}
 
 TOKEN_VALUE = 10_000           # zat carried by every YED output
 
@@ -78,9 +80,9 @@ Q_HIGH_BPS = 6_667
 
 ATTEST_FEE_BPS = 2_500
 
-BOND_MIN_ZAT = 10 * COIN
+BOND_MIN_ZAT = 10 * COIN       # D-Q-30: bondMinCapZat, which always qualifies; the suites' default bond
 
-BOND_MIN_LOCK = 200
+BOND_MIN_LOCK = 0              # the bond exit delay (owner 2026-10-11): the lock is in the vault state
 
 BOND_MATURITY = 8
 
@@ -161,9 +163,17 @@ def term_class_of(lock_blocks):
             return name
     return None
 
-def fee_zat(collateral_zat):
-    """FEE-1: the enforcement fee for a collateral (max(FEE_MIN, collateral * FEE_BPS / BPS))."""
-    return ym.fee_zat(collateral_zat, FEE_MIN, FEE_BPS)
+_FEE_PARAMS = ym.Params.regtest(1)      # the bands and the floor are the same on every network and need no attestor set
+
+def protocol_fee_zat(cents, p_mint):
+    """FEE-1': the protocol fee of a debt of ``cents`` at the mint price ``p_mint`` (micro-USD), zat (ceil)."""
+    return ym.protocol_fee_zat(cents, p_mint, _FEE_PARAMS)
 
 def usd_to_micro(usd):
     return int((Decimal(str(usd)) * 1_000_000).to_integral_value())
+
+def yed_params():
+    """The model's regtest parameters for the run (the attestor set ``activate`` created): what the
+    YED V template is built from (U-23)."""
+    assert ATTESTOR_SET[0], 'no attestor set yet: call activate() first'
+    return ym.Params.regtest(VAULT_ACTIVATION, attestor_set=ATTESTOR_SET[0])

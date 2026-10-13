@@ -36,7 +36,7 @@ Exact rules (``state.cpp`` unless noted)
 
 Order inside one height (EvaluateBlock): transactions (registration, EQV-1, bond spend, REV-1, the
 demands' bundles, read from snapshots < H), BundleLog[H], then SNAP (maturity, ARM, PIN-2, seating,
-dormancy). Every such rule is checked against the reference model (``tests/sim/test_attest*.py``).
+dormancy). Every such rule is checked against the v3 reference model (``tests/sim/test_attest*.py``).
 
 The walk is event-driven: seating is computed with numpy for a whole segment of constant statuses
 (and in O(1) when every ELIGIBLE seq is seated), and a per-path Python loop visits only demand
@@ -94,6 +94,15 @@ Mid-chain series (``height0 > start_height``): events before ``height0`` are app
 ``series`` may be an :class:`~ybcal.sim.activation.ActivationSeries`, a mapping, or any object; read
 attributes/keys: ``p_mint`` (int64 ``(paths, n)``, ≤ 0 undefined — the cross-section xMint the engine
 computed; without it PIN-2 never triggers), ``height0``, ``start_height``.
+
+**Retired rules (model port, 2026-10-13).** The v3 attestor registry is retired on the upgrade line. The
+vault upgrade removed REG-A1 registration by payload, the bond-weight seating and v3 dormancy (P4-b,
+D-Q-29..D-Q-31: the attestor set's SET_JOIN acts, seat weight, eviction and liveness; see
+:mod:`ybcal.model.seats`) (``SCHEMA_VERSION`` 13 at the vendored pin ycash6 ``1310a41a1``). This module
+still mirrors the v3 rules of ycash6 ``7702d22`` clause for clause, checked against the retained v3
+reference (:mod:`ybcal.model.reference_v3`, ``vendor.V3_SPECS``), because the parameter registry it
+reads is still the 7702d22 set; its outputs describe the v3 design until the registry and simulator are
+re-pinned (``docs/decisions.md`` D-MP-1).
 """
 
 from __future__ import annotations
@@ -110,7 +119,7 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from ybcal.model import kernels as K
-from ybcal.model import reference as _ref
+from ybcal.model import reference_v3 as _ref
 from ybcal.units import BLOCKS_PER_YEAR, COIN, MICRO_USD_PER_USD, PRICE_MAX, PRICE_MIN
 
 OWNER_WP = "WP-5"

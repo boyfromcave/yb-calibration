@@ -66,7 +66,7 @@ import numpy as np
 
 from ybcal.data import scenarios as SC
 from ybcal.data import synthetic as SY
-from ybcal.model import vkernels as V
+from ybcal.model import retired as RK
 from ybcal.optimize.robust import aggregate
 from ybcal.optimize.sensitivity import oat_from_table, sensitivity_sentence
 from ybcal.params.classes import class_enabled, enabled_classes
@@ -583,7 +583,7 @@ def _margin_bps(
 ) -> np.ndarray:
     """Claimant net margin (bps of the debt): (collateral − FEE-1 − network fee) sold at ``price`` less
     slippage, minus the debt bought in YED at ``1 + premium``."""
-    fee = V.fee_zat(coll, int(params["feeMin"]), int(params["feeBps"]))
+    fee = RK.fee_zat_v(coll, int(params["feeMin"]), int(params["feeBps"]))
     net = np.maximum(coll - fee - tx_fee, 0).astype(float)
     gross = net / COIN * np.asarray(price, dtype=float) / 1e6
     slip = np.full(gross.shape, float(slip_base))

@@ -10,16 +10,19 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from ybcal.model import kernels as K
+from ybcal.model import retired as RK
 from ybcal.model import vkernels as V
 
 #: per-test settings (no global profile: other packages' hypothesis tests keep their own)
 PROPS = settings(max_examples=200, deadline=None)
 
-PRICE = st.integers(100, 100_000_000)
+PRICE = st.integers(100, K.PRICE_MAX)   # D-Q-22: uint32 µUSD
 OPT_PRICE = st.one_of(st.none(), PRICE)
 # the series strategy: gaps (None), boundary prices, runs of equal values
 SERIES = st.lists(
-    st.one_of(st.none(), PRICE, st.sampled_from([100, 100_000_000, 50_000])), min_size=1, max_size=160
+    st.one_of(st.none(), PRICE, st.sampled_from([100, 100_000_000, K.PRICE_MAX, 50_000])),
+    min_size=1,
+    max_size=160,
 )
 
 
@@ -174,12 +177,30 @@ def test_global_ratio_and_caps(rows, cap_bps):
     st.integers(-5, 10_000),
     st.integers(-5, 10_000),
 )
-def test_fees(coll, fee_min, bps, abps):
-    f = V.fee_zat(np.array(coll, dtype=np.int64), fee_min, bps)
+def test_retired_fee1_and_attest_fee(coll, fee_min, bps, abps):
+    f = RK.fee_zat_v(np.array(coll, dtype=np.int64), fee_min, bps)
     af = V.attest_fee_zat(f, abps)
     for c, x, y in zip(coll, f, af, strict=True):
-        assert int(x) == K.fee_zat(c, fee_min, bps)
+        assert int(x) == RK.fee_zat(c, fee_min, bps)
         assert int(y) == K.attest_fee_zat(int(x), abps)
+
+
+DEBT = st.one_of(
+    st.integers(-5, 2 * 10**7), st.sampled_from([0, 1, 10_000, 100_000, 100_001, 1_000_000, 10_000_000])
+)
+
+
+@PROPS
+@given(st.lists(st.tuples(DEBT, BIGP, st.integers(-5, 1_000)), min_size=1, max_size=40))
+def test_fee1_prime_and_it9_prime(rows):
+    d, p, b = (V.to_array(x) for x in zip(*rows, strict=True))
+    pf, ef = V.protocol_fee_zat(d, p), V.early_redeem_fee_zat(d, b, p)
+    for (debt, price, bps), x, y in zip(rows, pf, ef, strict=True):
+        q = price if price is not None else -1
+        assert opt(x) == K.protocol_fee_zat(debt, q) or (int(x) == 0 and K.protocol_fee_zat(debt, q) == 0)
+        assert int(y) == K.early_redeem_fee_zat(debt, bps, q)
+    units = V.protocol_fee_units(d)
+    assert [int(u) for u in units] == [K.protocol_fee_units(int(x)) for x in d]
 
 
 @PROPS
@@ -192,8 +213,8 @@ def test_min_ratio(base, sigma):
 @PROPS
 @given(st.lists(st.booleans(), min_size=1, max_size=200), st.integers(1, 80))
 def test_signal_counts(signals, window):
-    got = V.signal_counts(signals, window)
-    assert [int(x) for x in got] == [K.signal_count(signals, i, window) for i in range(len(signals))]
+    got = RK.signal_counts(signals, window)
+    assert [int(x) for x in got] == [RK.signal_count(signals, i, window) for i in range(len(signals))]
 
 
 @PROPS
@@ -206,12 +227,12 @@ def test_signal_counts(signals, window):
 def test_halt_hysteresis_series(rows, initial, thr, floor):
     counts = np.array([c for c, _a in rows], dtype=np.int64)
     active = np.array([a for _c, a in rows])
-    part = V.participation_halt_series(counts, active, thr, floor, initial)
-    enf = V.enforcement_halt_series(counts, active, thr, floor, initial)
+    part = RK.participation_halt_series(counts, active, thr, floor, initial)
+    enf = RK.enforcement_halt_series(counts, active, thr, floor, initial)
     sp = se = initial
     for (c, a), x, y in zip(rows, part, enf, strict=True):
-        sp = K.participation_halt_step(sp, c, a, thr, floor)
-        se = K.enforcement_halt_step(se, c, a, thr, floor)
+        sp = RK.participation_halt_step(sp, c, a, thr, floor)
+        se = RK.enforcement_halt_step(se, c, a, thr, floor)
         assert (bool(x), bool(y)) == (sp, se)
 
 

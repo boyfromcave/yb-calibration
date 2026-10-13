@@ -15,8 +15,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from ybcal.model import reference as ref
-from ybcal.model import reference_attest as ya
+from ybcal.model import reference_v3 as ref
+from ybcal.model import reference_v3_attest as ya
 
 
 @dataclass

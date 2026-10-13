@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from ybcal.data.loaders import PoolShareLog
-from ybcal.model import kernels as K
+from ybcal.model import retired as RK
 from ybcal.params.paramset import regtest
 from ybcal.sim import activation as act
 from ybcal.sim import landscape as L
@@ -60,9 +60,9 @@ def _scalar_halts(ps, sig):
     part = enf = False
     P, E = [], []
     for x in c:
-        part = K.participation_halt_step(part, int(x), True, int(ps["activationThreshold"]),
+        part = RK.participation_halt_step(part, int(x), True, int(ps["activationThreshold"]),
                                          int(ps["participationFloor"]))
-        enf = K.enforcement_halt_step(enf, int(x), True, int(ps["enforcementResume"]),
+        enf = RK.enforcement_halt_step(enf, int(x), True, int(ps["enforcementResume"]),
                                       int(ps["enforcementFloor"]))
         P.append(part)
         E.append(enf)

@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ybcal.model import reference as R
+from ybcal.model import reference_v3 as R
 from ybcal.params.paramset import regtest
 from ybcal.sim import agents as AG
 from ybcal.sim import engine as E

@@ -1,10 +1,10 @@
 # ==== ybcal vendored file -- do not edit; re-vendor with `ybcal verify --revendor` ====
 # source: boyfromcave/ycash6 qa/rpc-tests/test_framework/yellowback_attest.py
-# commit: 7702d22606d1ec3edf0fca962573fba64dac3904
-# sha256: c32367cd1ab696f57ff4382ab52d555b21590d71e398b91b7afb99bcd101b6f0
-# body-sha256: 58ff528e851cafda468d8bef323a3fcde62053466e74e148af8ff9f60ab0a9fd
+# commit: 1310a41a1b1a89ac659a2b30ba9563628966aa6b
+# sha256: 39cdee31b00053bd4abd104d0a7549b2ea42a6ba25ab220463cfedfd50ac9fac
+# body-sha256: 181a211071a5cf1af39a075ce467f3b1359d8064bc59dd178f430a1ffe85aeb6
 # mode: whole file, unmodified except these import-line rewrites (vendor.SPECS):
-# rewrites: 'from .util import assert_equal, bytes_to_hex_str, hex_str_to_bytes' -> 'from .reference_util import assert_equal, bytes_to_hex_str, hex_str_to_bytes' (x1); 'from . import yellowback_model as ym' -> 'from . import reference as ym' (x1); 'from . import yellowback_util as yu' -> 'from . import reference_util as yu' (x1); 'from .yellowback_util import (' -> 'from .reference_util import (' (x1)
+# rewrites: 'from .util import assert_equal, bytes_to_hex_str, hex_str_to_bytes' -> 'from .reference_util import assert_equal, bytes_to_hex_str, hex_str_to_bytes' (x1); 'from . import yellowback_model as ym' -> 'from . import reference as ym' (x1); 'from . import yellowback_util as yu' -> 'from . import reference_util as yu' (x1); 'from .yellowback_util import (' -> 'from .reference_util import (' (x1); 'from . import vault as va' -> 'from . import reference_vault as va' (x3)
 # ruff: noqa
 # ==== end of ybcal header; the vendored source follows unchanged ====
 #!/usr/bin/env python3
@@ -23,7 +23,7 @@ What lives here (and nowhere else in Python):
 - the v3 payload encoders (section 3.3), the bundle codec (section 8.2 of the proposal) and
   the carrier / bond scripts (section 3.4);
 - the raw transaction builders: ``build_register_tx``, ``build_carrier_tx``, ``spend_carrier``,
-  ``build_mint_tx_v3``, ``post_notice_raw``, ``equivocation_raw``, ``revive_raw``;
+  ``build_mint_tx_v3``, ``post_notice_raw``, ``equivocation_raw``, ``legacy_revive_raw``;
 - the second implementation of W9 selection (``select_attestors``), ``bond_weight``,
   ``weighted_quantile``, ``bundle_stat``;
 - the node drivers ``feed``, ``feed_all``, ``build_bundle``, ``register_and_arm``,
@@ -58,7 +58,7 @@ from .reference_util import (
     ATTEST_ARM_DELAY, ATTEST_ARM_MIN, BOND_MATURITY, BOND_MIN_LOCK, BOND_MIN_ZAT,
     BUNDLE_MAX, CARRIER_VALUE, K_SLACK, M_SELECT, N_SLOTS, Q_HIGH_BPS, Q_LOW_BPS, REF_LAG, REF_WINDOW,
     SIGNING_BRANCH_ID, TOKEN_VALUE, YELLOWBACK_FEE, ATTESTOR_A, ATTESTOR_B, USER, POOLS,
-    FEE_VOUT_NONE, GRACE, PAYLOAD_VERSION_V3, AGE_CAP, FOUNDING_WINDOW,
+    FEE_VOUT_NONE, PAYLOAD_VERSION_V3, AGE_CAP, FOUNDING_WINDOW,
 )
 
 __all__ = [
@@ -71,7 +71,7 @@ __all__ = [
     'encode_claim_notice', 'encode_equivocation', 'encode_revive', 'encode_bundle', 'decode_bundle',
     'outpoint_selector', 'select_attestors', 'bond_weight', 'weighted_quantile', 'bundle_stat',
     'build_register_tx', 'build_carrier_tx', 'spend_carrier', 'build_mint_tx_v3',
-    'post_notice_raw', 'equivocation_raw', 'revive_raw', 'withdraw_bond_raw', 'bond_secret_for',
+    'post_notice_raw', 'equivocation_raw', 'legacy_revive_raw', 'withdraw_bond_raw', 'bond_secret_for',
     'feed', 'feed_all', 'build_bundle', 'register_and_arm', 'assert_void_reason', 'hot_secret_for', 'send_and_lock',
     # A3: the wallet's two-step flow and the offline registry (stand-ins for the A2 node RPCs)
     'has_rpc', 'two_step', 'two_step_pending', 'wait_for_spender', 'wallet_mint', 'wallet_claim', 'wallet_notice',
@@ -284,13 +284,16 @@ ATTESTOR_WIFS = [
     'cSU3B3SviB5gyqfZMiq9XuzDZMNf2c9zZdYeBcWyWFdrMpRX7fE4',
     'cNSVSiZdLPftiXdLLdFnQ8XXu5pdPUj15Xr72QqNLhEPNr2dWV9V',
 ]
-BOND_WIFS = [
+# The v3 bond keys, kept for reference: since P4-b an attestor is a member of the attestor set whose bond (the set's
+# bond B) is keyed by its member key, so the bond key IS the attestor key and BOND_WIFS is ATTESTOR_WIFS.
+V3_BOND_WIFS = [
     'cVaWtZtPA4zvLE49z12M47sWD3smxzRvXNeSPLbZwQSm3tQH6u1B',
     'cRXr8Gswr9uVg665Bak7Qs32XzyCPpVGtpT7x4CrzzNvQYbuqSju',
     'cRudaMUEyq8Jf8Wg9z5BsNaGouunnD1x18fw3tDRRsCkRZKsZhTi',
     'cUjxLZVCMgUfTUHjkM7Rh2NR83HafDSdc4LAr59SQeNewFERieoN',
     'cQnkLT2YP7vJmRbDCJFyfEoJiU9BhwG51n8sb93K9ym78XaK2fef',
 ]
+BOND_WIFS = ATTESTOR_WIFS
 
 
 def attestor_keys(n=5):
@@ -303,7 +306,7 @@ def attestor_keys(n=5):
 
 
 def bond_keys(n=5):
-    """``[(bond_secret32, compressed_pubkey_hex)]`` for attestors ``0..n-1``."""
+    """``[(bond_secret32, compressed_pubkey_hex)]`` for attestors ``0..n-1`` (P4-b: the attestor keys)."""
     out = []
     for wif in BOND_WIFS[:n]:
         secret = yu.wif_to_secret(wif)
@@ -360,8 +363,10 @@ def _v3(type_, body):
 
 
 def encode_mint_v3(term_class, cents, lock_height, ref_height, owner_pubkey, fee_vout, attest_fee_vout=FEE_VOUT_NONE):
-    """52 bytes."""
+    """52 bytes; on the post-quantum line the MINT is payload version 4 (quantum spec C-1) and ``owner_pubkey`` is the
+    33-byte owner id scheme || keyHash: ym.encode_mint."""
     assert_equal(len(owner_pubkey), 33)
+    return ym.encode_mint(term_class, cents, lock_height, ref_height, bytes(owner_pubkey), fee_vout, attest_fee_vout)
     return _v3(PAYLOAD_MINT, bytes([term_class & 0xFF]) + struct.pack('<III', cents, lock_height, ref_height)
                + bytes(owner_pubkey) + bytes([fee_vout & 0xFF, attest_fee_vout & 0xFF]))
 
@@ -543,23 +548,72 @@ def send_and_lock(node, hex_):
     return txid
 
 
-def build_register_tx(node, hot_pubkey, bond_pubkey, bond_zat=BOND_MIN_ZAT, lock_blocks=BOND_MIN_LOCK, flags=0,
-                      locktime=None, expiry=0):
-    """The ATTESTOR_REGISTER of section 3.5: ``vout[0]`` the bond (P2SH of ``bond_script``),
-    ``vout[1]`` the payload, change.  ``locktime`` defaults to ``getblockcount() + 1 +
-    lock_blocks`` (REG-A1 wants ``bondLocktime >= H + BOND_MIN_LOCK`` at the mining height
-    ``H``).  Pubkeys as hex or bytes.  Returns ``(hex, locktime)``."""
+def _secret_of_pubkey(pubkey33):
+    for secret, pk in attestor_keys(len(ATTESTOR_WIFS)):
+        if hex_str_to_bytes(pk) == bytes(pubkey33):
+            return secret
+    raise AssertionError('%s is not a fixed regtest attestor key' % bytes_to_hex_str(bytes(pubkey33)))
+
+
+def attestor_set_internal():
+    """The run's attestor set id (``yu.ATTESTOR_SET[0]``, display hex) as the 32 internal bytes an act names."""
+    assert yu.ATTESTOR_SET[0], 'no attestor set yet: call activate() first'
+    return hex_str_to_bytes(yu.ATTESTOR_SET[0])[::-1]
+
+
+def build_act_raw(node, act, signer_secrets, before=(), expiry=0):
+    """A ``YV`` act transaction funded from ``node`` (P4-b): ``before`` outputs, the act signed by
+    ``signer_secrets`` over actMsg(P, vin[0].prevout), change; signed with ``signrawtransaction``.  Returns the hex."""
+    from . import reference_vault as va
+    needed = sum(v for v, _s in before) + YELLOWBACK_FEE
+    utxos, total = yu._select_funding(node, needed)
+    vin = [(u['txid'], u['vout'], b'', 0xFFFFFFFF) for u in utxos]
+    payload = va.encode_act(act)
+    msg = va.act_msg(payload, vin[0][0], vin[0][1])
+    vout = list(before) + [(0, va.act_script(payload, [va.sign_recoverable(sec, msg) for sec in signer_secrets]))]
+    if total - needed > 0:
+        vout.append((total - needed, yu._spk_of_address(node.getnewaddress())))
+    raw = ym.serialize_tx_v4(vin, vout, 0, expiry)
+    return node.signrawtransaction(bytes_to_hex_str(raw))['hex']
+
+
+def build_register_tx(node, hot_pubkey, bond_pubkey=None, bond_zat=BOND_MIN_ZAT, lock_blocks=BOND_MIN_LOCK, flags=0,
+                      locktime=None, expiry=0, secret=None):
+    """P4-b: the attestor's SET_JOIN to the run's attestor set (ATTESTOR_REGISTER is invalid): ``vout[0]`` the bond
+    P2SH(bond_script(member, locktime)) of ``bond_zat``, ``vout[1]`` the act signed by the member key, change.  The
+    member key is ``hot_pubkey`` (a fixed regtest attestor key, or pass ``secret``); ``bond_pubkey`` must be the same
+    key or None (the set's bond is keyed by the member key); ``flags`` is ignored.  ``locktime`` defaults to
+    ``getblockcount() + 1 + lock_blocks``.  Returns ``(hex, locktime)``."""
+    from . import reference_vault as va
     hot = hex_str_to_bytes(hot_pubkey) if isinstance(hot_pubkey, str) else bytes(hot_pubkey)
-    bond = hex_str_to_bytes(bond_pubkey) if isinstance(bond_pubkey, str) else bytes(bond_pubkey)
+    if bond_pubkey is not None:
+        bond = hex_str_to_bytes(bond_pubkey) if isinstance(bond_pubkey, str) else bytes(bond_pubkey)
+        assert bond == hot, 'P4-b: the bond key is the member key'
+    secret = secret or _secret_of_pubkey(hot)
     if locktime is None:
         locktime = node.getblockcount() + 1 + lock_blocks
-    payload = encode_attestor_register(hot, bond, locktime, flags)
+    act = va.act_set_join(attestor_set_internal(), hot, locktime, 0)
+    hex_ = build_act_raw(node, act, [secret], [(int(bond_zat), ym.p2sh_script(bond_script(hot, locktime)))], expiry)
+    return hex_, locktime
+
+
+def build_legacy_register_tx(node, hot_pubkey, bond_zat=BOND_MIN_ZAT, lock_blocks=BOND_MIN_LOCK, expiry=0):
+    """The v3 ATTESTOR_REGISTER (invalid since P4-b: ``bad-yellowback-attestor-register-retired``)."""
+    hot = hex_str_to_bytes(hot_pubkey) if isinstance(hot_pubkey, str) else bytes(hot_pubkey)
+    locktime = node.getblockcount() + 1 + lock_blocks
     vout = [
-        (int(bond_zat), ym.p2sh_script(bond_script(bond, locktime))),
-        (0, bytes([ym.OP_RETURN]) + ym.push(payload)),
+        (int(bond_zat), ym.p2sh_script(bond_script(hot, locktime))),
+        (0, bytes([ym.OP_RETURN]) + ym.push(encode_attestor_register(hot, hot, locktime, 0))),
     ]
     hex_, _n = _fund(node, vout, int(bond_zat), expiry=expiry)
-    return hex_, locktime
+    return hex_
+
+
+def heartbeat_raw(node, member_secret, expiry=0):
+    """P4-b: the attestor's SET_HEARTBEAT (its lastAct; a DORMANT record is ELIGIBLE again at that block's SNAP)."""
+    from . import reference_vault as va
+    act = va.act_set_heartbeat(attestor_set_internal(), yu.secret_to_pubkey(member_secret))
+    return build_act_raw(node, act, [member_secret], (), expiry)
 
 
 def build_carrier_tx(node, bundle, carrier_pubkey=None, carrier_wif=None, send=True, expiry=0):
@@ -611,30 +665,37 @@ def _carrier_vin(carrier):
 
 def build_mint_tx_v3(node, cents, lock_blocks, ref_height, collateral_zat, fee_addr=None, carrier=None,
                      attest_fee=None, owner_pubkey=None, fee_zat_override=None, term_class=None, expiry=None,
-                     carrier_wif=None):
+                     carrier_wif=None, p_mint=None, token_script=None):
     """``build_mint_tx`` with the v3 shape: vault ``vout[0]``, token ``vout[1]``, payload
     ``vout[2]`` (version 3), pool fee ``vout[3]`` when ``fee_addr``, attestor fee (``attest_fee
     = (address, zat)``, ``P2PKH(bondPubKey)`` of a selected attestor) next, change last; the
     carrier input (``carrier`` from ``build_carrier_tx``, confirmed) as ``vin[last]``, signed
-    here.  Returns ``(hex, owner_pubkey_hex)``."""
+    here.  The token goes to ``token_script`` (default P2PKH of a fresh ``node`` address; from the Falcon
+    height TOK-PQ wants a Falcon ``TX_PQPKH``).  Returns ``(hex, owner_pubkey_hex)``."""
     if owner_pubkey is None:
-        owner_pubkey = yu.node_pubkey(node)
+        owner_pubkey = node.vault_getnewowner()['owner']            # the node wallet's post-quantum owner (quantum plan §4.3)
     owner = hex_str_to_bytes(owner_pubkey)
     if term_class is None:
         term_class = yu.term_class_of(lock_blocks)
         assert term_class is not None, 'lock_blocks %d is outside every class' % lock_blocks
     class_index = 'ABC'.index(term_class) if isinstance(term_class, str) else int(term_class)
     lock_height = ref_height + lock_blocks
-    vault = ym.vault_script(lock_height, owner, lock_height + GRACE)
+    vault = ym.yed_vault_script(yu.yed_params(), owner, ref_height)     # the YED V template (U-23, IT-1)
     vout = [
-        (collateral_zat, ym.p2sh_script(vault)),
-        (TOKEN_VALUE, ym.p2pkh_script(ym.hash160(owner))),
+        (collateral_zat, vault),
+        (TOKEN_VALUE, bytes(token_script) if token_script is not None
+         else yu._spk_of_address(node.getnewaddress())),           # the token: a fresh holder, no longer the owner
         None,   # the payload, once the vout indices are known
     ]
     needed = collateral_zat + TOKEN_VALUE
     fee_vout = FEE_VOUT_NONE
     if fee_addr:
-        enforcement_fee = yu.fee_zat(collateral_zat) if fee_zat_override is None else fee_zat_override
+        if fee_zat_override is None:
+            if p_mint is None:
+                p_mint = int(node.yed_getprice(ref_height)['pMint'])     # FEE-1': the cross-section xMint at R (= pMint when the attestors track it)
+            enforcement_fee = yu.protocol_fee_zat(cents, p_mint)
+        else:
+            enforcement_fee = fee_zat_override
         fee_vout = len(vout)
         vout.append((enforcement_fee, yu._spk_of_address(fee_addr)))
         needed += enforcement_fee
@@ -674,9 +735,9 @@ def equivocation_raw(node, carrier, carrier_wif=None, expiry=0):
     return spend_carrier(node, hex_, n_funding, carrier, carrier_wif)
 
 
-def revive_raw(node, att74, expiry=0):
-    """ATTESTOR_REVIVE: payload ``0x08`` carrying one attestation; funded from ``node``; no
-    carrier.  Returns the hex."""
+def legacy_revive_raw(node, att74, expiry=0):
+    """The v3 ATTESTOR_REVIVE: payload ``0x08`` carrying one attestation; funded from ``node``; no
+    carrier (invalid since P4-b: ``bad-yellowback-attestor-revive-retired``).  Returns the hex."""
     vout = [(0, bytes([ym.OP_RETURN]) + ym.push(encode_revive(att74)))]
     hex_, _n = _fund(node, vout, 0, expiry=expiry)
     return hex_
@@ -708,11 +769,8 @@ def withdraw_bond_raw(node, rec, bond_secret32, to=None, branch_id=SIGNING_BRANC
 
 
 def bond_secret_for(rec):
-    """The fixed bond secret of a ``yed_listattestors`` row registered with the fixed key set."""
-    hot_by_pubkey = {pk: i for i, (_s, pk) in enumerate(attestor_keys(len(ATTESTOR_WIFS)))}
-    i = hot_by_pubkey.get(rec['attestorPubKey'])
-    assert i is not None, 'seq %s was not registered with a fixed key' % rec.get('seq')
-    return bond_keys(len(BOND_WIFS))[i][0]
+    """The fixed bond secret of a ``yed_listattestors`` row registered with the fixed key set (P4-b: the member key)."""
+    return _secret_of_pubkey(hex_str_to_bytes(rec['attestorPubKey']))
 
 
 # ---------------------------------------------------------------------------
@@ -807,7 +865,6 @@ def register_and_arm(test, n=ATTEST_ARM_MIN, funder=None, miner=None, bond_zat=B
         wallet = ATTESTOR_A if i < 3 else ATTESTOR_B
         if wallet < len(nodes) and nodes[wallet] is not None:
             nodes[wallet].importprivkey(ATTESTOR_WIFS[i], 'yellowback-attestor', False)
-            nodes[wallet].importprivkey(BOND_WIFS[i], 'yellowback-bond', False)
     test.sync_all()
     test.mine(miner, 1)
     register_height = miner.getblockcount()
@@ -1003,13 +1060,17 @@ def wallet_mint(test, node, cents, lock_blocks, from_addr='', prices=None, miner
     return two_step(test, node, 'yed_mint', cents, lock_blocks, from_addr, bundle_hex, miner=miner, after_wait=after)
 
 
-def wallet_claim(test, node, vault_txid, to='', prices=None, miner=None, bundle_hex=None, min_out_zat=None):
+def wallet_claim(test, node, vault_txid, to='', prices=None, miner=None, bundle_hex=None, min_out_zat=None,
+                 max_burn_cents=None):
     """``yed_claim`` through ``two_step``; the selector is the vault outpoint, R the index tip.
-    ``min_out_zat`` is the fifth argument (audit F-1), omitted when None."""
+    ``min_out_zat`` is the fifth argument (audit F-1) and ``max_burn_cents`` the sixth (hardening
+    H-9.3), each omitted when None (``min_out_zat`` passed as 0 when only the sixth is given)."""
     ref_height = node.yed_getinfo()['height']
     if bundle_hex is None:
         bundle_hex = _bundle_arg(test, node, outpoint_selector(vault_txid, 0), prices, ref_height)
     after = () if min_out_zat is None else (min_out_zat,)
+    if max_burn_cents is not None:
+        after = (min_out_zat or 0, max_burn_cents)
     return two_step(test, node, 'yed_claim', vault_txid, to, bundle_hex, miner=miner, after_wait=after)
 
 
@@ -1112,8 +1173,9 @@ def attested_micro(usd, cited_height):
     """The micro-USD price the offline bundles attest for ``usd`` at ``cited_height``: a few
     hundred micro-USD that depend on the height — one price per (seq, height), which the signing
     guard (S16) demands, and a different one at every height, so no attestor repeats one price
-    across bundles and PIN-2 never pins a test attestor."""
-    return yu.usd_to_micro(usd) + ((int(cited_height) * 7) % 9) * 100
+    across bundles and PIN-2 never pins a test attestor. Clamped to PRICE_MAX (the attestation's uint32
+    field): at the maximum the jitter vanishes."""
+    return min(yu.usd_to_micro(usd) + ((int(cited_height) * 7) % 9) * 100, yu.PRICE_MAX)
 
 
 def offline_bundle(test, node, ref_height, selector, prices, cited=None, jitter=True):
@@ -1133,7 +1195,7 @@ def offline_bundle(test, node, ref_height, selector, prices, cited=None, jitter=
     for seq in selected:
         if seq not in prices:
             continue
-        micro = yu.usd_to_micro(prices[seq]) + delta
+        micro = min(yu.usd_to_micro(prices[seq]) + delta, yu.PRICE_MAX)   # the uint32 field (D-Q-22)
         atts.append(_sign_for(node, seq, micro, cited, blockhash))
     return encode_bundle(atts), selected
 
@@ -1156,7 +1218,6 @@ def _register_and_arm_offline(test, n, funder, miner, bond_zat, lock_blocks):
         signer = None
         if wallet < len(nodes) and nodes[wallet] is not None:
             nodes[wallet].importprivkey(ATTESTOR_WIFS[i], 'yellowback-attestor', False)
-            nodes[wallet].importprivkey(BOND_WIFS[i], 'yellowback-bond', False)
             signer = nodes[wallet]
         test.sync_all()
         test.mine(miner)
@@ -1195,9 +1256,16 @@ def armed_raw_mint(test, node, cents, lock_blocks, ref_height, collateral_zat, p
     test.mine(POOLS[0] if miner is None else miner)
     _seq, addr = _attest_payee(selected, prices)
     fee = kw.pop('fee_zat_override', None)
-    afee = attest_fee_zat(yu.fee_zat(collateral_zat) if fee is None else fee)
+    p_mint = kw.pop('p_mint', None)
+    if fee is None:
+        if p_mint is None:
+            x = int(node.yed_getprice(ref_height)['pMint'])
+            a = min(int(p) for p in prices.values()) if isinstance(prices, dict) and prices else None   # the bundle's lowest price bounds aMint
+            p_mint = x if a is None else min(x, a)                                                       # FEE-1': the fee at min(xMint, aMint) (an overpayment is valid)
+        fee = yu.protocol_fee_zat(cents, p_mint)
+    afee = attest_fee_zat(fee)
     return build_mint_tx_v3(node, cents, lock_blocks, ref_height, collateral_zat, fee_addr=fee_addr, carrier=carrier,
-                            attest_fee=(addr, afee) if fee_addr else None, fee_zat_override=fee, **kw)
+                            attest_fee=(addr, afee) if fee_addr else None, fee_zat_override=fee, p_mint=p_mint, **kw)
 
 
 def armed_raw_claim(test, node, vault, burn_inputs, ref_height, prices, fee, miner=None, expiry=None):
