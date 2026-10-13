@@ -76,6 +76,14 @@ the real pool landscape, validated on regtest devnets of both node lines; not ye
 its §7). Its parameter registry and simulator are still pinned to the v3 parameter set (ycash6
 `7702d22`); the new fee and seat fields above live in the three studies.
 
+**The model layer is on the upgrade line** (2026-10-13, [D-MP-1](docs/decisions.md)): the vendored
+reference model, golden vector and `SERIALISATION.md` are pinned at ycash6 `upgrade/vault` `1310a41a1`
+(`SCHEMA_VERSION` 13, the same files as ycash-dd `8af82551b`), and the exact kernels follow it — the vault
+upgrade, in-term claims, the post-quantum fees (FEE-1′, IT-9′, MINT-6b, RED-5′) and CAN-1. The activation
+signalling rules (ACT-1..6) and FEE-1's collateral fee are retired. Until the registry and the simulator are
+re-pinned, the simulator's v3 books are checked against a retained, hash-checked copy of the v3 reference;
+D-MP-1 lists the studies to re-run then.
+
 All work packages of [the plan](docs/PLAN.md) are built (see its "Status (implementation)"
 section). `ybcal recommend --budget quick --synthetic` produces a complete report covering all 96
 registry entries in about 10 minutes on 4 cores.
@@ -95,7 +103,7 @@ Requires Python 3.11 or later and `make`.
 make setup                      # .venv + pip install -e '.[dev]'
 source .venv/bin/activate       # puts `ybcal` on PATH (or call .venv/bin/ybcal)
 
-ybcal verify                    # 132 exactness checks: golden replay, C++ worked examples, parity, seats
+ybcal verify                    # 186 exactness checks: golden replay, kernels on the golden chain, C++ worked examples, spec-rational cases, parity, seats
 ybcal pq; ybcal fees; ybcal seats   # the release-constant studies (seconds each; --out <dir>)
 ybcal params show --group G3    # the parameter table (from the committed snapshot of ycash6 @ 7702d22)
 ybcal params show --class excluded

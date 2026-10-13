@@ -66,7 +66,7 @@ integrator note in decisions.md changed a contract, the text below states the cu
 | `params/snapshot_7702d22.json` | WP-0 | extraction at the pin, used when no ycash6 clone is present (CI) |
 | `params/scaling.py` | WP-9 | mainnet → regtest time scaling (§6.3) |
 | `params/emit.py` | WP-8 | recommended set → `params.cpp` patch + JSON (§7) |
-| `model/` | WP-1 | vendored reference model, exact kernels, vectorised kernels, `ybcal verify` |
+| `model/` | WP-1 | vendored reference model (upgrade line, SCHEMA 13; a retired v3 copy for the simulator), exact kernels, vectorised kernels, retired v3 kernels, seats, `ybcal verify` |
 | `data/` | WP-2 | loaders, fetchers, synthetic models, scenarios |
 | `sim/engine,oracle,sigma,supply` | WP-3 | block-mode simulator core |
 | `sim/vaults,agents,fees` | WP-4 | vault book, personas, fees; hour mode + oracle transfer kernel |
@@ -285,21 +285,34 @@ selection inside each study only; there is no cross-group robust pass, D-WP8-7.)
 `src/ybcal/model/` is the exact arithmetic of the overlay. Everything here is checked by
 `ybcal verify` (and by `tests/model/`, which run the same checks plus hypothesis property tests).
 
+**Pin.** ycash6 `upgrade/vault` `1310a41a1` (the pushed head on 2026-10-13); every vendored file is
+byte-identical at `047b561ac` and on ycash-dd `8af82551b` / `d5206bc57`, and so are `src/yellowback/math.h`,
+`state.cpp` and `src/test/yellowback_math_tests.cpp`, so the citations hold on both node lines. The node
+model is `SCHEMA_VERSION` 13: the vault upgrade (U-21..U-25: the YED V template, claim intents, no
+activation state machine, no VOID vault, invalid blocks), P4-b (the attestor set is the primitive's
+set), in-term claims (IT-*), the post-quantum owners and fees (D-Q-22..D-Q-31) and CAN-1 (a cancelled
+claim refunds its burn, audit 03/H-1). The port from the v3 pin `7702d22` (SCHEMA 4) is decision
+D-MP-1.
+
 ### Files
 
 | File | Role |
 |---|---|
-| `reference.py` | **vendored** `qa/rpc-tests/test_framework/yellowback_model.py` @ `7702d22` (MIT header kept). Whole file; the only edit is the 8 lazy `from . import yellowback_attest as ya` lines → `reference_attest` |
-| `reference_attest.py` | **vendored** `yellowback_attest.py` (BUNDLE-1 parsing, signature check, W9 `select_attestors`, `bundle_stat` — the golden replay needs them). Edits: its 4 relative-import lines |
-| `reference_util.py` | **extracted** verbatim top-level definitions of `yellowback_util.py` / `util.py` that `reference_attest` needs (constants, secp256k1 helpers, `fee_zat` …), with the transitive closure of the names they use. `yellowback_util.py` itself imports the whole node test framework, so it cannot be vendored whole; node drivers are absent on purpose |
-| `yellowback_golden.json`, `SERIALISATION.md` | vendored verbatim (package data) |
+| `reference.py` | **vendored** `qa/rpc-tests/test_framework/yellowback_model.py` (MIT header kept). Whole file; the only edits are the 10 lazy `from . import yellowback_attest as ya` lines → `reference_attest` and the 3 `from . import vault as va` lines → `reference_vault` |
+| `reference_attest.py` | **vendored** `yellowback_attest.py` (BUNDLE-1 parsing, signature check, W9 `select_attestors`, `bundle_stat` — the golden replay needs them). Edits: its 4 relative-import lines and 3 `vault` imports |
+| `reference_util.py` | **extracted** verbatim top-level definitions of `yellowback_util.py` / `util.py` that `reference_attest` needs (constants, secp256k1 helpers, `protocol_fee_zat`, `yed_params` …), with the transitive closure of the names they use. `yellowback_util.py` itself imports the whole node test framework, so it cannot be vendored whole; node drivers are absent on purpose |
+| `reference_vault.py` | **extracted** verbatim definitions of `vault.py` the model and the attestation helpers reach through `va.` — the primitive's `YV` act codec and set-signature recovery (P4-b). `vault.py` imports `mininode` and `pq` at module level, so it is not vendored whole |
+| `yellowback_golden.json`, `SERIALISATION.md`, `yellowback_math_cases.json` | vendored verbatim (package data); the last is `src/test/data/yellowback_math_cases.json`, the spec-rational cases of audit 03/T-3 |
 | `VENDOR.json` | commit + sha256 of every vendored file |
-| `vendor.py` | `SPECS` (what is vendored and the exact rewrites), `revendor(ycash6, ref, dest)`, `check_vendored()`, `check_against_source(ycash6)` |
-| `kernels.py` | exact scalar kernels (Python ints, `None` = undefined) |
+| `reference_v3.py`, `reference_v3_attest.py`, `reference_v3_util.py`, `yellowback_golden_v3.json`, `VENDOR_V3.json` | **RETIRED** the v3 reference at `7702d22` (`vendor.V3_SPECS`), hash-checked like the others; read only by the simulator's v3 books and their tests (D-MP-1) |
+| `vendor.py` | `SPECS` / `V3_SPECS` (what is vendored and the exact rewrites), `revendor(ycash6, ref, dest, specs=…)`, `check_vendored()`, `check_vendored_v3()`, `check_against_source(ycash6)` |
+| `kernels.py` | exact scalar kernels of the current model (Python ints, `None` = undefined) |
 | `vkernels.py` | numpy kernels (int64, `-1` = undefined), property-tested equal to `kernels` |
-| `golden.py` | golden replay (state hash `ad7129…49a6`, tip 440, totals) + kernels/vkernels recomputing all 440 stored snapshots |
-| `examples.py` | the 97 numeric assertions of `src/test/yellowback_math_tests.cpp` as data |
-| `parity.py` | seeded stdlib parity sample (hypothesis is a dev dependency) |
+| `retired.py` | **RETIRED** ACT-1..6 and FEE-1 kernels (scalar and vector), frozen at `7702d22`, tested against `reference_v3` |
+| `seats.py` | the 2026-10-11 seat rules (Log2Q16, SeatAgeFactorQ16, SeatWeight, SeatRank, EvictionVictim, D-Q-30 bond minimum) |
+| `golden.py` | golden replay (state hash `0789e4…1d05`, tip 440, totals; 457 entries, 17 rejected) + kernels/vkernels recomputing all 440 stored snapshots and the money rules of every Yellowback transaction |
+| `examples.py` | the numeric assertions of `src/test/yellowback_math_tests.cpp` as data (121), the spec-rational cases (67) and `reference_param_drift()` |
+| `parity.py` | seeded stdlib parity sample (hypothesis is a dev dependency), seats == reference included |
 | `cli.py` | `cli_verify`, `configure_verify` (`--revendor`, `--ycash6`, `--ref`, `--samples`, `--seed`, `--quiet`) |
 
 Every vendored `.py` starts with a pin header (source path, full commit, sha256 of the upstream
@@ -310,41 +323,52 @@ longer matches upstream fails loudly). After a re-pin also bump `vendor.VENDORED
 
 ### Kernel API (`ybcal.model.kernels`)
 
-Prices µUSD/YEC, amounts zat, YED cents, ratios bps; a price ≤ 0 is undefined like the C++.
+Prices µUSD/YEC (≤ `PRICE_MAX` = 4,294,967,295 since D-Q-22), amounts zat, YED cents, ratios bps; a
+price ≤ 0 is undefined like the C++. Citations at ycash6 `1310a41a1`.
 
-| Kernel | Source @ 7702d22 | Delegates to |
+| Kernel | Source | Delegates to |
 |---|---|---|
 | `lower_median(values) -> int\|None` | math.h:53 | `reference.lower_median` |
-| `window_median_with_fill(prices, fill) -> int\|None` | state.cpp:103 | |
+| `window_median_with_fill(prices, fill) -> int\|None` | state.cpp:141 | |
 | `min_fill_fast(W)`, `min_fill_slow(W)` | params.h L9 | |
-| `price_mint(pf, pm, ps)`, `price_claim(pm, ps)` | state.cpp:1205-1206 | |
-| `halt3_divergence(pf, pm, ps, divergence_bps) -> bool` | state.cpp:1238 | |
-| `price_combine(xMint, xClaim, aMint, aClaim) -> CombinedPrices(p_mint, p_claim, p_emerg)` | math.h:286 | |
-| `isqrt(x)`; `sigma_mult_bps(samples, sigma_ref_bps, periods_per_year, max_bps) -> int` | math.h:61, 80 | `reference.sigma_mult_bps` (after the C++ guards) |
-| `sigma_samples(p_fast_series, index, vol_window, vol_step) -> list` | state.cpp:1213 | |
+| `price_mint(pf, pm, ps)`, `price_claim(pm, ps)` | state.cpp:1666-1667 | |
+| `halt3_divergence(pf, pm, ps, divergence_bps) -> bool` | state.cpp:1702 | |
+| `halt_mask(pf, pm, ps, coll, supply, halt_bps, divergence_bps)` — HALT-1..3, no ACT bits (U-21) | state.cpp:1698-1706 | |
+| `mint4_halt_verdict(mask, base_ratio, recap_ratio)` — MINT-4 with the IT-5 recap gate | state.cpp:366-378 | |
+| `price_combine(xMint, xClaim, aMint, aClaim) -> CombinedPrices(p_mint, p_claim, p_emerg)` | math.h:421 | |
+| `isqrt(x)`; `sigma_mult_bps(samples, sigma_ref_bps, periods_per_year, max_bps) -> int` (σ pinned at 1 by `sigmaRefBps` 0, D-IT-5) | math.h:61, 80 | `reference.sigma_mult_bps` (after the C++ guards) |
+| `sigma_samples(p_fast_series, index, vol_window, vol_step) -> list` | state.cpp:1674 | |
 | `min_ratio_bps(base, sigma)` | math.h:105 | `reference.min_ratio_bps` |
-| `required_zat(cents, min_ratio, p_mint)`, `required_zat_rounded(…, granularity=1000)` | math.h:115, 127 (MINT-5) | `reference.required_zat` |
-| `cap_cents(issued, p_mint)`, `supply_cap_cents(issued, p_mint, cap_bps)` | math.h:139, 148 (MINT-6) | `reference.cap_cents` / `supply_cap_cents` |
-| `global_ratio_bps(coll, p_mint, supply)`, `halt2_global_ratio(…, halt_bps)` | math.h:162; state.cpp:1237 | `reference.global_ratio_bps` |
-| `is_underwater(coll, p_claim, minted, threshold_bps) -> bool` | math.h:174 (RED-4 a/b) | `reference.is_underwater` |
-| `underwater_price(coll, minted, threshold_bps)` (largest underwater pClaim; 18,333 in the worked example) | derived from math.h:174 | |
-| `claimant_max_zat(minted, margin_bps, p_claim)`, `residual_zat(coll, claimant_max)` | math.h:251, 263 (RED-5) | reference |
-| `fee_zat(coll, fee_min, fee_bps)`, `attest_fee_zat(fee, attest_fee_bps)` | math.h:185, 270 (FEE-1, AFEE-1) | reference (+ int64 saturation) |
-| `class_for_lock_blocks(lock, class_min, class_max)` | params.cpp:128 (MINT-2) | |
-| `bond_weight(bond, age, age_cap)` | math.h:202 | `reference_attest.bond_weight` |
-| `weighted_quantile([(price, weight)], q_bps)`, `bundle_stat(entries, q_low, q_high, m_select)` | math.h:228 (PRICE-2 statistic) | transcribed (see differences) |
+| `required_zat(cents, min_ratio, p_mint)`, `required_zat_rounded(…, granularity=1000)` | math.h:115, 127 (MINT-5′) | `reference.required_zat` |
+| `cap_cents(issued, p_mint)` (issued = circulating supply, D-Q-25), `supply_cap_cents(issued, p_mint, cap_bps)` | math.h:142, 151 (MINT-6) | `reference.cap_cents` / `supply_cap_cents` |
+| `mint6_cap_refuses(supply, cents, cap, base, recap)`, `max_vault_cents(cap, share_bps, floor_cents)` | state.cpp:405-415; math.h:389 (MINT-6, MINT-6b) | |
+| `global_ratio_bps(coll, p_mint, supply)`, `halt2_global_ratio(…, halt_bps)` | math.h:165; state.cpp:1701 | `reference.global_ratio_bps` |
+| `is_underwater(coll, p_claim, minted, threshold_bps) -> bool` | math.h:177 (RED-4 a/b; θ 12,500, D-IT-2) | `reference.is_underwater` |
+| `underwater_price(coll, minted, threshold_bps)` (largest underwater pClaim) | derived from math.h:177 | |
+| `claim_path(coll, p_claim, p_emerg, minted, θ, emergency_bps, notice_persisted)` — RED-4 with no height clause (IT-2) | state.cpp:665-686 | |
+| `claimant_max_zat(minted, margin_bps, p_claim)`, `residual_zat(coll, claimant_max)`, `residual_min_zat(p_mint, floor_zat, cents)`, `claim_split(…) -> ClaimSplit` | math.h:345, 398, 361; state.cpp:687-700 (RED-5, RED-5′) | reference |
+| `protocol_fee_units/cents/zat(debt, [p_mint], fee_bands, fee_floor_cents)`, `early_redeem_fee_zat(debt, bps, p_mint)`, `redeem_fee_zat(…)`, `attest_fee_zat(fee, attest_fee_bps)` | math.h:192-232, 405 (FEE-1′, IT-9′, RED-3′, AFEE-1′) | reference (+ int64 saturation) |
+| `claim_accounting(event, …) -> TotalsDelta` — claim / release / cancel (CAN-1: the burn comes back) / redeem, with IT-6's collateral accounting | state.cpp:776-800, 805-894 | |
+| `set_create_adoptable(…)` — the pinned cancel/unlock thresholds (03/I-3) | state.cpp:1035-1042 | |
+| `class_for_lock_blocks(lock, class_min, class_max)` | params.cpp:150 (MINT-2) | |
+| `bond_weight(bond, age, age_cap)` | math.h:242 | `reference_attest.bond_weight` |
+| `weighted_quantile([(price, weight)], q_bps)`, `bundle_stat(entries, q_low, q_high, m_select)` | math.h:322 (PRICE-2 statistic) | transcribed (see differences) |
 | `select_attestors(block_hash_hex, selector, [(seq, weight)], m_select, k_slack)`, `outpoint_selector(txid, vout)` | W9 | `reference_attest` |
-| `reg4_judgement(quote, peers, peer_min, deviation_bps, accuracy_band_bps) -> Judgement`, `reg4_peer_heights(t, lag)` | state.cpp:910 (REG-4) | |
-| `signal_count(signals, index, window)`; `activation_step(ActivationState, h, count, start, window, threshold, delay)` | state.cpp:959, 1080 (ACT-1..3) | |
-| `participation_halt_step(prev, count, active, threshold, floor)`, `enforcement_halt_step(prev, count, active, resume, floor)` | state.cpp:1242, 1246 (ACT-4, ACT-6) | |
-| `param_set_start_admissible(start, prev_sunset, window, halted_at)` | params.cpp:259 (ACT-5, W19) | |
-| `pin1_triggered(a_mints, min_bundles, delta_bps)`, `pin1_pinned_keys(quotes, min_tags)`, `pin2_triggered(x1, x0, delta_bps)`, `pin2_pinned_seqs(rows, min_tags)` | state.cpp:1130-1172 | |
+| `reg4_judgement(quote, peers, peer_min, deviation_bps, accuracy_band_bps) -> Judgement`, `reg4_peer_heights(t, lag)` | state.cpp:1371 (REG-4) | |
+| `pin1_triggered(a_mints, min_bundles, delta_bps)`, `pin1_pinned_keys(quotes, min_tags)`, `pin2_triggered(x1, x0, delta_bps)`, `pin2_pinned_seqs(rows, min_tags)` | state.cpp:1589-1634 | |
+
+**Retired** (`ybcal.model.retired`, D-MP-1): `signal_count`, `activation_step`, `participation_halt_step`,
+`enforcement_halt_step`, `param_set_start_admissible` (ACT-1..6, U-21) and `fee_zat` (FEE-1, D-Q-23), with
+their vector forms `signal_counts`, `participation_halt_series`, `enforcement_halt_series`, `fee_zat_v`.
 
 The kernels with no reference counterpart (the model computes them inline in
-`YellowbackModel._snap/_judge`) are checked by `golden.check_chain_kernels`: at every one of the 440
-golden snapshots they reproduce the stored medians, pMint/pClaim, haltMask (all six bits),
-activation, signal count, global ratio, PIN-1/2 sets and every REG-4 judgement. (The golden chain
-never pins, so PIN is additionally unit-tested.)
+`YellowbackModel._snap/_judge/_red_verdict/_apply_intent_spend`) are checked by
+`golden.check_chain_kernels`: at every one of the 440 golden snapshots they reproduce the stored medians,
+pMint/pClaim, haltMask (no ACT bit since U-21), the D-Q-25 issuance, global ratio, PIN-1/2 sets and every
+REG-4 judgement; for every MINT, REDEEM and CLAIM_CANCEL of the golden chain they recompute the vault's
+pMint, IT-1's heights, MINT-4/5′/6/6b/8′, AFEE-1′, RED-3′/IT-9′, RED-4's path, RED-5/5′'s residual and
+intent count, and CAN-1's refund; and the end state's IT-6 collateral accounting. (The golden chain never
+pins and claims only after the term, so PIN and the in-term path are additionally unit-tested.)
 
 ### Differences between the reference model and the C++ (kernels follow the C++)
 
@@ -356,13 +380,15 @@ inputs the node never produces, and on the reference's domain the kernels equal 
 2. `sigma_mult_bps`: C++ treats a non-positive sample and `sigmaRefBps < 0` as undefined / fixed,
    and raises `maxBps` to ≥ 10^4; the reference divides by a zero sample and only special-cases
    `sigmaRefBps == 0`.
-3. `required_zat`, `cap_cents`, `global_ratio_bps`, `fee_zat`, `bond_weight`: the C++ returns
-   undefined / 0 / clamps for non-positive or negative inputs (and `FitsInt64` overflows) where the
-   reference computes a number.
-4. The reference's own `Params.mainnet()` column has `abandon_blocks = 4,032`; spec rev 4 (W21) and
-   `params.cpp` have 34,560 (= grace). It is the only drift from the registry
-   (`examples.reference_param_drift()`, reported by `ybcal verify`). Kernels take every parameter
-   as an argument, so this cannot leak into results.
+3. `required_zat`, `cap_cents`, `global_ratio_bps`, `bond_weight`: the C++ returns undefined / 0 /
+   clamps for non-positive or negative inputs (and `FitsInt64` overflows) where the reference computes
+   a number. `max_vault_cents` saturates the share at INT64_MAX like the C++; the reference reduces
+   mod 2^256 (unreachable).
+4. The reference's own `Params.mainnet()` column differs from the registry wherever the upgrade line
+   changed a value the 7702d22 registry still holds (θ, the ratios and classes, σ, maxMint, PRICE_MAX,
+   attestArmMin, attestFeeBps, mintRequiresArmed, bondMinLock: `examples.reference_param_drift()`,
+   reported by `ybcal verify`, pinned by `tests/model/test_worked_examples.py`). Kernels take every
+   parameter as an argument, so this cannot leak into results; it empties when the registry is re-pinned.
 
 ### Vectorised kernels (`ybcal.model.vkernels`)
 
@@ -379,11 +405,12 @@ Undefined = `-1` (`UNDEF`); arrays broadcast; series kernels run along the last 
 - `sigma_mult_series(p_fast, vol_window, vol_step, sigma_ref, ppy, max_bps)` — strided rolling sums
   of squared returns per residue class.
 - `required_zat`, `claimant_max_zat`, `residual_zat`, `is_underwater`, `global_ratio_bps`,
-  `halt2_global_ratio`, `cap_cents`, `supply_cap_cents`, `fee_zat`, `attest_fee_zat`.
-- `signal_counts`, `hysteresis`, `participation_halt_series`, `enforcement_halt_series`.
+  `halt2_global_ratio`, `cap_cents`, `supply_cap_cents`, `protocol_fee_units`, `protocol_fee_zat`,
+  `early_redeem_fee_zat`, `attest_fee_zat`.
+- `hysteresis` (the retired ACT series and FEE-1's vector form live in `ybcal.model.retired`).
 
 **Overflow analysis** (int64 max 9.2e18): `cents·ratio·COIN` reaches 1.5e19 (K14),
-`collateral·pClaim` 2.1e23, `minted·threshold·COIN` 1.1e19, `collateral·feeBps` 2.1e19, Σr²·ppy for
+`collateral·pClaim` 2.1e23, `minted·threshold·COIN` 1.1e19, `fee·attestFeeBps` 2.1e19, Σr²·ppy for
 absurd σ. Each is computed exactly in int64 by splitting the dividend (`x = q·p + r`,
 `x·COIN/p = q·COIN + r·COIN/p`; underwater as `c < ceil(D/p)`; `⌊a·p/(COIN·s)⌋ = ⌊⌊a·p/COIN⌋/s⌋`),
 with explicit guards; any element outside the provable range (prices > 9e10 µUSD, σ returns above

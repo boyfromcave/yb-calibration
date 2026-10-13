@@ -2547,3 +2547,60 @@ window P(bad debt at claim opening) of class A is still ≈ 3.9 % at the registr
 worse-window rule (D-HD-3) would be undecidable inside the registry bounds. The registry bound is a
 search bound, not a rule; a value above it is evaluated like any other and is still subject to every
 invariant.
+
+## D-MP-1 (2026-10-13, model port) — the model layer moves to the upgrade line; the v3 simulator keeps a retired v3 reference
+
+**Decision.** The vendored reference model, its golden vector and `SERIALISATION.md` are re-pinned from
+ycash6 `7702d22` (v3, golden `SCHEMA_VERSION` 4) to the pushed `upgrade/vault` head `1310a41a1`
+(`SCHEMA_VERSION` 13; byte-identical at `047b561ac` and on ycash-dd `8af82551b` / `d5206bc57`, as are
+`math.h`, `state.cpp` and the math tests). `ybcal.model.kernels` is ported clause for clause: every kernel
+keeps its meaning where the rule survived (PRICE-1/2, HALT-2/3, SIGMA-1, MINT-5, MINT-6, RED-4/5, REG-4,
+PIN, BUNDLE-1, W9), with citations re-taken at the new pin, and gains the upgrade's rules: `halt_mask`
+(HALT-1..3 without ACT bits), `mint4_halt_verdict` (IT-5's recap gate), `mint6_cap_refuses`, `max_vault_cents`
+(MINT-6b), `protocol_fee_units/cents/zat` (FEE-1′), `early_redeem_fee_zat` (IT-9′ of the debt), `redeem_fee_zat`
+(RED-3′), `residual_min_zat` / `claim_split` (RED-5′), `claim_path` (RED-4 with no height clause, IT-2),
+`claim_accounting` (U-23/IT-6/CAN-1: a cancel re-issues the whole burn), `set_create_adoptable` (the pinned
+cancel/unlock thresholds, 03/I-3). The vendor machinery adds `reference_vault.py` (the primitive's `YV`
+act codec the model imports since P4-b) and `yellowback_math_cases.json` (audit 03/T-3, replayed through the
+kernels). `seats_vectors.json` is regenerated from the vendored reference (`gen_seats_vectors --vendored`):
+value for value equal to the `f07a9aef6` vectors, so the seat study's numbers stand.
+
+**Retired, explicitly.** ACT-1..6 (signal counts, lock-in, PARTICIPATION / ENFORCEMENT, the W19 start
+predicate) and FEE-1's collateral fee have no counterpart in the current model (U-21, D-Q-23). Their exact
+mirrors move to `ybcal.model.retired`, unchanged, and are still tested against the v3 reference. The
+quantities they produced — time to activation, P(lock-in in the first window), false-halt and flapping
+rates of the participation/enforcement halts, detection delay, abandonment and the "freeze, then fix" fix
+start, the work-valve trip rate, FEE-1 fee revenue as a share of collateral — **do not exist on the upgrade
+line**: the module is active from the `UPGRADE_VAULT` height, every node checks every rule, and the fee is
+the debt's banded dollar fee at the vault's mint price.
+
+**What stays v3, and why.** The parameter registry (`params/snapshot_7702d22.json`, 96 entries) and the
+simulator built on it (`sim/engine`, `sim/vaults`, `sim/attest`, `sim/activation`, `sim/fees`, the G1–G9
+studies) still model the 7702d22 parameter set and rules (P2SH vault, VOID, claims only after grace, FEE-1,
+REG-A1 registration, bond-weight seating). Porting them is the registry re-pin — a new parameter set
+(fee bands, claimDelay, residualMinCents, maxVaultShareBps, the seat and set constants; no signalWindow,
+feeMin, abandonBlocks …) and the studies that score it — not a kernel port, and is left to that work. Until
+then the simulator's exactness tests run against a **retired copy of the v3 reference**
+(`reference_v3*.py`, `yellowback_golden_v3.json`, `vendor.V3_SPECS`, hash-checked, `ybcal verify` row
+"retired v3 copy intact"), so the published v3 reports stay reproducible and their provenance verifiable.
+`examples.reference_param_drift()` lists the 15 values where the reference's mainnet column and the registry
+now differ; the test pins that set, so the registry re-pin will be noticed.
+
+**Calibration outputs to re-run (owner, after the registry/simulator re-pin; no sweep was started here).**
+- **T5 / G3 (in-term claims).** The T5 model (yb-calibration `e3ece4b`, `calib/in-term`) is not on
+  `upgrade/vault`; re-run it on the upgrade model with CAN-1 (a cancel refunds the burn: the claimant's cost
+  of a cancelled claim is its fees and the delay, not the burn), RED-3′ fees at pMint, RED-5′'s $0.48
+  residual threshold, θ 125 %, classes 300/400/500 %, and the planned per-vault cancel limit
+  (`docs/plans/yellowback-cancel-limit-design.md`: one free hold, `CANCEL_SIGNERS_MAX` 5, `CANCEL_QUIET`
+  8,064, C5 residual hold, C4b penalty) as "one extra 12 h round per griefed vault".
+- **G4** (grace / abandonment): `abandonBlocks` is retired; `grace` no longer gates claims (IT-2) — only the
+  record's `claimHeight` and the early fee's term remain.
+- **G5** (activation): retired in full.
+- **G6** (miners / fees): FEE-1 is retired; the fee structure is `ybcal fees` (Option D, already on FEE-1′).
+- **G7** (supply / halts): no participation / enforcement halts; HALT-2 200 % with the 500 % recap gate;
+  the supply cap reads the circulating supply (D-Q-25) and MINT-6b bounds one vault.
+- **G8** (attestation): registration is the set's SET_JOIN; seating by seat weight and eviction (the seat
+  study already models them; its numbers are unchanged).
+- **G9** (amounts): maxMint $100,000 everywhere (D-Q-24), MINT-6b, PRICE_MAX = UINT32_MAX.
+- **G1 / G2**: the price windows and HALT-3 are unchanged; σ is pinned at 1 (`sigmaRefBps` 0, D-IT-5), so G2's
+  σ-multiplier outputs no longer feed a live rule.
