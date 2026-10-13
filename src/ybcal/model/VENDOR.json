@@ -14,7 +14,7 @@
    "source": "qa/rpc-tests/test_framework/yellowback_attest.py"
   },
   "reference_util.py": {
-   "sha256": "c5f4c88e6225fba0efa6fa6c6a6e6c79ac885c1554ed444d8381f6ede1da6b48",
+   "sha256": "6d2f1cde958ef3e3ab094d9b551057c97e9bf6bf0bc112f8ed88b8939b60ba24",
    "source": "extract"
   },
   "yellowback_golden.json": {
