@@ -2,7 +2,8 @@
 
 An analytic study like ``fees_option_d``: no simulation engine, no price pulls, no sweeps; every number is
 an exact integer evaluation of the node's own rules through :mod:`ybcal.model.seats` (bit for bit with
-ycash-dd ``q/attest`` ``f07a9aef6``), and the only market input is the $0.40 reference price the fees
+ycash-dd ``q/attest`` ``f07a9aef6`` and, unchanged, with the vendored ``upgrade/vault`` model at ycash6
+``1310a41a1``), and the only market input is the $0.40 reference price the fees
 study took from the frozen 2026-10-04 data. Runs in about a second. ``ybcal seats [--out DIR]``.
 
 Questions:

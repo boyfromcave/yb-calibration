@@ -7,7 +7,7 @@ import pytest
 
 from ybcal.model import golden
 from ybcal.model import kernels as K
-from ybcal.model import reference as ref
+from ybcal.model import reference_v3 as ref
 from ybcal.params.paramset import regtest
 from ybcal.sim import attest as att
 
@@ -75,7 +75,7 @@ def golden_replay():
             calls.append((self._h, r, bytes(sel), b["ok"], b["atts"]))
             return b
 
-    doc = golden.load_golden_doc()
+    doc = golden.load_golden_doc_v3()
     p = doc["params"]
     m = Rec(ref.Params.regtest(int(p["startHeight"]), int(p["sigmaRefBps"]), int(p["supplyCapBps"]),
                                int(p["enforceUntil"]), int(p["attestArmMin"]), int(p["bundleCarrier"])))

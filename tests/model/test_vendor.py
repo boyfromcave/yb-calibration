@@ -12,7 +12,7 @@ from ybcal.model import vendor
 
 from ..conftest import ycash6_path
 
-PY_FILES = ("reference.py", "reference_attest.py", "reference_util.py")
+PY_FILES = ("reference.py", "reference_attest.py", "reference_util.py", "reference_vault.py")
 
 
 def test_vendored_files_intact():
@@ -25,7 +25,8 @@ def test_headers_name_source_commit_and_hash():
         assert fields["commit"] == vendor.VENDORED_COMMIT
         assert fields["source"].startswith(vendor.SOURCE_REPO + " qa/rpc-tests/test_framework/")
         assert len(fields["sha256"].split()[0]) == 64
-        assert "Copyright (c) 2026 The Ycash developers" in body or name == "reference_util.py"
+        extracted = name in ("reference_util.py", "reference_vault.py")
+        assert "Copyright (c) 2026 The Ycash developers" in body or extracted
 
 
 def test_reference_keeps_mit_header_and_only_import_rewrites():
@@ -34,7 +35,9 @@ def test_reference_keeps_mit_header_and_only_import_rewrites():
         "#!/usr/bin/env python3\n# Copyright (c) 2026 The Ycash developers\n# Distributed under the MIT"
     )
     assert "from . import yellowback_attest" not in body
-    assert body.count("from . import reference_attest as ya") == 8
+    assert "from . import vault as va" not in body
+    assert body.count("from . import reference_attest as ya") == 10
+    assert body.count("from . import reference_vault as va") == 3
 
 
 def test_reference_modules_are_stdlib_only():
@@ -83,3 +86,28 @@ def test_revendor_reproduces_the_shipped_files(tmp_path):
         assert (tmp_path / name).read_bytes() == (vendor.MODEL_DIR / name).read_bytes(), name
     assert (tmp_path / vendor.MANIFEST).read_text() == (vendor.MODEL_DIR / vendor.MANIFEST).read_text()
     assert vendor.check_against_source(repo) == []
+
+
+def test_retired_v3_copy_intact_and_separate():
+    # the v3 reference (7702d22) the simulator's v3 books are checked against: its own manifest and pin
+    assert vendor.check_vendored_v3() == []
+    for spec in vendor.V3_SPECS:
+        if spec.dest.endswith(".py"):
+            fields, body = vendor.split_header((vendor.MODEL_DIR / spec.dest).read_text())
+            assert fields["commit"] == vendor.V3_COMMIT
+            assert "from . import reference as" not in body and "from . import reference_attest" not in body
+    assert {s.dest for s in vendor.V3_SPECS}.isdisjoint({s.dest for s in vendor.SPECS})
+
+
+def test_revendor_reproduces_the_retired_v3_copy(tmp_path):
+    repo = ycash6_path()
+    if repo is None:
+        pytest.skip("no ycash6 clone (set YBCAL_YCASH6)")
+    try:
+        written = vendor.revendor(repo, vendor.V3_COMMIT, tmp_path, specs=vendor.V3_SPECS,
+                                  manifest_name=vendor.V3_MANIFEST)
+    except Exception as e:  # pragma: no cover - clone without the pin
+        pytest.skip(f"ycash6 clone lacks the v3 pin: {e}")
+    for name in written:
+        assert (tmp_path / name).read_bytes() == (vendor.MODEL_DIR / name).read_bytes(), name
+    assert vendor.check_against_source(repo, specs=vendor.V3_SPECS, default_commit=vendor.V3_COMMIT) == []

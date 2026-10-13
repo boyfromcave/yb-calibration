@@ -3,14 +3,18 @@
 Runs, and prints as a pass/fail table:
 
 1. vendored-file integrity (pin headers, hashes; and, given a ycash6 clone, equality with a fresh
-   render at the pin);
-2. the golden vector replayed through the vendored reference model (state hash, tip, totals);
-3. the kernels and vkernels recomputing every snapshot of the golden chain;
+   render at the pin), also of the retired v3 copy (7702d22) the simulator's v3 books still use;
+2. the golden vector (``SCHEMA_VERSION`` 13) replayed through the vendored reference model (state hash,
+   tip, totals);
+3. the kernels and vkernels recomputing every snapshot of the golden chain and the money rules of
+   every Yellowback transaction on it (MINT, RED, CAN-1, IT-6);
 4. the C++ worked examples of ``src/test/yellowback_math_tests.cpp``;
-5. a quick seeded parity sample (vkernels == kernels == reference);
-6. the attestor seat rules (D-Q-29..D-Q-31, :mod:`ybcal.model.seats`) against vectors from the node's
-   Python model at ycash-dd ``q/attest``;
-7. (informational) the reference model's own mainnet column against the registry.
+5. the spec-rational cases of ``src/test/data/yellowback_math_cases.json`` (audit 03/T-3);
+6. a quick seeded parity sample (vkernels == kernels == reference; seats == reference);
+7. the attestor seat rules (D-Q-29..D-Q-31, :mod:`ybcal.model.seats`) against vectors from the node's
+   Python model at the pin;
+8. (informational) the reference model's own mainnet column against the registry (still the 7702d22
+   v3 set: every value the upgrade changed is listed).
 
 ``ybcal verify --revendor --ycash6 PATH [--ref REF]`` re-vendors the reference files from a ycash6
 clone (read-only towards it) and exits; run ``ybcal verify`` again afterwards.
@@ -85,7 +89,16 @@ def cli_verify(args: argparse.Namespace) -> int:
     rows.append(
         ("vendor", "vendored files intact", not problems, "; ".join(problems) or vendor.VENDORED_COMMIT[:12])
     )
+    problems = vendor.check_vendored_v3()
+    rows.append(("vendor", "retired v3 copy intact (simulator only)", not problems,
+                 "; ".join(problems) or vendor.V3_COMMIT[:12]))
     if ycash6:
+        try:
+            v3 = vendor.check_against_source(ycash6, specs=vendor.V3_SPECS, default_commit=vendor.V3_COMMIT)
+            rows.append(("vendor", f"retired v3 copy equal to ycash6 {vendor.V3_COMMIT[:7]}", not v3,
+                         "; ".join(v3) or ycash6))
+        except Exception as e:  # pragma: no cover - environment dependent
+            rows.append(("vendor", "retired v3 copy equal to ycash6", False, f"{type(e).__name__}: {e}"))
         try:
             diff = vendor.check_against_source(ycash6, ref)
             rows.append(
@@ -106,6 +119,7 @@ def cli_verify(args: argparse.Namespace) -> int:
     for ex, ok, got in examples.run_examples():
         detail = f"math_tests:{ex.cpp_line}" + ("" if ok else f" got {got!r} want {ex.expected!r}")
         rows.append((ex.rule, ex.name, ok, detail))
+    rows += [("cases", n, ok, d) for n, ok, d in examples.run_math_cases()]
     rows += [("parity", n, ok, d) for n, ok, d in parity.quick_parity(args.samples, args.seed)]
     from ybcal.model import seats
 
@@ -115,8 +129,8 @@ def cli_verify(args: argparse.Namespace) -> int:
     drift = examples.reference_param_drift()
     if drift:
         print(
-            "note: the reference model's own mainnet column differs from the registry (informational; "
-            "the kernels take parameters from the registry): "
+            "note: the reference model's own mainnet column differs from the registry (informational: the "
+            "registry is still the 7702d22 v3 set, the kernels take parameters from their callers): "
             + ", ".join(f"{k} model={a} registry={b}" for k, (a, b) in sorted(drift.items()))
         )
     failed = sum(1 for r in rows if not r[2])

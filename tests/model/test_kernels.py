@@ -8,8 +8,9 @@ from hypothesis import strategies as st
 from ybcal.model import kernels as K
 from ybcal.model import reference as ref
 from ybcal.model import reference_attest as ref_attest
+from ybcal.model import retired as RK
 
-PRICE = st.integers(100, 100_000_000)
+PRICE = st.integers(100, K.PRICE_MAX)   # D-Q-22: uint32 µUSD
 OPT_PRICE = st.one_of(st.none(), PRICE)
 MONEY = st.integers(0, K.MAX_MONEY)
 #: per-test settings (no global profile: other packages' hypothesis tests keep their own)
@@ -139,11 +140,131 @@ def test_underwater_price_is_the_boundary(coll, minted, thr):
 
 @PROPS
 @given(st.integers(-5, K.MAX_MONEY), st.integers(0, 100_000_000), st.integers(-5, 10_000))
-def test_fees(coll, fee_min, bps):
-    f = K.fee_zat(coll, fee_min, bps)
-    assert f == ref.fee_zat(max(coll, 0), fee_min, max(bps, 0))
-    for abps in (-1, 0, 1, 2_500, 10_000):
+def test_retired_fee1(coll, fee_min, bps):
+    # v3 FEE-1, retired by D-Q-23: no reference function any more, the formula itself
+    f = RK.fee_zat(coll, fee_min, bps)
+    assert f == max(fee_min, max(coll, 0) * max(bps, 0) // K.BPS)
+
+
+MAINP = ref.Params.mainnet(1)
+
+
+@PROPS
+@given(st.integers(-5, 2 * 10**7), OPT_PRICE, st.integers(-5, 10_000))
+def test_fee1_prime_protocol_and_attestor_fees(debt, p, abps):
+    f = K.protocol_fee_zat(debt, p, MAINP.fee_bands, MAINP.fee_floor_cents)
+    if p is None:
+        assert f is None
+    else:
+        assert f == ref.protocol_fee_zat(debt, p, MAINP)
+        units = K.protocol_fee_units(debt)
+        assert f == (0 if debt <= 0 else min(-((-units * K.COIN) // p), K.MAX_MONEY))
+    assert K.protocol_fee_cents(debt) == ref.protocol_fee_cents(debt, MAINP)
+    if f is not None:
         assert K.attest_fee_zat(f, abps) == ref.attest_fee_zat(f, abps)
+
+
+@PROPS
+@given(st.integers(-5, 2 * 10**7), st.integers(-5, 1_000), OPT_PRICE)
+def test_it9_prime_early_fee(debt, bps, p):
+    e = K.early_redeem_fee_zat(debt, bps, p)
+    if p is None or debt <= 0 or bps <= 0:
+        assert e == 0
+    else:
+        assert e == ref.early_redeem_fee_zat(debt, bps, p) == min(-((-debt * bps * K.COIN) // p), K.MAX_MONEY)
+
+
+@PROPS
+@given(st.integers(1, 10**7), PRICE, st.integers(0, 2), st.integers(0, 3_000_000), st.integers(0, 3_000_000))
+def test_redeem_fee_owner_early_and_claim(debt, p, cls, height, lock):
+    base = K.protocol_fee_zat(debt, p)
+    early = K.early_redeem_fee_zat(debt, MAINP.early_redeem_fee_bps[cls], p)
+    owner = K.redeem_fee_zat(debt, p, owner_path=True, height=height, lock_height=lock,
+                             early_redeem_fee_bps=MAINP.early_redeem_fee_bps[cls])
+    claim = K.redeem_fee_zat(debt, p, owner_path=False, height=height, lock_height=lock,
+                             early_redeem_fee_bps=MAINP.early_redeem_fee_bps[cls])
+    assert claim == base
+    assert owner == base + (early if height < lock else 0)
+    assert K.redeem_fee_zat(debt, None, owner_path=True, height=0, lock_height=1,
+                            early_redeem_fee_bps=500) is None
+
+
+@PROPS
+@given(OPT_PRICE)
+def test_red5_prime_residual_threshold(p):
+    got = K.residual_min_zat(p, MAINP.residual_min_zat, MAINP.residual_min_cents)
+    assert got == ref.residual_min_zat(p, MAINP)
+
+
+@PROPS
+@given(st.one_of(st.none(), st.integers(-5, 10**13)), st.integers(-5, 10_000), st.integers(-5, 10**7))
+def test_mint6b_max_vault_cents(cap, share, floor):
+    assert K.max_vault_cents(cap, share, floor) == ref.max_vault_cents(cap, share, floor)
+
+
+@PROPS
+@given(MONEY, OPT_PRICE, OPT_PRICE, st.integers(1, 10**7), st.booleans())
+def test_red4_claim_path_and_red5_split(coll, p_claim, p_emerg, minted, persisted):
+    path = K.claim_path(coll, p_claim, p_emerg, minted, 12_500, 10_500, notice_persisted=persisted)
+    a = K.is_underwater(coll, p_claim, minted, 12_500)
+    b = persisted and K.is_underwater(coll, p_emerg, minted, 10_500)
+    assert path == ("a" if a else "b" if b else None)
+    if path is not None:
+        thr = K.residual_min_zat(p_claim, 100_000, 48)
+        sp = K.claim_split(coll, minted, p_claim, path, 12_500, thr)
+        cm = K.claimant_max_zat(minted, 12_500 if path == "a" else 10_000, p_claim)
+        assert sp.claimant_max_zat == cm
+        assert sp.residual_zat == K.residual_zat(coll, cm)
+        assert sp.residual_due == (sp.residual_zat >= thr)
+
+
+def test_claim_accounting_can1_and_it6():
+    claim = K.claim_accounting("claim", burned_cents=10_000)
+    assert claim == (-10_000, 0, -1, 0)                          # IT-6: the collateral stays counted
+    assert K.claim_accounting("release", claiming_collateral_zat=600 * K.COIN) == (0, -600 * K.COIN, 0, 1)
+    cancel = K.claim_accounting("cancel", burned_cents=10_000, claiming_collateral_zat=600 * K.COIN,
+                                relock_zat=600 * K.COIN)
+    assert cancel == (10_000, 0, 1, 0)                           # CAN-1: the whole burn comes back
+    # a value-neutral round trip
+    assert tuple(a + b for a, b in zip(claim, cancel, strict=True)) == (0, 0, 0, 0)
+    redeem = K.claim_accounting("redeem", burned_cents=10_000, claiming_collateral_zat=5)
+    assert redeem == (-10_000, -5, -1, 0)
+    import pytest
+
+    with pytest.raises(ValueError):
+        K.claim_accounting("forfeit")
+
+
+def test_set_create_adoptable_pins_the_thresholds():
+    kw = dict(attestor_seats=15, attestor_cancel_threshold=1, attestor_unlock_threshold=1,
+              bond_maturity=16_128, attestor_liveness_min=1_152)
+    assert K.set_create_adoptable(True, 15, 1, 1, 16_128, 1_152, **kw)
+    assert not K.set_create_adoptable(False, 15, 1, 1, 16_128, 1_152, **kw)     # not OPEN
+    assert not K.set_create_adoptable(True, 14, 1, 1, 16_128, 1_152, **kw)
+    # 03/I-3: the cancel threshold is pinned
+    assert not K.set_create_adoptable(True, 15, 2, 1, 16_128, 1_152, **kw)
+    assert not K.set_create_adoptable(True, 15, 1, 2, 16_128, 1_152, **kw)
+    assert not K.set_create_adoptable(True, 15, 1, 1, 8, 1_152, **kw)
+    assert not K.set_create_adoptable(True, 15, 1, 1, 16_128, 1_151, **kw)
+    m = ref.Params.mainnet(1)
+    assert (m.attestor_cancel_threshold, m.attestor_unlock_threshold, m.attestor_seats) == (1, 1, 15)
+
+
+def test_halt_mask_and_mint4():
+    # no price: NO_PRICE only; a fall: DIVERGENCE; a low ratio: GLOBAL_RATIO; never an ACT bit (U-21)
+    assert K.halt_mask(None, 50_000, 50_000, 0, 0, 20_000, 2_000) == K.HALT_NO_PRICE
+    assert K.halt_mask(39_000, 50_000, 50_000, 0, 0, 20_000, 2_000) == K.HALT_DIVERGENCE
+    assert K.halt_mask(50_000, 50_000, 50_000, 300 * K.COIN, 10_000, 20_000, 2_000) == K.HALT_GLOBAL_RATIO
+    assert K.mint4_halt_verdict(0, 30_000, 50_000) is None
+    assert K.mint4_halt_verdict(K.HALT_NOT_ACTIVE, 50_000, 50_000) == "mint-not-active"
+    assert K.mint4_halt_verdict(K.HALT_NO_PRICE | K.HALT_DIVERGENCE, 50_000, 50_000) == "mint-halted-no-price"
+    assert K.mint4_halt_verdict(K.HALT_GLOBAL_RATIO, 40_000, 50_000) == "mint-halted-global-ratio"
+    assert K.mint4_halt_verdict(K.HALT_GLOBAL_RATIO, 50_000, 50_000) is None      # IT-5: class C mints
+    assert K.mint4_halt_verdict(K.HALT_DIVERGENCE, 50_000, 50_000) == "mint-halted-divergence"
+    assert K.mint4_halt_verdict(RK.HALT_PARTICIPATION, 50_000, 50_000) == "mint-not-active"   # a reserved bit
+    assert K.mint6_cap_refuses(100, 1, 100, 30_000, 50_000)
+    assert not K.mint6_cap_refuses(100, 1, 100, 50_000, 50_000)
+    assert not K.mint6_cap_refuses(100, 1, None, 30_000, 50_000)
 
 
 @PROPS
@@ -227,27 +348,29 @@ def test_reg4_judgement():
     assert list(K.reg4_peer_heights(50, 10)) == list(range(40, 60))
 
 
-def test_activation_and_hysteresis_steps():
-    s = K.ActivationState(K.SIGNALING, 0, 0)
-    s = K.activation_step(s, 62, 64, 1, 64, 48, 64)  # window not yet full (H < start + 63)
-    assert s.status == K.SIGNALING
-    s = K.activation_step(s, 64, 48, 1, 64, 48, 64)
-    assert s == (K.LOCKED_IN, 64, 128)
-    assert K.activation_step(s, 127, 0, 1, 64, 48, 64).status == K.LOCKED_IN
-    assert K.activation_step(s, 128, 0, 1, 64, 48, 64) == (K.ACTIVE, 64, 128)
-    assert K.activation_step(K.ActivationState(K.SIGNALING, 0, 0), 64, 48, 1, 64, 48, 0).status == K.ACTIVE
+def test_retired_activation_and_hysteresis_steps():
+    # ACT-1..6, retired by U-21 (ybcal.model.retired): the v3 semantics, frozen
+    s = RK.ActivationState(RK.SIGNALING, 0, 0)
+    s = RK.activation_step(s, 62, 64, 1, 64, 48, 64)  # window not yet full (H < start + 63)
+    assert s.status == RK.SIGNALING
+    s = RK.activation_step(s, 64, 48, 1, 64, 48, 64)
+    assert s == (RK.LOCKED_IN, 64, 128)
+    assert RK.activation_step(s, 127, 0, 1, 64, 48, 64).status == RK.LOCKED_IN
+    assert RK.activation_step(s, 128, 0, 1, 64, 48, 64) == (RK.ACTIVE, 64, 128)
+    s0 = RK.ActivationState(RK.SIGNALING, 0, 0)
+    assert RK.activation_step(s0, 64, 48, 1, 64, 48, 0).status == RK.ACTIVE
     # ACT-4: set below the floor, held until the threshold is met again
-    assert K.participation_halt_step(False, 1209, True, 1512, 1210)
-    assert not K.participation_halt_step(False, 1210, True, 1512, 1210)
-    assert K.participation_halt_step(True, 1511, True, 1512, 1210)
-    assert not K.participation_halt_step(True, 1512, True, 1512, 1210)
-    assert not K.participation_halt_step(False, 0, False, 1512, 1210)  # not ACTIVE: never set
+    assert RK.participation_halt_step(False, 1209, True, 1512, 1210)
+    assert not RK.participation_halt_step(False, 1210, True, 1512, 1210)
+    assert RK.participation_halt_step(True, 1511, True, 1512, 1210)
+    assert not RK.participation_halt_step(True, 1512, True, 1512, 1210)
+    assert not RK.participation_halt_step(False, 0, False, 1512, 1210)  # not ACTIVE: never set
     # ACT-6
-    assert K.enforcement_halt_step(False, 1007, True, 1210, 1008)
-    assert K.enforcement_halt_step(True, 1209, True, 1210, 1008)
-    assert not K.enforcement_halt_step(True, 1210, True, 1210, 1008)
-    assert K.signal_count([True, False, True, True], 3, 2) == 2
-    assert K.signal_count([True, False, True, True], 1, 64) == 1
+    assert RK.enforcement_halt_step(False, 1007, True, 1210, 1008)
+    assert RK.enforcement_halt_step(True, 1209, True, 1210, 1008)
+    assert not RK.enforcement_halt_step(True, 1210, True, 1210, 1008)
+    assert RK.signal_count([True, False, True, True], 3, 2) == 2
+    assert RK.signal_count([True, False, True, True], 1, 64) == 1
 
 
 def test_pin_kernels():
@@ -294,4 +417,4 @@ def test_min_fills_match_reference_params():
 
 
 def test_param_set_start_admissible_edge():
-    assert not K.param_set_start_admissible(10, 0, 0, lambda h: True)
+    assert not RK.param_set_start_admissible(10, 0, 0, lambda h: True)

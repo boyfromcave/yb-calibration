@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from ybcal.model import vkernels as V
+from ybcal.model import retired as RK
 from ybcal.units import BLOCKS_PER_DAY, BLOCKS_PER_HOUR, BLOCKS_PER_YEAR
 
 OWNER_WP = "WP-5"
@@ -229,8 +229,8 @@ def halt_stats(params: Mapping, sig: np.ndarray, *, chunk_paths: int = 16) -> Ha
     for a in range(0, paths, chunk_paths):
         c = window_counts(sig[a:a + chunk_paths], W)
         act = np.ones_like(c, dtype=bool)
-        ph = V.participation_halt_series(c, act, T, PF)
-        eh = V.enforcement_halt_series(c, act, ER, EF)
+        ph = RK.participation_halt_series(c, act, T, PF)
+        eh = RK.enforcement_halt_series(c, act, ER, EF)
         tot_blocks += c.size
         part_b += int(ph.sum())
         enf_b += int(eh.sum())

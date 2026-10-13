@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from ybcal.config import Policy
+from ybcal.model import retired as RK
 from ybcal.model import vkernels as V
 from ybcal.params.paramset import mainnet, regtest
 from ybcal.params.registry import params_for_group
@@ -37,7 +38,7 @@ def test_false_abandon_bound_dominates_monte_carlo():
     for p, A in ((0.55, 40), (0.57, 70), (0.6, 33)):
         n, paths = 20_000, 40
         sig = rng.random((paths, n + W)) < p
-        c = V.signal_counts(sig, W)[:, W:]
+        c = RK.signal_counts(sig, W)[:, W:]
         h = V.hysteresis(c < EF, c < ER, False)
         ab = act.abandoned(h, A)
         starts = ab[:, 1:] & ~ab[:, :-1]

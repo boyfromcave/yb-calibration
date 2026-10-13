@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from ybcal.model import kernels as K
-from ybcal.model import reference as R
+from ybcal.model import reference_v3 as R
 from ybcal.params.paramset import regtest
 from ybcal.sim import vaults as VB
 

@@ -26,24 +26,29 @@ Measured (this sandbox, one core): see ``docs/architecture.md`` "Model and kerne
 
 Overflow analysis (int64, |x| ≤ 9.22e18)
 ---------------------------------------
-Bounds: price ≤ PRICE_MAX = 1e8 µUSD, collateral ≤ MAX_MONEY = 2.1e15 zat, cents ≤ 1e7 (maxOutput),
-ratio ≤ 1.5e5 bps (class A at the 3× cap), COIN = 1e8.
+Bounds: price ≤ PRICE_MAX = 4,294,967,295 µUSD (uint32 since D-Q-22; 1e8 in v3), collateral ≤ MAX_MONEY =
+2.1e15 zat, cents ≤ 1e7 (maxMint = maxOutput, D-Q-24), ratio ≤ 1.5e5 bps (the v2 worst case; the live
+set's worst is class C's 5e4 since σ is pinned at 1, D-IT-5), COIN = 1e8.
 
 * ``required_zat`` / ``claimant_max_zat``: ``cents·ratio·COIN`` reaches 1.5e19 (K14) — **overflows**.
   Exact without overflow: ``x = cents·ratio`` (≤ 1.5e12) is split as ``x = q·p + r`` so
-  ``x·COIN/p = q·COIN + r·COIN/p`` with ``r·COIN < p·1e8 ≤ 1e16``; if ``q > MAX_MONEY // COIN`` the
+  ``x·COIN/p = q·COIN + r·COIN/p`` with ``r·COIN < p·1e8 ≤ 4.3e17``; if ``q > MAX_MONEY // COIN`` the
   result is already over MAX_MONEY (undefined) and ``q·COIN`` is never formed.
 * ``is_underwater``: ``collateral·p`` (2.1e23) and ``minted·thr·COIN`` (1.1e19) both overflow. Used
   instead: for integer ``c``, ``c·p < D`` ⇔ ``c < ceil(D / p)``, with the ceiling computed by the
   same split; a ceiling past MAX_MONEY means underwater for every in-range collateral.
 * ``global_ratio_bps`` / ``cap_cents``: ``⌊a·p / (COIN·s)⌋ = ⌊⌊a·p / COIN⌋ / s⌋`` and
-  ``a = q·COIN + r`` gives ``⌊a·p/COIN⌋ = q·p + ⌊r·p/COIN⌋`` (q ≤ 2.1e7, so q·p ≤ 2.1e15).
-* ``fee_zat`` / ``attest_fee_zat``: ``collateral·bps`` reaches 2.1e19 at 10^4 bps; split by 10^4.
+  ``a = q·COIN + r`` gives ``⌊a·p/COIN⌋ = q·p + ⌊r·p/COIN⌋`` (q ≤ 2.1e7, so q·p ≤ 9.1e16).
+* ``protocol_fee_zat`` / ``early_redeem_fee_zat`` (FEE-1′ / IT-9′): ``units`` (≤ debt·100 bps) and
+  ``debt·bps`` are formed in int64 (a debt ≥ 2^62 / bps falls back), then ``ceil(x·COIN / p)`` by the
+  same split, saturating at MAX_MONEY like the C++.
+* ``attest_fee_zat``: ``fee·bps`` reaches 2.1e19 at 10^4 bps; split by 10^4.
 * σ: ``r_k = |a−b|·10^4 // b`` ≤ 1e12 fits, but ``Σr_k²·periodsPerYear`` can overflow for absurd
   moves (> ~350× per volStep at mainnet scale). Rows whose window holds a return above
   ``R_SAFE`` (``n·R_SAFE²·ppy < 2^62``) are recomputed with the exact scalar kernel (Python ints);
   everything else uses int64 and an exactly corrected float isqrt.
-* HALT-3 / PIN products (``p·10^4``) fit for any price < 9.2e14 µUSD (the C++ uses int64 too).
+* HALT-3 / PIN products (``p·10^4``) fit for any price < 9.2e14 µUSD (PRICE_MAX·10^4 = 4.3e13; the C++
+  uses int64 too).
 
 Where a guard cannot prove the int64 path exact (inputs outside these bounds), the element falls
 back to the scalar kernel. Correctness over speed.
@@ -458,14 +463,62 @@ def supply_cap_cents(issued_zat, p_mint, cap_bps: int) -> np.ndarray:
     return np.where(c >= 0, q * int(cap_bps) + r * int(cap_bps) // BPS, UNDEF)
 
 
-def fee_zat(collateral_zat, fee_min: int, fee_bps: int) -> np.ndarray:
-    """``kernels.fee_zat`` elementwise (exact; ``fee_bps`` scalar)."""
-    c = np.maximum(_a(collateral_zat), 0)
-    b = max(int(fee_bps), 0)
-    q, r = np.divmod(c, BPS)
-    if b and int(q.max(initial=0)) > (2**62) // b:
-        return np.array([K.fee_zat(int(x), fee_min, fee_bps) for x in c.ravel()], dtype=_I64).reshape(c.shape)
-    return np.maximum(int(fee_min), q * b + r * b // BPS)
+def protocol_fee_units(debt_cents, fee_bands=K.FEE_BANDS,
+                       fee_floor_cents: int = K.FEE_FLOOR_CENTS) -> np.ndarray:
+    """``kernels.protocol_fee_units`` elementwise (FEE-1′; the band table scalar). ``units`` ≤ debt · max bps:
+    for any debt below 9.2e14 cents (> MAX_MONEY at PRICE_MAX) the sum fits int64."""
+    d = _a(debt_cents)
+    units = np.zeros(d.shape, dtype=_I64)
+    lo = 0
+    for hi, bps in fee_bands:
+        hi, bps = int(hi), int(bps)
+        top = d if hi == 0 else np.minimum(d, hi)
+        in_band = np.maximum(top - lo, 0)
+        units += in_band * max(0, bps)
+        if hi == 0:
+            break
+        lo = hi
+    out = np.maximum(units, max(0, int(fee_floor_cents)) * BPS)
+    return np.where(d > 0, out, 0)
+
+
+def _ceil_coin_div_saturating(x: np.ndarray, p: np.ndarray, scalar) -> np.ndarray:
+    """``ceil(x·COIN / p)`` saturating at MAX_MONEY, x ≥ 0 and p > 0 elementwise; elements outside the
+    provable int64 range use ``scalar(i)``."""
+    guard = p > 9 * 10**10
+    val, over = _ceil_mul_coin_div(np.where(guard, 0, x), np.where(guard, 1, p))
+    out = np.where(over, MAX_MONEY, val)
+    for ix in zip(*np.nonzero(guard), strict=True):
+        out[ix] = scalar(ix)
+    return out
+
+
+def protocol_fee_zat(debt_cents, p_mint, fee_bands=K.FEE_BANDS,
+                     fee_floor_cents: int = K.FEE_FLOOR_CENTS) -> np.ndarray:
+    """``kernels.protocol_fee_zat`` elementwise (UNDEF = None, i.e. pMint undefined)."""
+    d, p = np.broadcast_arrays(_a(debt_cents), _a(p_mint))
+    units = protocol_fee_units(d, fee_bands, fee_floor_cents)
+    ok = p > 0
+
+    def scalar(ix):
+        v = K.protocol_fee_zat(int(d[ix]), int(p[ix]), fee_bands, fee_floor_cents)
+        return UNDEF if v is None else v
+
+    out = _ceil_coin_div_saturating(np.where(ok, units, 0), np.where(ok, p, 1), scalar)
+    return np.where(ok, out, UNDEF)
+
+
+def early_redeem_fee_zat(debt_cents, early_redeem_fee_bps, p_mint) -> np.ndarray:
+    """``kernels.early_redeem_fee_zat`` elementwise (0 where undefined, as the kernel)."""
+    d, b, p = np.broadcast_arrays(_a(debt_cents), _a(early_redeem_fee_bps), _a(p_mint))
+    ok = (d > 0) & (b > 0) & (p > 0)
+    guard = ok & (d > (2**62) // np.maximum(b, 1))
+    x = np.where(ok & ~guard, d * np.where(ok & ~guard, b, 0), 0)
+    out = _ceil_coin_div_saturating(x, np.where(ok, p, 1),
+                                    lambda ix: K.early_redeem_fee_zat(int(d[ix]), int(b[ix]), int(p[ix])))
+    for ix in zip(*np.nonzero(guard), strict=True):
+        out[ix] = K.early_redeem_fee_zat(int(d[ix]), int(b[ix]), int(p[ix]))
+    return np.where(ok, out, 0)
 
 
 def attest_fee_zat(fee, attest_fee_bps: int) -> np.ndarray:
@@ -481,17 +534,7 @@ def attest_fee_zat(fee, attest_fee_bps: int) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------------------------------
-# ACT series
-
-
-def signal_counts(signals, signal_window: int) -> np.ndarray:
-    """``kernels.signal_count`` at every block of a bool signal series ``(..., n)``."""
-    s = np.asarray(signals, dtype=_I64)
-    c = np.cumsum(s, axis=-1)
-    out = c.copy()
-    if signal_window < s.shape[-1]:
-        out[..., signal_window:] -= c[..., :-signal_window]
-    return out
+# hysteresis (the generic primitive the retired ACT-4/ACT-6 series use; ybcal.model.retired)
 
 
 def hysteresis(set_mask, hold_mask, initial: bool = False) -> np.ndarray:
@@ -506,19 +549,3 @@ def hysteresis(set_mask, hold_mask, initial: bool = False) -> np.ndarray:
     last = np.maximum.accumulate(idx, axis=-1)
     val_at = np.take_along_axis(s, np.maximum(last, 0), axis=-1)
     return np.where(last >= 0, val_at, bool(initial))
-
-
-def participation_halt_series(counts, active, activation_threshold: int, participation_floor: int,
-                              initial: bool = False) -> np.ndarray:
-    """ACT-4 over a series (``kernels.participation_halt_step`` iterated)."""
-    c = _a(counts)
-    return hysteresis(np.asarray(active, dtype=bool) & (c < max(0, participation_floor)),
-                      c < max(0, activation_threshold), initial)
-
-
-def enforcement_halt_series(counts, active, enforcement_resume: int, enforcement_floor: int,
-                            initial: bool = False) -> np.ndarray:
-    """ACT-6 over a series (``kernels.enforcement_halt_step`` iterated)."""
-    c = _a(counts)
-    return hysteresis(np.asarray(active, dtype=bool) & (c < max(0, enforcement_floor)),
-                      c < max(0, enforcement_resume), initial)

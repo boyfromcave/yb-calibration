@@ -1,0 +1,22 @@
+{
+ "commit": "7702d22606d1ec3edf0fca962573fba64dac3904",
+ "files": {
+  "reference_v3.py": {
+   "sha256": "4af8fd57bce0efd8065ac4e4de806ef60e150f270df9ae1950892d0feaaa05cc",
+   "source": "qa/rpc-tests/test_framework/yellowback_model.py"
+  },
+  "reference_v3_attest.py": {
+   "sha256": "03651e663662ae07af50a14989e22f9ae1b2b5ee3576ee6da8d44d3f5b04da1c",
+   "source": "qa/rpc-tests/test_framework/yellowback_attest.py"
+  },
+  "reference_v3_util.py": {
+   "sha256": "bde85f27c986db350031a2e424d7613ffe4cb27a06f5793ea62de90f48aa8a3e",
+   "source": "extract"
+  },
+  "yellowback_golden_v3.json": {
+   "sha256": "bdad9820085046e3a1c14e12cc21b723cd35066b13d013ed9ffc83c55cdc7cec",
+   "source": "qa/rpc-tests/test_framework/yellowback_golden.json"
+  }
+ },
+ "repo": "boyfromcave/ycash6"
+}

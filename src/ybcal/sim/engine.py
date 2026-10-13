@@ -38,6 +38,15 @@ pMint, pClaim, haltMask, σ)``: each median is a rolling lower median of the (lo
 interpolated) true path over the window, at a fitted lag, times a fitted bias and noise.
 :func:`calibrate_kernel` fits it from block-mode runs, :func:`simulate_hours` applies it, and
 :func:`kernel_error` measures it against a block-mode run (PLAN §3.3, §8: kernel error ≤ tolerance).
+
+**Retired rules (model port, 2026-10-13).** The engine's ``activation`` stage and the NOT_ACTIVE /
+PARTICIPATION / ENFORCEMENT bits are retired. The vault upgrade removed ACT-1..6 (U-21:
+:func:`ybcal.model.kernels.halt_mask` is the current mask) and changed issuedZat to the circulating
+supply (D-Q-25) (``SCHEMA_VERSION`` 13 at the vendored pin ycash6 ``1310a41a1``). This module still
+mirrors the v3 rules of ycash6 ``7702d22`` clause for clause, checked against the retained v3 reference
+(:mod:`ybcal.model.reference_v3`, ``vendor.V3_SPECS``), because the parameter registry it reads is still
+the 7702d22 set; its outputs describe the v3 design until the registry and simulator are re-pinned
+(``docs/decisions.md`` D-MP-1).
 """
 
 from __future__ import annotations
@@ -52,6 +61,7 @@ from typing import Any, Literal
 
 import numpy as np
 
+from ybcal.model import retired as RK
 from ybcal.model import vkernels as V
 from ybcal.sim import oracle as O
 from ybcal.sim import sigma as S
@@ -361,11 +371,11 @@ class BlockSeries:
 
 def internal_activation(params: Mapping, signal_bit) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """ACT-1..3 and ACT-4/6 exactly as state.cpp:1080-1090, 1242-1249 (the WP-1 kernels
-    ``vkernels.signal_counts`` / ``participation_halt_series`` / ``enforcement_halt_series``).
+    ``RK.signal_counts`` / ``participation_halt_series`` / ``enforcement_halt_series``).
     Returns ``(status int8, signal_count int64, participation_halt, enforcement_halt)``."""
     sig = np.asarray(signal_bit, dtype=bool)
     W = int(params["signalWindow"])
-    count = V.signal_counts(sig, W)
+    count = RK.signal_counts(sig, W)
     n = sig.shape[-1]
     idx = np.arange(n)
     thr = max(0, int(params["activationThreshold"]))
@@ -374,10 +384,10 @@ def internal_activation(params: Mapping, signal_bit) -> tuple[np.ndarray, np.nda
     act_at = lock + int(params["activationDelay"])
     status = np.where(idx < lock, SIGNALING, np.where(idx >= act_at, ACTIVE, LOCKED_IN)).astype(np.int8)
     active = status == ACTIVE
-    part = V.participation_halt_series(
+    part = RK.participation_halt_series(
         count, active, int(params["activationThreshold"]), int(params["participationFloor"])
     )
-    enf = V.enforcement_halt_series(
+    enf = RK.enforcement_halt_series(
         count, active, int(params["enforcementResume"]), int(params["enforcementFloor"])
     )
     return status, count, part, enf
@@ -696,7 +706,7 @@ def _simulate_chunk(
         s.activation_source = "wp5"
     elif activation_mode == "always_active":
         status = np.full(shape, ACTIVE, dtype=np.int8)
-        count = V.signal_counts(inputs.signal_bit, int(params["signalWindow"]))
+        count = RK.signal_counts(inputs.signal_bit, int(params["signalWindow"]))
         part = enf = np.zeros(shape, dtype=bool)
         s.activation_source = "always_active"
     else:

@@ -1,8 +1,10 @@
-"""Regenerate ``seats_vectors.json`` from the node's own Python model (ycash-dd ``q/attest``).
+"""Regenerate ``seats_vectors.json`` from the node's own Python model.
 
-Usage: ``python -m ybcal.model.gen_seats_vectors <ycash-dd tree> src/ybcal/model/seats_vectors.json``.
-It imports ``qa/rpc-tests/test_framework/yellowback_model.py`` from the tree given and writes
-the inputs and the model's outputs; ``tests/model/test_seats.py`` and ``ybcal verify`` hold
+Usage: ``python -m ybcal.model.gen_seats_vectors <node tree> src/ybcal/model/seats_vectors.json`` imports
+``qa/rpc-tests/test_framework/yellowback_model.py`` from the tree given (its ``HEAD``);
+``python -m ybcal.model.gen_seats_vectors --vendored src/ybcal/model/seats_vectors.json`` uses the vendored
+reference (:mod:`ybcal.model.reference`, the node model at ``vendor.VENDORED_COMMIT``, hash-checked) instead.
+It writes the inputs and the model's outputs; ``tests/model/test_seats.py`` and ``ybcal verify`` hold
 :mod:`ybcal.model.seats` to them bit for bit. Run by hand only (never imported by ybcal).
 """
 
@@ -15,10 +17,19 @@ import sys
 def main() -> None:
     NODE = sys.argv[1]
     OUT = sys.argv[2]
-    sys.path.insert(0, NODE + "/qa/rpc-tests")
-    from test_framework import yellowback_model as ym
+    if NODE == "--vendored":
+        from ybcal.model import reference as ym
+        from ybcal.model import vendor
 
-    commit = subprocess.check_output(["git", "-C", NODE, "rev-parse", "HEAD"], text=True).strip()
+        commit = vendor.VENDORED_COMMIT
+        source = (f"{vendor.SOURCE_REPO} upgrade/vault qa/rpc-tests/test_framework/yellowback_model.py "
+                  "(the vendored reference; byte-identical on ycash-dd 8af82551b)")
+    else:
+        sys.path.insert(0, NODE + "/qa/rpc-tests")
+        from test_framework import yellowback_model as ym
+
+        commit = subprocess.check_output(["git", "-C", NODE, "rev-parse", "HEAD"], text=True).strip()
+        source = "qa/rpc-tests/test_framework/yellowback_model.py"
     rng = random.Random(20261011)
     COIN = ym.COIN
     xs = [
@@ -149,7 +160,7 @@ def main() -> None:
             )
         }
     doc = {
-        "source": "ycash-dd q/attest qa/rpc-tests/test_framework/yellowback_model.py",
+        "source": source,
         "commit": commit,
         "params": params,
         "log2_q16": log2,

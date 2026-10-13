@@ -29,6 +29,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ybcal.model import kernels as K
+from ybcal.model import retired as RK
 from ybcal.model import vkernels as V
 from ybcal.units import BLOCKS_PER_DAY, BPS, COIN
 
@@ -61,7 +62,7 @@ def tx_fees(
 ) -> FeeBreakdown:
     """Fees of a MINT (``collateral`` = ``vout[0]``), an owner redeem or a claim (the vault's
     collateral). ``armed`` adds AFEE-1 except on the owner path (RED-1 amended reads no bundle)."""
-    base = K.fee_zat(int(collateral_zat), int(params["feeMin"]), int(params["feeBps"]))
+    base = RK.fee_zat(int(collateral_zat), int(params["feeMin"]), int(params["feeBps"]))
     pool = base if eligible else 0
     att = K.attest_fee_zat(base, int(params["attestFeeBps"])) if armed and not owner_path else 0
     return FeeBreakdown(pool, att)
@@ -70,7 +71,7 @@ def tx_fees(
 def fees_zat(params: Mapping, collateral_zat, *, armed=False, eligible=True, owner_path=False):
     """Vectorised :func:`tx_fees`: ``(pool_zat, attest_zat)`` int64 arrays."""
     c = np.asarray(collateral_zat, dtype=np.int64)
-    base = V.fee_zat(c, int(params["feeMin"]), int(params["feeBps"]))
+    base = RK.fee_zat_v(c, int(params["feeMin"]), int(params["feeBps"]))
     pool = np.where(np.asarray(eligible, dtype=bool), base, 0)
     att = V.attest_fee_zat(base, int(params["attestFeeBps"]))
     arm = np.asarray(armed, dtype=bool) & ~np.asarray(owner_path, dtype=bool)
@@ -329,7 +330,7 @@ def redemption_affordability(
     coll = max(req, floor)
     if coll % 1000:
         coll += 1000 - coll % 1000
-    fee = K.fee_zat(coll, int(params["feeMin"]), int(params["feeBps"]))
+    fee = RK.fee_zat(coll, int(params["feeMin"]), int(params["feeBps"]))
     to_usd = crash_price / 1e6 / COIN
     return Affordability(
         collateral_zat=coll,

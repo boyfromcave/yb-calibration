@@ -22,13 +22,21 @@ Exact rules (ycash6 @ 7702d22):
 * Abandonment (index.cpp:732 ``IsAbandonedLocked``, L10/L12): ENFORCEMENT set at every snapshot of
   ``[tip − abandonBlocks + 1, tip]`` with the first one at or above the start (:func:`abandoned`).
 * ACT-5 / W19 "freeze, then fix" (params.cpp:259): :func:`start_admissible` delegates to
-  ``kernels.param_set_start_admissible``; :func:`earliest_fix_start` is its vectorised search.
+  ``RK.param_set_start_admissible``; :func:`earliest_fix_start` is its vectorised search.
 * ACT-7 work valve (index.cpp:553-560): the analytic :func:`valve_trip_probability`.
 
-The per-block state machine uses the ``vkernels.signal_counts`` window sum (in int32) and
-``vkernels.participation_halt_series`` / ``enforcement_halt_series`` (WP-1, property tested equal to the
+The per-block state machine uses the ``RK.signal_counts`` window sum (in int32) and
+``RK.participation_halt_series`` / ``enforcement_halt_series`` (WP-1, property tested equal to the
 scalar kernels); lock-in is the first qualifying column (an ``argmax``), so the whole series costs a
 few numpy passes per chunk of paths — no per-block Python loop.
+
+**Retired rules (model port, 2026-10-13).** ACT-1..7 is retired. The vault upgrade removed the
+activation state machine, its two halts, the sunset and abandonment (U-21): there is nothing to signal
+on the upgrade line (``SCHEMA_VERSION`` 13 at the vendored pin ycash6 ``1310a41a1``). This module still
+mirrors the v3 rules of ycash6 ``7702d22`` clause for clause, checked against the retained v3 reference
+(:mod:`ybcal.model.reference_v3`, ``vendor.V3_SPECS``), because the parameter registry it reads is still
+the 7702d22 set; its outputs describe the v3 design until the registry and simulator are re-pinned
+(``docs/decisions.md`` D-MP-1).
 """
 
 from __future__ import annotations
@@ -39,15 +47,15 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ybcal.model import kernels as K
-from ybcal.model import reference as _ref
+from ybcal.model import reference_v3 as _ref
+from ybcal.model import retired as RK
 from ybcal.model import vkernels as V
 from ybcal.units import BLOCKS_PER_HOUR, BLOCKS_PER_YEAR
 
 OWNER_WP = "WP-5"
 
 #: Activation.status (view.h order; equal to ``reference.SIGNALING/LOCKED_IN/ACTIVE``).
-SIGNALING, LOCKED_IN, ACTIVE = K.SIGNALING, K.LOCKED_IN, K.ACTIVE
+SIGNALING, LOCKED_IN, ACTIVE = RK.SIGNALING, RK.LOCKED_IN, RK.ACTIVE
 #: haltMask bits this component owns (view.h; ``reference.HALT_*``).
 HALT_NOT_ACTIVE: int = _ref.HALT_NOT_ACTIVE
 HALT_NO_PRICE: int = _ref.HALT_NO_PRICE
@@ -214,7 +222,7 @@ def _simulate_chunk(sig, prior_signals, heights, real, start_height, height0, W,
         prior[:, pre - ps.shape[1]:] = ps
         prior &= (height0 - pre + np.arange(pre) >= start_height)[np.newaxis, :]
     full = np.concatenate([prior, sig], axis=1)
-    if W > 0:                                   # == vkernels.signal_counts, in int32 (count ≤ W)
+    if W > 0:                                   # == RK.signal_counts, in int32 (count ≤ W)
         c = np.cumsum(full, axis=1, dtype=np.int32)
         if c.shape[1] > W:
             c[:, W:] -= c[:, :-W].copy()
@@ -240,8 +248,8 @@ def _simulate_chunk(sig, prior_signals, heights, real, start_height, height0, W,
     status = np.where(active, ACTIVE, np.where(locked, LOCKED_IN, SIGNALING)).astype(np.int8)
 
     # ACT-4 / ACT-6 (vkernels hysteresis = the scalar step iterated)
-    part = V.participation_halt_series(counts, active, thr, pfloor, initial=initial.participation_halt)
-    enf = V.enforcement_halt_series(counts, active, eresume, efloor, initial=initial.enforcement_halt)
+    part = RK.participation_halt_series(counts, active, thr, pfloor, initial=initial.participation_halt)
+    enf = RK.enforcement_halt_series(counts, active, eresume, efloor, initial=initial.enforcement_halt)
     part &= real[np.newaxis, :]
     enf &= real[np.newaxis, :]
 
@@ -283,7 +291,7 @@ def abandoned(enforcement_halt, abandon_blocks: int) -> np.ndarray:
 def start_admissible(enforcement_halt, start: int, signal_window: int, *, height0: int = 0,
                      previous_enforce_until: int = 0) -> np.ndarray:
     """ACT-5 / W19 per path: may a new parameter set start at height ``start``? Delegates to
-    ``kernels.param_set_start_admissible`` (params.cpp:259) with the series as the halt oracle;
+    ``RK.param_set_start_admissible`` (params.cpp:259) with the series as the halt oracle;
     heights outside the series count as not halted. Returns bool ``(paths,)``."""
     e = _as_paths(enforcement_halt, bool)
     n = e.shape[1]
@@ -295,7 +303,7 @@ def start_admissible(enforcement_halt, start: int, signal_window: int, *, height
             j = h - height0
             return 0 <= j < n and bool(row[j])
 
-        out[i] = K.param_set_start_admissible(start, previous_enforce_until, signal_window, halted)
+        out[i] = RK.param_set_start_admissible(start, previous_enforce_until, signal_window, halted)
     return out
 
 
@@ -407,7 +415,7 @@ def simulate_halts(p, window: int, floor: int, resume: int, n_blocks: int, n_pat
         warm = rng.random((m, window)) < pb[0]
         draws = rng.random((m, n_blocks)) < pb[None, :]
         s = np.concatenate([warm, draws], axis=1)
-        c = V.signal_counts(s, window)[:, window:]
+        c = RK.signal_counts(s, window)[:, window:]
         h = V.hysteresis(c < floor, c < resume, False)
         starts = h[:, 1:] & ~h[:, :-1]
         ends = ~h[:, 1:] & h[:, :-1]
@@ -452,7 +460,7 @@ def detection_delay(p: float, p_drop: float, window: int, floor: int, *, n_paths
     max_blocks = max_blocks or 4 * window
     warm = rng.random((n_paths, window)) < p
     after = rng.random((n_paths, max_blocks)) < p_drop
-    c = V.signal_counts(np.concatenate([warm, after], axis=1), window)[:, window:]
+    c = RK.signal_counts(np.concatenate([warm, after], axis=1), window)[:, window:]
     hit = c < floor
     anyh = hit.any(axis=1)
     return np.where(anyh, np.argmax(hit, axis=1) + 1, -1)

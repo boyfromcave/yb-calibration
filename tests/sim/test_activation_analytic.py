@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.stats import binom
 
-from ybcal.model import vkernels as V
+from ybcal.model import retired as RK
 from ybcal.sim import activation as act
 
 W, FLOOR, RESUME = 64, 32, 39
@@ -30,7 +30,7 @@ def test_downcrossing_rate_is_the_exact_expectation():
     rng = np.random.default_rng(1)
     p, n, paths = 0.6, 20_000, 64
     s = rng.random((paths, n + W)) < p
-    c = V.signal_counts(s, W)[:, W - 1:]
+    c = RK.signal_counts(s, W)[:, W - 1:]
     down = ((c[:, :-1] >= FLOOR) & (c[:, 1:] < FLOOR)).sum()
     expected = act.downcrossing_rate(FLOOR, p, W) * paths * n
     assert abs(down - expected) < 4 * np.sqrt(expected) + 5

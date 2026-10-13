@@ -15,11 +15,12 @@ import numpy as np
 from ybcal.model import kernels as K
 from ybcal.model import reference as ref
 from ybcal.model import reference_attest as ref_attest
+from ybcal.model import seats as S
 from ybcal.model import vkernels as V
 
 OWNER_WP = "WP-1"
 
-PRICE_MIN, PRICE_MAX = 100, 100_000_000
+PRICE_MIN, PRICE_MAX = K.PRICE_MIN, K.PRICE_MAX
 Check = tuple[str, bool, str]
 
 
@@ -71,9 +72,20 @@ def quick_parity(n: int = 300, seed: int = 0) -> list[Check]:
         "vk is_underwater",
         [a for *a, g in zip(coll, pr, cents, thr, got, strict=True) if bool(g) != K.is_underwater(*a)],
     )
-    got = V.fee_zat(_vec(coll), 50_000_000, 25)
+    debt = [rng.choice((0, -1, 1, 9_999, 10_000, 100_000, 100_001, 1_000_000, 1_000_001, 10_000_000,
+                        rng.randint(1, 10**7))) for _ in range(n)]
+    got = V.protocol_fee_zat(_vec(debt), _vec(pr))
     record(
-        "vk fee_zat", [c for c, g in zip(coll, got, strict=True) if int(g) != K.fee_zat(c, 50_000_000, 25)]
+        "vk protocol_fee_zat (FEE-1')",
+        [(d, p) for d, p, g in zip(debt, pr, got, strict=True)
+         if _opt(g) != K.protocol_fee_zat(d, p if p is not None else -1)],
+    )
+    ebps = [rng.choice((0, 100, 250, 500, rng.randint(-5, 10_000))) for _ in range(n)]
+    got = V.early_redeem_fee_zat(_vec(debt), _vec(ebps), _vec(pr))
+    record(
+        "vk early_redeem_fee_zat (IT-9')",
+        [(d, b, p) for d, b, p, g in zip(debt, ebps, pr, got, strict=True)
+         if int(g) != K.early_redeem_fee_zat(d, b, p if p is not None else -1)],
     )
     fees = [rng.randint(-1, K.MAX_MONEY) for _ in range(n)]
     got = V.attest_fee_zat(_vec(fees), 2_500)
@@ -136,4 +148,49 @@ def quick_parity(n: int = 300, seed: int = 0) -> list[Check]:
         if K.weighted_quantile(entries, q) != ref_attest.weighted_quantile(entries, q):
             mism.append(("wq", entries, q))
     record("kernels == reference (sigma, required, weighted quantile)", mism)
+    # FEE-1' / IT-9' / RED-5' / MINT-6b at the reference model's own mainnet column
+    mp = ref.Params.mainnet(1)
+    mism = []
+    for _ in range(n):
+        d, p_ = rng.choice((0, 1, 10_000, 100_001, rng.randint(-5, 10**7))), rng.randint(PRICE_MIN, PRICE_MAX)
+        if K.protocol_fee_zat(d, p_, mp.fee_bands, mp.fee_floor_cents) != ref.protocol_fee_zat(d, p_, mp):
+            mism.append(("protocol", d, p_))
+        if K.protocol_fee_cents(d, mp.fee_bands, mp.fee_floor_cents) != ref.protocol_fee_cents(d, mp):
+            mism.append(("cents", d))
+        c = rng.randint(1, 3)
+        if K.early_redeem_fee_zat(d, mp.early_redeem_fee_bps[c - 1], p_) != ref.early_redeem_fee_zat(
+                d, mp.early_redeem_fee_bps[c - 1], p_):
+            mism.append(("early", d, p_))
+        if K.residual_min_zat(p_, mp.residual_min_zat, mp.residual_min_cents) != ref.residual_min_zat(p_, mp):
+            mism.append(("residual_min", p_))
+        cap = rng.choice((None, 0, rng.randint(0, 10**13)))
+        if K.max_vault_cents(cap, mp.max_vault_share_bps, mp.vault_share_floor_cents) != ref.max_vault_cents(
+                cap, mp.max_vault_share_bps, mp.vault_share_floor_cents):
+            mism.append(("max_vault", cap))
+    record("kernels == reference (FEE-1', IT-9', RED-5', MINT-6b)", mism)
+    # the attestor-seat mirrors (ybcal.model.seats) == the reference model's (D-Q-29..D-Q-31)
+    mism = []
+    for _ in range(n):
+        x = rng.choice((0, 1, 2, 3, 1024, rng.randint(1, 1 << 20), rng.randint(1, (1 << 64) - 1)))
+        if S.log2_q16(x) != ref.log2_q16(x):
+            mism.append(("log2", x))
+        a = rng.randint(-10, 900_000)
+        if S.seat_age_factor_q16(a) != ref.seat_age_factor_q16(a, mp.seat_age_unit, mp.seat_age_cap):
+            mism.append(("factor", a))
+        b = rng.choice((0, -1, 10_000 * K.COIN, rng.randint(1, 30_000 * K.COIN)))
+        if S.seat_weight(b, a) != ref.seat_weight(b, a, mp.seat_age_unit, mp.seat_age_cap):
+            mism.append(("weight", b, a))
+        coll = rng.choice((0, -5, K.MAX_MONEY, rng.randint(0, 10_000_000 * K.COIN)))
+        if S.bond_min_from_collateral_zat(coll) != ref.bond_min_from_collateral_zat(coll, mp):
+            mism.append(("bond_min", coll))
+        height, lw = rng.randint(500_000, 3_000_000), rng.choice((1_152, 2_304))
+        members = [(bytes([2, k]) + bytes(31), rng.choice((mp.bond_min_floor_zat, mp.bond_min_cap_zat)),
+                    height - rng.randint(0, 900_000), height - rng.randint(0, 3 * lw))
+                   for k in rng.sample(range(256), rng.randint(0, 15))]
+        nb = rng.choice((mp.bond_min_floor_zat - 1, mp.bond_min_cap_zat,
+                         rng.randint(0, 3 * mp.bond_min_cap_zat)))
+        got_s = S.eviction_victim([S.SeatCandidate(*m) for m in members], height, nb, lw)
+        if got_s != ref.eviction_victim(members, height, nb, lw, mp):
+            mism.append(("evict", height))
+    record("seats == reference (Log2Q16, SeatAgeFactorQ16, SeatWeight, BondMin, EvictionVictim)", mism)
     return out
