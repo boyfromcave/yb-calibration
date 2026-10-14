@@ -243,8 +243,12 @@ def test_cli_recommend_and_open(tmp_path, cheap, capsys, monkeypatch):
     monkeypatch.setitem(B.BUDGETS, "quick", TINY)
     out = tmp_path / "r"
     assert (
-        cli.main(["recommend", "--synthetic", "--out", str(out), "--workers", "1", "--groups", "G1,G3"]) == 0
+        cli.main(["recommend", "--allow-retired-v3", "--synthetic", "--out", str(out), "--workers", "1",
+                  "--groups", "G1,G3"]) == 0
     )
+    rec = json.loads((out / "recommended.json").read_text())["ybcal"]
+    assert rec["retired_v3"] is True and rec["release_input"] is False
+    assert (out / "report.md").read_text().startswith("> **v3 parameter set (retired")
     o = capsys.readouterr().out
     assert "report:" in o and "verdicts:" in o
     assert cli.main(["report", "open", str(out)]) == 0
@@ -255,7 +259,8 @@ def test_cli_recommend_and_open(tmp_path, cheap, capsys, monkeypatch):
     out2 = tmp_path / "r2"
     assert (
         cli.main(
-            ["recommend", "--manifest", str(out / "manifest.json"), "--out", str(out2), "--workers", "1"]
+            ["recommend", "--allow-retired-v3", "--manifest", str(out / "manifest.json"), "--out", str(out2),
+             "--workers", "1"]
         )
         == 0
     )
@@ -269,7 +274,8 @@ def test_cli_study_writes_a_mini_report(tmp_path, cheap, capsys, monkeypatch):
 
     monkeypatch.setitem(B.BUDGETS, "quick", TINY)
     out = tmp_path / "s"
-    assert cli.main(["study", "G1", "--synthetic", "--out", str(out), "--workers", "1"]) == 0
+    argv = ["study", "--allow-retired-v3", "G1", "--synthetic", "--out", str(out), "--workers", "1"]
+    assert cli.main(argv) == 0
     md = (out / "report.md").read_text()
     assert summary_params(md) == [p for p in tunable_params() if REGISTRY[p].group == "G1"]
     assert "Yellowback study G1" in md
@@ -283,6 +289,7 @@ def test_cli_sensitivity(tmp_path, cheap, capsys, monkeypatch):
     rc = cli.main(
         [
             "sensitivity",
+            "--allow-retired-v3",
             "--method",
             "morris",
             "--params",

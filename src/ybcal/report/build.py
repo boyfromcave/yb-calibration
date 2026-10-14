@@ -48,7 +48,7 @@ from ybcal.optimize.joint import (
 from ybcal.params import emit
 from ybcal.params.invariants import Context
 from ybcal.params.paramset import ParamSet, mainnet, policy_base
-from ybcal.params.registry import PINNED_COMMIT, REGISTRY
+from ybcal.params.registry import PINNED_COMMIT, REGISTRY, RETIRED_BANNER, pin_matches_model
 from ybcal.report import explain as X
 from ybcal.report import plots
 from ybcal.studies.base import GROUP_ORDER, Budget, Env, Recommendation, Study
@@ -290,6 +290,11 @@ def lock_readiness(
         return ", ".join(xs[:n]) + (f" … (+{len(xs) - n})" if len(xs) > n else "")
 
     items = [
+        CheckItem(
+            "Registry pin is the model's (release line) commit",
+            pin_matches_model(),
+            f"registry {PINNED_COMMIT}" + ("" if pin_matches_model() else " is retired (v3)"),
+        ),
         CheckItem(
             "Every locked parameter has a recommendation",
             not missing,
@@ -933,10 +938,16 @@ def write_report(ctx: ReportContext, out: Path) -> dict[str, Path]:
     # the patch is against the shipped source, whatever set the run started from (policy base_set)
     patch = emit.make_patch(joint.recommended, mainnet(), sections=psec, source=src)
     pfile = out / "params.cpp.patch"
+    retired = not pin_matches_model()
     pfile.write_text(
-        patch.locked
-        or "# no locked or per-release changes: the recommended set equals the "
-        "shipped SetCommon()/MainParams() values\n"
+        (f"# {RETIRED_BANNER}; does not apply to the release line\n" if retired else "")
+        + (
+            patch.locked
+            or "# no locked or per-release changes: the recommended set equals the "
+            "shipped SetCommon()/MainParams() values"
+            + (f" of the v3 set at {PINNED_COMMIT}" if retired else "")
+            + "\n"
+        )
     )
     paths["patch"] = pfile
     check = (
@@ -958,6 +969,9 @@ def write_report(ctx: ReportContext, out: Path) -> dict[str, Path]:
             "seed": ctx.seed,
             "budget": ctx.budget.name,
             "provenance": ctx.provenance,
+            "pin": PINNED_COMMIT,
+            "retired_v3": retired,
+            "release_input": not retired,
         },
     )
 
@@ -1100,8 +1114,12 @@ def write_report(ctx: ReportContext, out: Path) -> dict[str, Path]:
         "sensitivity_error": ctx.sensitivity_error,
     }
     md = env.get_template("report.md.j2").render(**tv)
+    if not pin_matches_model():
+        md = f"> **{RETIRED_BANNER}**\n\n{md}"
     (out / "report.md").write_text(md)
     html = env.get_template("report.html.j2").render(**tv)
+    if not pin_matches_model():
+        html = html.replace("<body>", f"<body><p><strong>{RETIRED_BANNER}</strong></p>", 1)
     (out / "report.html").write_text(html)
     paths["md"], paths["html"] = out / "report.md", out / "report.html"
     ctx.timings["render"] = time.perf_counter() - t0

@@ -45,8 +45,18 @@ PINNED_COMMIT: str = "7702d22"
 #: Branch the pin lives on (informational).
 PINNED_BRANCH: str = "feature/yellowback"
 #: Source files the registry mirrors (paths inside ycash6).
+RETIRED_BANNER: str = (
+    "v3 parameter set (retired, ycash6 7702d22) - not a release input"
+)
 PARAMS_H: str = "src/yellowback/params.h"
 PARAMS_CPP: str = "src/yellowback/params.cpp"
+
+def pin_matches_model() -> bool:
+    """Whether the registry pin is the commit the vendored reference model is pinned at."""
+    from ybcal.model.vendor import VENDORED_COMMIT
+
+    return VENDORED_COMMIT.startswith(PINNED_COMMIT) or PINNED_COMMIT.startswith(VENDORED_COMMIT)
+
 
 Klass = Literal["locked", "excluded", "per-release", "constant", "derived", "meta"]
 Unit = Literal[
