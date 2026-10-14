@@ -187,6 +187,8 @@ group sets each validated on both lines (D-RD-ORA, D-RD-COL, D-RD-ATT).
 - [ ] Owner decisions on §3.1–3.6
 - [ ] A standard-budget re-run on the final data before the lock (≈ 6 h on 10 cores)
 
+**Caveat (W4-K-3).** θ 12,500, `emergencyRatioBps` 10,500 and the 10,000-YEC bond floor were set from the v3 claim model and are **not calibrated against** the upgrade line's claim/cancel mechanics (claim intents, `claimDelay`, cancel by one set member, CAN-1 refund, residual release, CAN-2/CAN-3 cancel limit, RED-5a/5b path-(b) residual sized at pEmerg with the claimant floored): the simulator has no model of them (the kernels are exercised only by the golden replay). Before RED-5a/5b a path-(b) claim at the path-(a) boundary left a residual of (1 − 1/θ)·C, i.e. 9.09 % of the collateral at θ 11,000 and 20.00 % at 12,500; the merged rules change that figure and it has not been re-measured here. The T5 re-run's "one extra 12 h round per griefed vault" models the cancel limit only now that CAN-2 has landed. `claimDelay`, the cancel/unlock thresholds and `rateLimitBps` have no registry entry or study.
+
 ## 8. Reproduce
 
 ```bash
