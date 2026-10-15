@@ -211,8 +211,10 @@ def test_red4_claim_path_and_red5_split(coll, p_claim, p_emerg, minted, persiste
     assert path == ("a" if a else "b" if b else None)
     if path is not None:
         thr = K.residual_min_zat(p_claim, 100_000, 48)
-        sp = K.claim_split(coll, minted, p_claim, path, 12_500, thr)
-        cm = K.claimant_max_zat(minted, 12_500 if path == "a" else 10_000, p_claim)
+        sp = K.claim_split(coll, minted, p_claim, path, 12_500, thr, p_emerg=p_emerg)
+        # RED-5b: path (a) caps at pClaim with theta, path (b) at pEmerg with no margin
+        cap = p_claim if path == "a" else p_emerg
+        cm = K.claimant_max_zat(minted, 12_500 if path == "a" else 10_000, cap)
         assert sp.claimant_max_zat == cm
         assert sp.residual_zat == K.residual_zat(coll, cm)
         assert sp.residual_due == (sp.residual_zat >= thr)

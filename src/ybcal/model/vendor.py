@@ -39,11 +39,13 @@ from pathlib import Path
 
 OWNER_WP = "WP-1"
 
-#: The commit the shipped files were vendored from: ycash6 ``upgrade/vault`` ``a983720de`` (2026-10-13, the
-#: per-vault cancel limit, golden SCHEMA_VERSION 14; the model, golden and SERIALISATION files are
-#: byte-identical on ycash-dd ``d84d372ee``). Previous pins: ``1310a41a1`` (SCHEMA_VERSION 13),
-#: ``7702d22`` (v3, SCHEMA_VERSION 4).
-VENDORED_COMMIT = "a983720de6754257cb0d97b1419ff43f83c068db"
+#: The commit the shipped files were vendored from: ycash6 ``upgrade/vault`` ``4129f22cd`` (2026-10-15, golden
+#: SCHEMA_VERSION 14 with RED-5a/5b: the claimant intent floored at collateral - residual, path (b) sized at
+#: pEmerg; the model, golden and SERIALISATION files are byte-identical on ycash-dd ``ed828e7b2``, whose
+#: ``yellowback_util.py`` differs only in a comment and a trailing space). Previous pins: ``a983720de``
+#: (SCHEMA_VERSION 14, the per-vault cancel limit), ``1310a41a1`` (SCHEMA_VERSION 13), ``7702d22`` (v3,
+#: SCHEMA_VERSION 4).
+VENDORED_COMMIT = "4129f22cd7a9732b5a15dd2b1893dd09b7f4471c"
 SOURCE_REPO = "boyfromcave/ycash6"
 TF = "qa/rpc-tests/test_framework/"
 MODEL_DIR = Path(__file__).resolve().parent
