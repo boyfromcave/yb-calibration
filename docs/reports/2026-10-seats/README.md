@@ -29,7 +29,7 @@ $0.40 reference of the frozen 2026-10-04 data.
    YEC. In the trace an entrant joining one 19,950-YEC bond a day replaces all fifteen floor-sized members
    (nine a year old, six 30 days) in 15 days and holds 7 seats on day 21 (all nine by day 23); at 10,500
    YEC it cannot enter at all (the youngest honest member, 30 days old, needs 15,998 YEC to evict).
-   *Caveat (W4-K-3):* the capture cost above prices taking 7 of 9 seats; one membership of the open set (a 10,000-YEC bond, returned 14 days after exit) can cancel a claim, and that cheaper cancel-veto cost is not modelled here. The floor is not calibrated against the claim/cancel mechanics (see `docs/decisions.md` D-RD-COL-6/7 amendment).
+   *Caveat (W4-K-3):* the capture cost above prices taking 7 of 9 seats; one membership of the open set (a 10,000-YEC bond, returned 14 days after exit) can cancel a vault's first claim (CAN-2 needs 2, 3, then 4 co-signers for the next ones), and that cheaper cancel cost is not modelled here. The floor is not calibrated against the claim/cancel mechanics (see `docs/decisions.md` D-RD-COL-6/7 amendment).
 5. **The bond minimum sits at the floor for longer.** clamp(5 % of YED vault collateral ÷ 9, 10,000,
    20,000) binds at 10,000 YEC up to 1.8 M YEC of collateral ($240,000 of YED at 300 % and $0.40; it was
    900,000 YEC at the 5,000 floor) and at 20,000 YEC from 3.6 M YEC. Nine floor seats lock 90,000 YEC. It
