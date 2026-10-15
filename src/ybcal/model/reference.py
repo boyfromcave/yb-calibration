@@ -1,8 +1,8 @@
 # ==== ybcal vendored file -- do not edit; re-vendor with `ybcal verify --revendor` ====
 # source: boyfromcave/ycash6 qa/rpc-tests/test_framework/yellowback_model.py
-# commit: a983720de6754257cb0d97b1419ff43f83c068db
-# sha256: 04e29686824fe4e429b41f6602ba623cc3a1eaae7d7b768958cf1b89c248e9a5
-# body-sha256: a2aac494e4719ad7c22088261e5678b0821db37a2a97dd298b18ee509e616447
+# commit: 4129f22cd7a9732b5a15dd2b1893dd09b7f4471c
+# sha256: bb1f6a3b96b9a77fad5c9d933fccf775625d2e6e35324d1b4190d9e1a22344e5
+# body-sha256: d9f54de18a5287d54cf4372b7f285152d051e492024be1267dc8c937a19311cf
 # mode: whole file, unmodified except these import-line rewrites (vendor.SPECS):
 # rewrites: 'from . import yellowback_attest as ya' -> 'from . import reference_attest as ya' (x10); 'from . import yellowback_attest as ya' -> 'from . import reference_attest as ya' (x1); 'from . import yellowback_attest as ya' -> 'from . import reference_attest as ya' (x1); 'from . import vault as va' -> 'from . import reference_vault as va' (x1); 'from . import vault as va' -> 'from . import reference_vault as va' (x4)
 # ruff: noqa
@@ -3527,25 +3527,27 @@ class YellowbackModel(object):
                 if not persisted or not is_underwater(vault.collateral_zat, p_emerg, vault.minted_cents, p.emergency_ratio_bps):
                     return 'vault-claim-not-underwater'
                 facts['claim_path'] = 'b'
-            # RED-5 (U-23: the owner's residual intent pays the owner's PQPKH (F-3) at least the residual; the other is the claimant's)
-            if p_claim is None:
+            # RED-5b (W3-Y-5, audit recommendation A1, 2026-10-14, pending owner confirmation): path (a) caps at
+            # pClaim, path (b) at pEmerg. Reverses v3 R1. RED-5a: the lower-index intent is the claimant and must
+            # carry at least collateral - residual; the higher-index intent is the owner's residual.
+            cap_price = p_claim if facts['claim_path'] == 'a' else p_emerg
+            if cap_price is None:
                 return 'red5-residual'
             margin = p.claim_threshold_bps if facts['claim_path'] == 'a' else BPS
-            residual = residual_zat(vault.collateral_zat, claimant_max_zat(vault.minted_cents, margin, p_claim))
+            residual = residual_zat(vault.collateral_zat, claimant_max_zat(vault.minted_cents, margin, cap_price))
             facts['residual_zat'] = residual
             if residual >= residual_min_zat(vault.p_mint, p):      # RED-5': $0.48 at the vault's p_mint, at least RESIDUAL_MIN_ZAT
                 if not is_pq_owner(vault.owner_pubkey) or len(intents) != 2:
                     return 'red5-residual'
                 owner_hash = sha256(pqpkh_script(vault.owner_pubkey))      # the owner's PQPKH (quantum spec F-3)
-                res = None
-                for j in intents:
-                    if yed_intent_fields(tx.vout[j].script)[1] == owner_hash and tx.vout[j].value >= residual:
-                        res = j
-                        break
-                if res is None:
+                claimant, res = intents[0], intents[1]
+                fields = yed_intent_fields(tx.vout[res].script)
+                if fields is None or fields[1] != owner_hash or tx.vout[res].value < residual:
                     return 'red5-residual'
+                if tx.vout[claimant].value < vault.collateral_zat - residual:
+                    return 'red5-claimant-short'
                 facts['residual_vout'] = res
-                facts['claimant_vout'] = intents[1] if intents[0] == res else intents[0]
+                facts['claimant_vout'] = claimant
             else:
                 if len(intents) != 1:
                     return 'vault-claim-intents'

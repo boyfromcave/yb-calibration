@@ -258,7 +258,7 @@ def _check_vault_rules(model: ref.YellowbackModel, doc: dict[str, Any], check) -
             check("RED-4 claim path (IT-2: no height clause)", path == rec.claim_path, h)
             threshold = K.residual_min_zat(v.p_mint, p.residual_min_zat, p.residual_min_cents)
             split = K.claim_split(collateral, v.minted_cents, pc.p_claim, rec.claim_path,
-                                  p.claim_threshold_bps, threshold)
+                                  p.claim_threshold_bps, threshold, p_emerg=pc.p_emerg)
             n_intents = sum(1 for o in tx.vout if ref.parse_intent_template(o.script) is not None)
             check("RED-5 / RED-5' residual", split.residual_zat == rec.residual_zat
                   and n_intents == (2 if split.residual_due else 1), h)

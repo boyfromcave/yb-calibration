@@ -387,13 +387,16 @@ class ClaimSplit(NamedTuple):
 
 
 def claim_split(collateral_zat: int, minted_cents: int, p_claim: Price, path: str, claim_threshold_bps: int,
-                residual_threshold_zat: int) -> ClaimSplit:
-    """state.cpp:687-700 RED-5 (U-23): margin θ under path ``"a"``, 10^4 under ``"b"`` (R1); the
-    residual ``max(0, collateral − claimantMax)`` is due — paid by a second, owner intent of at least
-    that value — iff it is at least ``residual_threshold_zat`` (:func:`residual_min_zat` at the
-    vault's pMint); otherwise the claimant's intent carries the whole collateral."""
+                residual_threshold_zat: int, *, p_emerg: Price) -> ClaimSplit:
+    """state.cpp:690-711 (ycash6 4129f22cd) RED-5 (U-23): path ``"a"`` caps at pClaim with margin θ,
+    path ``"b"`` at pEmerg with margin 10^4 (RED-5b, W3-Y-5, reverses v3 R1); the residual
+    ``max(0, collateral − claimantMax)`` is due — paid by the higher-index, owner intent of at least
+    that value, the lower-index claimant intent carrying at least ``collateral − residual`` (RED-5a) —
+    iff it is at least ``residual_threshold_zat`` (:func:`residual_min_zat` at the vault's pMint);
+    otherwise the claimant's intent carries the whole collateral."""
     margin = claim_threshold_bps if path == "a" else BPS
-    cm = claimant_max_zat(minted_cents, margin, p_claim) if _defined(p_claim) else None
+    cap_price = p_claim if path == "a" else p_emerg
+    cm = claimant_max_zat(minted_cents, margin, cap_price) if _defined(cap_price) else None
     res = residual_zat(collateral_zat, cm)
     return ClaimSplit(cm, res, res >= residual_threshold_zat)
 

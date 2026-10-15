@@ -285,9 +285,10 @@ selection inside each study only; there is no cross-group robust pass, D-WP8-7.)
 `src/ybcal/model/` is the exact arithmetic of the overlay. Everything here is checked by
 `ybcal verify` (and by `tests/model/`, which run the same checks plus hypothesis property tests).
 
-**Pin.** ycash6 `upgrade/vault` `a983720de` (2026-10-13; SCHEMA 14, the per-vault cancel limit CAN-2/CAN-3/C4b,
-the model, golden and SERIALISATION files byte-identical on ycash-dd `d84d372ee`; the kernels and the citations below are still those of the previous pin
-`1310a41a1`, which `ybcal verify` checks against the new golden). At `1310a41a1` every vendored file was
+**Pin.** ycash6 `upgrade/vault` `4129f22cd` (2026-10-15; SCHEMA 14, the per-vault cancel limit CAN-2/CAN-3/C4b and
+RED-5a/5b, the model, golden and SERIALISATION files byte-identical on ycash-dd `ed828e7b2`; `kernels.claim_split` follows
+RED-5b (path (b) caps at pEmerg, state.cpp:690-711 at `4129f22cd`); the other kernels and the citations below are still
+those of `1310a41a1`, which `ybcal verify` checks against the new golden). At `1310a41a1` every vendored file was
 byte-identical at `047b561ac` and on ycash-dd `8af82551b` / `d5206bc57`, and so are `src/yellowback/math.h`,
 `state.cpp` and `src/test/yellowback_math_tests.cpp`, so the citations hold on both node lines. The node
 model is `SCHEMA_VERSION` 13: the vault upgrade (U-21..U-25: the YED V template, claim intents, no
@@ -312,7 +313,7 @@ D-MP-1.
 | `vkernels.py` | numpy kernels (int64, `-1` = undefined), property-tested equal to `kernels` |
 | `retired.py` | **RETIRED** ACT-1..6 and FEE-1 kernels (scalar and vector), frozen at `7702d22`, tested against `reference_v3` |
 | `seats.py` | the 2026-10-11 seat rules (Log2Q16, SeatAgeFactorQ16, SeatWeight, SeatRank, EvictionVictim, D-Q-30 bond minimum) |
-| `golden.py` | golden replay (state hash `02f3ce…6a17`, tip 440, totals; 460 entries, 20 rejected) + kernels/vkernels recomputing all 440 stored snapshots and the money rules of every Yellowback transaction |
+| `golden.py` | golden replay (state hash `7a38e4…dc34`, tip 440, totals; 462 entries, 22 rejected) + kernels/vkernels recomputing all 440 stored snapshots and the money rules of every Yellowback transaction |
 | `examples.py` | the numeric assertions of `src/test/yellowback_math_tests.cpp` as data (121), the spec-rational cases (67) and `reference_param_drift()` |
 | `parity.py` | seeded stdlib parity sample (hypothesis is a dev dependency), seats == reference included |
 | `cli.py` | `cli_verify`, `configure_verify` (`--revendor`, `--ycash6`, `--ref`, `--samples`, `--seed`, `--quiet`) |

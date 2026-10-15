@@ -1,6 +1,6 @@
 # ==== ybcal vendored file -- do not edit; re-vendor with `ybcal verify --revendor` ====
 # source: boyfromcave/ycash6 qa/rpc-tests/test_framework/vault.py
-# commit: a983720de6754257cb0d97b1419ff43f83c068db
+# commit: 4129f22cd7a9732b5a15dd2b1893dd09b7f4471c
 # sha256: 96817339b151fd91927ae4994c59ab7ec9977e16d493463a01924c798b24d039
 # body-sha256: acc9c1458ca2b633c8dc1b25a7bfec167018dafa3686b0db7824d473484d7d7b
 # mode: verbatim top-level definitions (transitive closure of the roots in vendor.SPECS)
