@@ -96,3 +96,23 @@ def test_resolve_missing_module_is_none():
     assert cli.resolve(cli.Route("ybcal.nosuch.cli", "cli_x", "WP-99")) is None
     assert cli.resolve(cli.Route("ybcal.params.cli", "cli_nosuch", "WP-0")) is None
     assert cli.resolve(cli.ROUTES[("params", "show")]) is not None
+
+
+def test_retired_registry_pin_refuses_lock_relevant_commands(capsys, monkeypatch):
+    from ybcal.params import registry
+
+    monkeypatch.setattr(registry, "pin_matches_model", lambda: False)
+    for argv in (["recommend", "--synthetic"], ["study", "G3"], ["sensitivity"], ["robust", "--out", "x"]):
+        rc, _, err = run(argv, capsys)
+        assert rc == 2 and "retired" in err and "--allow-retired-v3" in err
+
+
+def test_matching_registry_pin_does_not_refuse():
+    import argparse
+
+    from ybcal.params import registry
+
+    args = argparse.Namespace(command_path=["recommend"], allow_retired_v3=False)
+    assert (cli._retired_pin_refusal(args) is None) == registry.pin_matches_model()
+    args.allow_retired_v3 = True
+    assert cli._retired_pin_refusal(args) is None

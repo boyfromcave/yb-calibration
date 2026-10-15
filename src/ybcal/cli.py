@@ -90,8 +90,30 @@ def resolve(route: Route) -> Callable[[argparse.Namespace], int] | None:
     return fn if callable(fn) else None
 
 
+GUARDED = {("study",), ("sensitivity",), ("recommend",), ("robust",)}
+
+
+def _retired_pin_refusal(args: argparse.Namespace) -> str | None:
+    if tuple(args.command_path) not in GUARDED or getattr(args, "allow_retired_v3", False):
+        return None
+    from ybcal.model.vendor import VENDORED_COMMIT
+    from ybcal.params.registry import PINNED_COMMIT, pin_matches_model
+
+    if pin_matches_model():
+        return None
+    return (
+        f"the parameter registry is pinned at ycash6 {PINNED_COMMIT} (v3, retired); the model is at "
+        f"{VENDORED_COMMIT[:12]}; this run is not a release input - re-pin the registry (D-MP-1) "
+        "or pass --allow-retired-v3"
+    )
+
+
 def _run_route(route: Route) -> Callable[[argparse.Namespace], int]:
     def run(args: argparse.Namespace) -> int:
+        refusal = _retired_pin_refusal(args)
+        if refusal:
+            print(f"ybcal {' '.join(args.command_path)}: {refusal}", file=sys.stderr)
+            return 2
         fn = resolve(route)
         if fn is None:
             print(f"ybcal {' '.join(args.command_path)}: not implemented yet ({route.wp})", file=sys.stderr)
@@ -256,6 +278,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--serve", action="store_true")
 
     for path, sp in subs.items():
+        if path in GUARDED:
+            sp.add_argument("--allow-retired-v3", dest="allow_retired_v3", action="store_true",
+                            help="run on the retired v3 registry; outputs are stamped not-a-release-input")
         route = ROUTES[path]
         _configure(route, sp)
         sp.set_defaults(_run=_run_route(route), command_path=list(path))

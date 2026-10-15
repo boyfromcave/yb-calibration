@@ -185,6 +185,7 @@ group sets each validated on both lines (D-RD-ORA, D-RD-COL, D-RD-ATT).
       2026-10-18; the reconstruction from candle closes inflates the tail, D-RD-D3)
 - [ ] A longer order-book depth series (`depth.csv`, accumulating every 15 minutes)
 - [ ] Owner decisions on §3.1–3.6
+- [ ] Registry and simulator re-pinned to the upgrade line (W4-K-1; until then this report calibrates the v3 set)
 - [ ] A standard-budget re-run on the final data before the lock (≈ 6 h on 10 cores)
 
 ## 8. Reproduce

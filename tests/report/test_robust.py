@@ -65,6 +65,7 @@ def test_model_sets_and_commands(tmp_path):
     cmd = R.recommend_cmd(cfg, R.RunSpec("2021-22", "martingale", 5), tmp_path / "r")
     assert cmd[cmd.index("--window") + 1] == "2021-22" and "price_drift='martingale'" in cmd
     assert "--no-sensitivity" in cmd and cmd[cmd.index("--groups") + 1] == "G6"
+    assert "--allow-retired-v3" not in cmd
     try:
         R.model_sets("nope")
     except ValueError:
@@ -74,11 +75,13 @@ def test_model_sets_and_commands(tmp_path):
 
 
 def test_cli_dry_run(capsys, tmp_path):
-    rc = cli.main(["robust", "--out", str(tmp_path / "o"), "--dry-run", "--seeds", "2", "--windows",
-                   "full,2025-26", "--models", "bootstrap"])
+    rc = cli.main(["robust", "--allow-retired-v3", "--out", str(tmp_path / "o"), "--dry-run", "--seeds", "2",
+                   "--windows", "full,2025-26", "--models", "bootstrap"])
     assert rc == 0
     out = capsys.readouterr().out.strip().splitlines()
     assert len(out) == 4 and all("recommend" in ln for ln in out)
+    # each run inherits the explicit retired-pin consent, or every child recommend would exit 2 (W4-K-1)
+    assert all(ln.endswith(" --allow-retired-v3") for ln in out)
 
 
 def test_consolidate_rule():

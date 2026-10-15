@@ -44,9 +44,23 @@ from ybcal.units import (
 PINNED_COMMIT: str = "7702d22"
 #: Branch the pin lives on (informational).
 PINNED_BRANCH: str = "feature/yellowback"
+#: Stamp on every output of a run on the retired v3 registry (W4-K-1).
+RETIRED_BANNER: str = (
+    "v3 parameter set (retired, ycash6 7702d22) - not a release input"
+)
 #: Source files the registry mirrors (paths inside ycash6).
 PARAMS_H: str = "src/yellowback/params.h"
 PARAMS_CPP: str = "src/yellowback/params.cpp"
+
+
+def pin_matches_model() -> bool:
+    """Whether the registry pin is the commit the vendored reference model is pinned at."""
+    from ybcal.model.vendor import VENDORED_COMMIT
+
+    a, b = PINNED_COMMIT.lower(), VENDORED_COMMIT.lower()
+    # an abbreviated pin shorter than git's default abbreviation would match too much
+    return min(len(a), len(b)) >= 7 and (a.startswith(b) or b.startswith(a))
+
 
 Klass = Literal["locked", "excluded", "per-release", "constant", "derived", "meta"]
 Unit = Literal[

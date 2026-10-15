@@ -102,6 +102,7 @@ class RobustConfig:
     jobs: int = 1
     sets: list[str] = field(default_factory=list)  #: extra overrides for every run
     sensitivity: bool = False
+    allow_retired_v3: bool = False  #: pass --allow-retired-v3 to every run (W4-K-1)
     max_rounds: int | None = None
     cache: str | None = None
     nice: int = 10
@@ -132,6 +133,8 @@ def recommend_cmd(cfg: RobustConfig, spec: RunSpec, run_dir: Path) -> list[str]:
         cmd += ["--max-rounds", str(cfg.max_rounds)]
     if cfg.cache:
         cmd += ["--cache", cfg.cache]
+    if cfg.allow_retired_v3:
+        cmd += ["--allow-retired-v3"]
     return cmd
 
 
@@ -707,6 +710,7 @@ def config_from_args(args: argparse.Namespace) -> RobustConfig:
         nice=args.nice,
         agree=args.agree,
         run_dirs=[Path(d) for d in args.runs],
+        allow_retired_v3=getattr(args, "allow_retired_v3", False),
     )
 
 
