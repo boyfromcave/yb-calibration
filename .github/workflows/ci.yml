@@ -92,11 +92,15 @@ jobs:
           cache-dependency-path: pyproject.toml
       - name: Install (plus pytest-xdist, CI only)
         run: pip install -e ".[dev]" "pytest-xdist==3.8.0"
+      # `shell: bash` runs with -o pipefail: without it the exit status of `ybcal verify` / `pytest` is
+      # tee's, so a crash or a failing test would pass the step
       - name: Vendored model equals ycash6 at the recorded commits (ybcal verify --ycash6)
+        shell: bash
         env:
           YBCAL_YCASH6: ${{ github.workspace }}/ycash6
         run: ybcal verify --quiet | tee verify.log && ! grep -q '^FAIL' verify.log
       - name: Pytest against the ycash6 tree (no devnet); a clone-gated skip fails the job
+        shell: bash
         env:
           YBCAL_YCASH6: ${{ github.workspace }}/ycash6
         run: |
