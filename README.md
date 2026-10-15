@@ -114,7 +114,7 @@ ybcal report open reports/quick-synthetic           # prints the path of report.
 ybcal report open reports/quick-synthetic --serve   # or serve it on http://127.0.0.1:8000/
 ```
 
-While the registry pin differs from the model pin (D-MP-1), `recommend`, `study`, `sensitivity`, `robust`, `fees` and `seats` exit 2 unless `--allow-retired-v3` is given, and then stamp their outputs "retired, not a release input".
+While the registry pin differs from the model pin (D-MP-1), `recommend`, `study`, `sensitivity` and `robust` exit 2 unless `--allow-retired-v3` is given (`robust` passes it on to each run); `recommend` and `study` then stamp their reports, `recommended.json` and patch "retired, not a release input". `fees` and `seats` are not guarded yet.
 
 `make quick` runs the same recommend command (`make quick OUT=reports/x` to choose the directory).
 With a ycash6 clone, point the tool at it to read live source and to check the patch with

@@ -15,7 +15,7 @@ from ybcal import cli
 from ybcal.config import Policy, RunManifest
 from ybcal.params.extract import Extracted
 from ybcal.params.paramset import ParamSet, mainnet
-from ybcal.params.registry import REGISTRY
+from ybcal.params.registry import REGISTRY, pin_matches_model
 from ybcal.report import explain as X
 from ybcal.report.build import RecommendConfig, run_recommend, section_numbers, tunable_params
 
@@ -187,6 +187,9 @@ def test_lock_readiness_and_sections(stub_report):
     md = (out / "report.md").read_text()
     chk = md.split("## 7. Lock-readiness checklist", 1)[1].split("## Appendix A", 1)[0]
     assert "Lock-ready: **no**" in chk and "The release study passes | FAIL" in chk
+    # the registry is still the retired v3 pin (W4-K-1 part 1): a required item that fails until the re-pin
+    assert pin_matches_model() is False
+    assert "Registry pin is the model's (release line) commit | FAIL" in chk
     sec = md.split("`pFastWindow` — CHANGE", 1)[1].split("####", 1)[0]
     for part in (
         "What it controls",
