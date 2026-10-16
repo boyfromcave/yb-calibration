@@ -151,7 +151,10 @@ def remove_worktree(wt: Worktree | Path, repo: str | Path | None = None) -> None
         raise WorktreeError(f"refusing to remove a worktree outside the work dir: {path}")
     if path.resolve() in list_worktrees(repo):
         _git(repo, "worktree", "remove", "--force", str(path))
-    _git(repo, "worktree", "prune")
+    # A just-removed worktree stays listed as "prunable" until it expires. Newer git
+    # defaults that grace period to months (gc.worktreePruneExpire), and `git worktree list`
+    # then re-pads its columns around the leftover path. Expire it immediately.
+    _git(repo, "worktree", "prune", "--expire", "now")
 
 
 @contextmanager
