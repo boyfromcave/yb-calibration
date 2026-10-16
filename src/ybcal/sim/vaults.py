@@ -52,7 +52,9 @@ collateral fee and the MINT-5 ``4·feeMin`` floor (U-21..U-24, IT-*, D-Q-23); th
 still mirrors the v3 rules of ycash6 ``7702d22`` clause for clause, checked against the retained v3
 reference (:mod:`ybcal.model.reference_v3`, ``vendor.V3_SPECS``), because the parameter registry it
 reads is still the 7702d22 set; its outputs describe the v3 design until the registry and simulator are
-re-pinned (``docs/decisions.md`` D-MP-1).
+re-pinned (``docs/decisions.md`` D-MP-1). A claim and a one-seat cancel are accounted by
+:func:`ybcal.sim.extract.account_claim_cancel`; this book does not run that sequence, and θ,
+``emergencyRatioBps`` and the bond floor are not calibrated against it.
 """
 
 from __future__ import annotations
