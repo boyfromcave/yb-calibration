@@ -326,12 +326,7 @@ def lock_readiness(
         CheckItem(
             "The joint pass converged", joint.converged, f"{len(joint.rounds)} round(s)", required=False
         ),
-        CheckItem(
-            "params.cpp patch applies at the pin",
-            None if patch_check is None or patch_check.status in ("skipped",) else patch_check.ok,
-            patch_check.detail if patch_check else "not checked",
-            required=False,
-        ),
+        _patch_check_item(patch_check),
         CheckItem(
             "Devnet differential validation (M6)",
             True if devnet.get("status") == "passed" else None,
@@ -340,6 +335,30 @@ def lock_readiness(
         ),
     ]
     return items
+
+
+def _patch_check_item(patch_check: emit.PatchCheck | None) -> CheckItem:
+    """Required patch check. While the registry pin is retired it cannot run at the release commit."""
+    from ybcal.params.registry import model_checked_commit
+
+    if not pin_matches_model():
+        at_pin = patch_check.detail or patch_check.status if patch_check else "not checked"
+        return CheckItem(
+            "params.cpp patch applies at the release commit",
+            False,
+            f"not run at the release commit: registry pin {PINNED_COMMIT} is retired v3; "
+            f"vendored model checked at {model_checked_commit()[:12]}. At the retired pin: {at_pin}",
+            required=True,
+        )
+    if patch_check is None or patch_check.status == "skipped":
+        detail = patch_check.detail if patch_check else "not checked"
+        return CheckItem("params.cpp patch applies at the release commit", False, detail, required=True)
+    return CheckItem(
+        "params.cpp patch applies at the release commit",
+        patch_check.ok,
+        patch_check.detail,
+        required=True,
+    )
 
 
 def _pin_check(joint: JointResult, policy: Policy, pinned: Sequence[str], lst: Callable) -> CheckItem:

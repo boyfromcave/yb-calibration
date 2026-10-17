@@ -1,13 +1,22 @@
 """Accounting for one claim and its cancel (MEDIUM-W4-K-3).
 
-The vault book (:mod:`ybcal.sim.vaults`) is still the v3 book: it has no claim
-intents, ``claimDelay``, cancel, or residual release. This module is the
-smallest addition that makes those events visible to the calibration. It
+The vault book (:mod:`ybcal.sim.vaults`) is still the v3 book: it does not run
+this sequence. This module accounts one claim intent, ``claimDelay``, a
+one-seat cancel, the CAN-1 refund and a residual that is not re-locked. It
 composes the vendored kernels (:func:`ybcal.model.kernels.claim_path`,
-:func:`~ybcal.model.kernels.claim_split`, :func:`~ybcal.model.kernels.claim_accounting`)
-and the primitive's ``RateCap``. It does not recommend a value of θ,
-``emergencyRatioBps``, the bond floor, ``claimDelay``, or ``rateLimitBps``, and
-nothing here is a re-run of G3, the seats study, or D-MP-1's T5 plan.
+:func:`~ybcal.model.kernels.claim_split`, :func:`~ybcal.model.kernels.claim_accounting`,
+:func:`~ybcal.model.kernels.claimant_max_zat`, :func:`~ybcal.model.kernels.residual_zat`)
+and the primitive's ``RateCap``. :func:`one_spread_bucket` reports extraction
+for one spread bucket with the RED-5b sizing on and the pre-RED-5b residual
+off. It does not recommend a value of θ, ``emergencyRatioBps``, the bond floor,
+``claimDelay``, or ``rateLimitBps``, and nothing here is a re-run of G3, the
+seats study, or D-MP-1's T5 plan.
+
+The vendored reference at ``vendor.VENDORED_COMMIT`` (ycash6 ``4129f22cd``) has
+no ``attestor_rate_limit_bps``. The node pins the YED set's ``rateLimitBps`` to
+0 (ycash6 ``90b1ac763``, ycash-dd #97, W3-Y-3 / R-1d). That constant is
+:data:`YED_ATTESTOR_RATE_LIMIT_BPS`; :func:`ybcal.model.kernels.set_create_adoptable`
+does not grow a parameter the vendored model does not have.
 
 What this does not model, on purpose:
 
@@ -22,14 +31,32 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from ybcal.model.kernels import BPS, COIN, TotalsDelta, claim_accounting, claim_path, claim_split
+from ybcal.model.kernels import (
+    BPS,
+    COIN,
+    TotalsDelta,
+    claim_accounting,
+    claim_path,
+    claim_split,
+    claimant_max_zat,
+    residual_zat,
+)
 
 __all__ = [
+    "YED_ATTESTOR_RATE_LIMIT_BPS",
     "ClaimCancelAccount",
+    "SpreadBucket",
     "account_claim_cancel",
+    "format_spread_bucket",
+    "one_spread_bucket",
     "path_a_closed_collateral",
     "rate_cap_zat",
 ]
+
+#: YED adopted set: ``rateLimitBps`` == 0.
+#: The vendored model (ycash6 4129f22cd) has no such field. The node pin is
+#: ycash6 90b1ac763 / ycash-dd #97 (W3-Y-3, R-1d). Not a re-scored constant.
+YED_ATTESTOR_RATE_LIMIT_BPS: int = 0
 
 
 def rate_cap_zat(epoch_basis_zat: int, rate_limit_bps: int) -> int:
@@ -113,14 +140,17 @@ def account_claim_cancel(
     epoch_basis_zat: int = 0,
     epoch_used_zat: int = 0,
     claim_delay: int = 576,
+    module_fix: bool = True,
 ) -> ClaimCancelAccount:
     """Account a claim and, when it lands, a cancel of the claimant intent.
 
-    The claim's intents are the vendored split (RED-5b): path ``"a"`` caps at
-    ``p_claim`` with margin θ, path ``"b"`` at ``p_emerg`` with margin 10^4. A
+    The claim's intents are the vendored split (RED-5b) when ``module_fix`` is
+    true: path ``"a"`` caps at ``p_claim`` with margin θ, path ``"b"`` at
+    ``p_emerg`` with margin 10^4. ``module_fix`` false is the pre-RED-5b path
+    (b): the claimant cap is ``claimant_max_zat`` at ``p_claim`` with margin
+    10^4, so at the path-(a) boundary the residual is ``(1 − 1/θ)·C``. A
     residual at or above ``residual_threshold_zat`` is its own owner intent;
-    otherwise the claimant intent carries the whole collateral. The pre-RED-5b
-    residual ``(1 − 1/θ)·C`` is not what this returns.
+    otherwise the claimant intent carries the whole collateral.
 
     The claim spends ``claimant + residual`` against the set epoch
     (``vault/state.cpp`` sums intent outputs on an APP spend). ``rate_limit_bps
@@ -145,16 +175,25 @@ def account_claim_cancel(
     if path is None:
         return _none(None, rate_limit_bps=rate_limit_bps, claim_delay=claim_delay)
 
-    split = claim_split(
-        collateral_zat,
-        minted_cents,
-        p_claim,
-        path,
-        claim_threshold_bps,
-        residual_threshold_zat,
-        p_emerg=p_emerg,
-    )
-    residual = split.residual_zat if split.residual_due else 0
+    if module_fix or path != "b":
+        split = claim_split(
+            collateral_zat,
+            minted_cents,
+            p_claim,
+            path,
+            claim_threshold_bps,
+            residual_threshold_zat,
+            p_emerg=p_emerg,
+        )
+        raw_residual = split.residual_zat
+        residual_due = split.residual_due
+    else:
+        # Pre-RED-5b path (b): cap at pClaim with margin 10^4. claim_split is the
+        # post-fix rule and is not used for this residual.
+        cap = claimant_max_zat(minted_cents, BPS, p_claim) if p_claim is not None else None
+        raw_residual = residual_zat(collateral_zat, cap)
+        residual_due = raw_residual >= residual_threshold_zat
+    residual = raw_residual if residual_due else 0
     claimant = collateral_zat - residual
     if rate_limit_bps != 0:
         cap = rate_cap_zat(epoch_basis_zat, rate_limit_bps)
@@ -182,4 +221,80 @@ def account_claim_cancel(
     )
     return ClaimCancelAccount(
         path, claimant, residual, claim, cancel, residual, claimant, False, rate_limit_bps, claim_delay
+    )
+
+
+class SpreadBucket(NamedTuple):
+    """One path-(b) bucket: path (a) closed, ``pEmerg`` one µUSD inside path (b).
+
+    ``off`` is the pre-RED-5b residual. ``on`` is RED-5b (path (b) sized at
+    ``pEmerg``). ``constants_rescored`` is always false: this report does not
+    choose a new θ, ``emergencyRatioBps``, bond floor or ``claimDelay``.
+    """
+
+    theta: int
+    collateral_zat: int
+    p_claim: int
+    p_emerg: int
+    claim_delay: int
+    off: ClaimCancelAccount
+    on: ClaimCancelAccount
+    constants_rescored: bool
+
+
+def one_spread_bucket(
+    theta: int = 12_500,
+    *,
+    minted_cents: int = 10_000_000,
+    p_claim: int = 420_000,
+    emergency_ratio_bps: int = 10_500,
+    residual_threshold_zat: int = 100_000,
+    claim_delay: int = 576,
+) -> SpreadBucket:
+    """Extraction for one spread bucket, module sizing off and on.
+
+    Debt defaults to $100,000 at ``pClaim`` $0.42, the audit's path-(a) boundary.
+    The YED rate limit passed to both accounts is :data:`YED_ATTESTOR_RATE_LIMIT_BPS`.
+    """
+    collateral = path_a_closed_collateral(minted_cents, p_claim, theta)
+    if collateral is None:
+        raise ValueError("no path-(a) boundary for these inputs")
+    p_emerg = (minted_cents * emergency_ratio_bps * COIN - 1) // collateral
+    common = dict(
+        collateral_zat=collateral,
+        minted_cents=minted_cents,
+        p_claim=p_claim,
+        p_emerg=p_emerg,
+        claim_threshold_bps=theta,
+        emergency_ratio_bps=emergency_ratio_bps,
+        notice_persisted=True,
+        residual_threshold_zat=residual_threshold_zat,
+        rate_limit_bps=YED_ATTESTOR_RATE_LIMIT_BPS,
+        claim_delay=claim_delay,
+        cancel_signers=1,
+        cancel_threshold=1,
+    )
+    return SpreadBucket(
+        theta,
+        collateral,
+        p_claim,
+        p_emerg,
+        claim_delay,
+        account_claim_cancel(**common, module_fix=False),
+        account_claim_cancel(**common, module_fix=True),
+        False,
+    )
+
+
+def format_spread_bucket(row: SpreadBucket) -> str:
+    """One line a study or test can print. Shares are of the vault collateral."""
+
+    def share(account: ClaimCancelAccount) -> float:
+        return 100.0 * account.owner_extracted_zat / row.collateral_zat
+
+    return (
+        f"spread path-b-just-open theta={row.theta} claim_delay={row.claim_delay} "
+        f"off_extracted_zat={row.off.owner_extracted_zat} ({share(row.off):.2f}%) "
+        f"on_extracted_zat={row.on.owner_extracted_zat} ({share(row.on):.2f}%) "
+        f"constants_rescored={row.constants_rescored}"
     )

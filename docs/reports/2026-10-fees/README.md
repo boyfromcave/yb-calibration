@@ -19,7 +19,7 @@ studied: $0.40 (today; the $0.018 in `math.h` is stale), $1, $5, $10, $4,294.97 
 | Network fee targets | **$0.02/KB PQ, $0.05/KB vault / Yellowback** — as decided | Per-path dollars in §4; a $0.05/KB SLH redeem is $0.41 |
 | Network fee floor | **5,000 zat/KB (50× relay, the pq study's m = 50)**, not 1× | Above $1,225/YEC the $0.05/KB target (above $490 the $0.02/KB one) pays fewer zat per byte than a P2PKH payment (4.08 zat/B); at the ceiling 1.2 zat/B. The m = 50 floor keeps miners' per-byte income at parity at every price |
 | Network fee cap | **max($2 at the attested price, 0.1 YEC)** for the vault / Yellowback builders (wallet policy) | `-maxtxfee` 0.1 YEC binds on the 8,249-byte SLH redeem below $4.12/YEC — at $0.40 the target is 1.03 YEC, ten times the cap — and on every PQ path below $0.39–$4.86. With the cap binding the fee is still 1,212 zat/B (300× parity), so relay is unharmed, but the dollar target is fiction under $4. $2 never binds on any path up to 40 KB and is 46,566 zat at the ceiling |
-| Per-vault share of the cap (new) | **`maxVaultShareBps` = 1,000 of the MINT-6 cap, floor $10,000** | §2: one vault at 25–50 % of the cap is unexecutable on the books and makes one owner's absence or key the system's bad-debt event. One more MINT check on state the snapshot already holds (cap and supply); the floor keeps it from binding below H-12's scale |
+| Per-vault share of the cap | **`maxVaultShareBps` = 1,000 of the MINT-6 cap, floor $10,000** (unchanged; owner ruling absent) | On the circulating base (D-Q-25) this share does not bound one vault at $0.40: it is about $101,835, above `maxMint` $100,000, reaches `maxMint` near $0.393, and exceeds the $34,675 p50 executable claim above about $0.136. W4-K-2. |
 | `bondMin` (superseded by D-Q-30, 2026-10-11: clamp(5 % of YED vault collateral ÷ 9, 5,000 YEC, 20,000 YEC), no price; see [`ybcal seats`](../2026-10-seats/README.md)) | **$8,000 at the attested price of the registration, floor 2,000 YEC** (= 20,000 YEC at $0.40) | G8's `bond_secure` compares capture capital with the YED cap in dollars at one price; a dollar bond keeps the ratio. 20,000 YEC is $200,000 at $10 and $85.9 M at the ceiling |
 | `residualMinZat` | **$0.48 at `pMint`, floor 100,000 zat** | G9: three times the cost of spending it; the owner's residual is swept by an 8,044-byte SLH-DSA spend ($0.16 at the PQ target). 100,000 zat is $0.0004 at $0.40 |
 
@@ -37,13 +37,13 @@ Height 3,062,423 (policy `release_tip` 3,052,055 on 2026-10-02 + 9 days), supply
 | $10 | $169.7 M | $25.5 M | 254 | $81,000 | $985,500 | 37 |
 | $4,294.97 | $72.9 B | $10.9 B | 109,344 | $34.8 M | $423 M | 0 |
 
-**Red flag 1 — the cap is not 15 % of the market cap.** MINT-6 reads `issuedZat`, the coinbase since
-the start height (`state.cpp:1456`, from an empty `Snapshot()`), so the cap grows by 15 % of 1,800
-YEC a day: $3,240 after a month and $39,420 after a year at $0.40. A $100,000 class-A or class-B mint
-does not fit for 926 days; class C (500 %) bypasses the cap (W20 / IT-5), so $100k vaults are class-C
-only for the first years at today's price, and one class-C whale is 2.5× the bound classes' whole
-first-year cap. (G7 raised the same design note; the 15 %-of-market-cap framing in `params.cpp:41`
-and in D-Q-24 describes a different base than the rule implements.)
+**Red flag 1 — corrected to the circulating base (W4-K-2).** The table's "MINT-6 cap after 30 d /
+365 d" columns are the retired issuance base (coinbase since the start height). D-Q-25's shipped
+rule reads the circulating supply (16,972,537.5 YEC at height 3,062,423). On that base `maxVaultShareBps`
+1,000 does not bound one vault at $0.40: the share is about $101,835, so `maxMint` $100,000 is the
+ceiling, the share reaches `maxMint` near $0.393, and it exceeds the $34,675 p50 executable claim
+above about $0.136. The owner ruling is absent and the node constant was not changed. Class C's base
+equals `recapRatioBps`, so the aggregate cap never refuses a class C mint.
 
 **Concentration (G3 claimant model, frozen bid books).** A claim at θ executes only if the claimant
 nets 2 % of the debt after selling the seized YEC with the G3 slippage model (100 bps + 200 bps per
@@ -169,8 +169,9 @@ the cap binds at $0.40 at every setting, parity fails at the ceiling at every se
 
 ## Red flags for the owner
 
-1. **MINT-6 caps against coinbase since the start height, not the market cap**: $39k of headroom for
-   classes A/B after a year at $0.40; $100k vaults are class-C only for years (§2).
+1. **MINT-6b does not bound one vault on the circulating base** (D-Q-25): at $0.40 the 1,000 bps share
+   is above `maxMint`, so one vault is $100,000, which the frozen books cannot absorb (§2). The
+   $39,420 column is the retired issuance base. The owner ruling is absent; 1,000 bps is unchanged.
 2. **$100,000 is unliquidatable on today's books** (largest executable claim $34,675 against the whole
    visible bid side; $800 in G3's own band). A per-vault share-of-cap limit is recommended, and
    `maxMint` $100k is a depth bet (§2).

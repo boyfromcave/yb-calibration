@@ -190,6 +190,8 @@ def test_lock_readiness_and_sections(stub_report):
     # the registry is still the retired v3 pin (W4-K-1 part 1): a required item that fails until the re-pin
     assert pin_matches_model() is False
     assert "Registry pin is the model's (release line) commit | FAIL" in chk
+    assert "params.cpp patch applies at the release commit | FAIL" in chk
+    assert "params.cpp patch applies at the release commit (advisory)" not in chk
     sec = md.split("`pFastWindow` — CHANGE", 1)[1].split("####", 1)[0]
     for part in (
         "What it controls",
