@@ -98,8 +98,25 @@ def cli_extract(args: argparse.Namespace) -> int:
 def cli_check(args: argparse.Namespace) -> int:
     """Drift vs registry + invariants on main and regtest; non-zero on any failure."""
     from ybcal.config import Policy
+    from ybcal.params.registry import model_checked_commit, pin_matches_model
 
-    ex, where = _source(args)
+    try:
+        ex, where = _source(args)
+    except ExtractError as e:
+        print(f"FAILED: {e}")
+        if not pin_matches_model():
+            print(
+                f"registry pin {PINNED_COMMIT} is retired v3; the vendored model was checked "
+                f"against {model_checked_commit()}. Extraction of a newer commit fails closed on "
+                "the first field the v3 registry does not know. This is not a release check (D-MP-2)."
+            )
+        return 1
+    if not pin_matches_model():
+        print(
+            f"WARNING: registry pin {PINNED_COMMIT} is the retired v3 set; the vendored model was "
+            f"checked against ycash6 {model_checked_commit()}. This params check is not a release "
+            "input (D-MP-2). Pointed at the release line, extraction fails closed."
+        )
     print(f"source: {where} (commit {ex.commit[:12]})")
     failures = 0
     drift = check_drift(REGISTRY, ex)

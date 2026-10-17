@@ -117,10 +117,19 @@ def test_supply_rows_and_rule_cap():
     rows = F.supply_rows(3_062_423, (0.40, 10.0))
     r = rows[0]
     assert r.vaults_100k == 10
-    # MINT-6's base (issued since start) is far below the circulating cap: 15 % of 1.5625 × 1,152 × 30 × $0.40
+    # Retired issuance column, kept so the published table stays reproducible. Not the shipped base.
     assert r.rule_cap_30d_usd == pytest.approx(0.15 * 1.5625 * 1_152 * 30 * 0.40)
     assert r.rule_days_to_one_100k > 365
     assert rows[1].rule_cap_365d_vaults_100k == pytest.approx(9.855, rel=0.01)
+
+
+def test_mint6b_on_the_circulating_base_does_not_bound_one_vault():
+    """W4-K-2 crossovers from the kernels. maxVaultShareBps stays 1,000; no owner ruling."""
+    assert F.circulating_max_vault_cents(0.1362) / 100 == pytest.approx(34_675, abs=1)
+    assert F.circulating_max_vault_cents(0.3928) / 100 == pytest.approx(100_000, abs=5)
+    # At $0.40 the share is above maxMint, so MINT-6b does not bind and one vault is $100,000.
+    assert F.circulating_max_vault_cents(0.40) / 100 > 100_000
+    assert F.RELEASE_CONSTANTS.max_vault_share_bps == 1_000
 
 
 def test_revenue_models_and_attestor_floor():

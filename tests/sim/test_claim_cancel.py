@@ -2,8 +2,17 @@
 
 from __future__ import annotations
 
+import pytest
+
 from ybcal.model.kernels import BPS, COIN, is_underwater
-from ybcal.sim.extract import account_claim_cancel, path_a_closed_collateral, rate_cap_zat
+from ybcal.sim.extract import (
+    YED_ATTESTOR_RATE_LIMIT_BPS,
+    account_claim_cancel,
+    format_spread_bucket,
+    one_spread_bucket,
+    path_a_closed_collateral,
+    rate_cap_zat,
+)
 
 #: $100,000 of debt at $0.42, the audit's path-(a) boundary example.
 DEBT_CENTS = 10_000_000
@@ -111,3 +120,55 @@ def test_rate_limit_zero_does_not_refuse_and_a_positive_limit_can():
     assert refused.claimant_intent_zat + refused.residual_intent_zat == collateral
     admitted = _account(12_500, rate_limit_bps=10_000, epoch_basis_zat=collateral, epoch_used_zat=0)
     assert admitted.rate_refused is False and admitted.cancel is not None
+
+
+def test_one_spread_bucket_reports_extraction_with_the_module_fix_on_and_off(capsys):
+    """One spread bucket, not a G3 or seats re-run. Constants are not re-scored.
+
+    Off (pre-RED-5b) extracts (1 − 1/θ)·C, which rises with θ (9.09 % at 11,000,
+    20.00 % at 12,500, 59,524 YEC at $100,000 and pClaim $0.42). On (RED-5b, cap
+    at pEmerg) extracts less of the same collateral. Both sides are one claim
+    intent, claimDelay 576, a one-seat cancel, a CAN-1 refund, and a residual
+    that is not re-locked.
+    """
+    yec = {11_000: 23_810, 12_500: 59_524, 15_000: 119_048}
+    shares = []
+    for theta, expected_yec in yec.items():
+        row = one_spread_bucket(theta)
+        print(format_spread_bucket(row))
+        assert row.constants_rescored is False
+        assert row.claim_delay == 576
+        assert row.off.rate_limit_bps == YED_ATTESTOR_RATE_LIMIT_BPS == 0
+        for account in (row.off, row.on):
+            assert account.path == "b"
+            assert account.rate_refused is False
+            assert account.claim is not None and account.cancel is not None
+            assert account.claim.supply_cents == -DEBT_CENTS
+            assert account.cancel.supply_cents == DEBT_CENTS
+            assert account.owner_extracted_zat == account.residual_intent_zat
+            assert account.relock_zat == account.claimant_intent_zat
+            assert account.claimant_intent_zat + account.residual_intent_zat == row.collateral_zat
+            assert account.cancel.collateral_zat == -account.owner_extracted_zat
+        formula = row.collateral_zat * (theta - BPS) // theta
+        assert abs(row.off.owner_extracted_zat - formula) <= 1
+        assert round(row.off.owner_extracted_zat / COIN) == expected_yec
+        assert row.on.owner_extracted_zat < row.off.owner_extracted_zat
+        shares.append(row.off.owner_extracted_zat / row.collateral_zat)
+    assert shares[0] == pytest.approx(0.0909, abs=0.0001)
+    assert shares[1] == pytest.approx(0.20, abs=1e-9)
+    assert shares[0] < shares[1] < shares[2]
+    printed = capsys.readouterr().out
+    assert "off_extracted_zat=" in printed and "on_extracted_zat=" in printed
+    assert "constants_rescored=False" in printed
+
+
+def test_yed_rate_limit_bps_is_zero_and_absent_from_the_vendored_model():
+    """ycash-dd #97 / ycash6 90b1ac763 pin the YED set; the vendored model does not."""
+    import inspect
+
+    from ybcal.model import reference as ref
+    from ybcal.model.kernels import set_create_adoptable
+
+    assert YED_ATTESTOR_RATE_LIMIT_BPS == 0
+    assert "rate_limit_bps" not in inspect.signature(set_create_adoptable).parameters
+    assert not hasattr(ref.Params.mainnet(1), "attestor_rate_limit_bps")

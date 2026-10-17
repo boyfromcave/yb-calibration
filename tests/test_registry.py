@@ -6,7 +6,24 @@ import pytest
 
 from ybcal.params.extract import check_drift, load_snapshot
 from ybcal.params.paramset import mainnet, regtest
-from ybcal.params.registry import GROUPS, KLASSES, REGISTRY, field_names, params_for_group
+from ybcal.params.registry import (
+    GROUPS,
+    KLASSES,
+    PINNED_COMMIT,
+    REGISTRY,
+    field_names,
+    model_checked_commit,
+    params_for_group,
+    pin_matches_model,
+)
+
+
+def test_registry_pin_is_still_the_retired_v3_pin():
+    """D-MP-2: no field-equality claim against the release Params until a real re-pin."""
+    assert PINNED_COMMIT == "7702d22"
+    assert pin_matches_model() is False
+    assert model_checked_commit().startswith("4129f22cd")
+    assert not model_checked_commit().startswith(PINNED_COMMIT)
 
 
 def test_registry_covers_every_params_field_in_order(extracted):
