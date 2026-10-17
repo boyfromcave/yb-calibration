@@ -2108,7 +2108,7 @@ max(pMid, pSlow)`, `state.cpp:540-551`). The seller is reported (`claim_sell.*`)
 (`state.cpp:559-561`) gives a RED-4(a) claimant everything up to θ × debt, so an owner absent after
 `lockHeight + grace` forfeits up to 25 % of the debt (G3-DN2).
 
-**Amendment (W4-K-3, applies to D-RD-COL-6 and D-RD-COL-7).** θ 12,500, `emergencyRatioBps` 10,500 and the 10,000-YEC bond floor were set from the v3 claim model and are **not calibrated against** the upgrade line's claim/cancel mechanics (claim intents, `claimDelay`, cancel by one set member (CAN-2 then escalates a vault's later cancels to 2, 3, 4 co-signers, `cancelSignersMax` 4, reset after `cancelQuiet` 8,064 blocks), CAN-1 refund, residual release, CAN-2/CAN-3 cancel limit, RED-5a/5b path-(b) residual sized at pEmerg with the claimant floored): the simulator has no model of them (the kernels are exercised only by the golden replay). Before RED-5a/5b a path-(b) claim at the path-(a) boundary left a residual of (1 − 1/θ)·C, i.e. 9.09 % of the collateral at θ 11,000 and 20.00 % at 12,500; the merged rules change that figure and it has not been re-measured here. D-MP-1's planned T5 re-run models the cancel limit as "one extra 12 h round per griefed vault"; that holds only with CAN-2 merged (it is, at ycash6 `4129f22cd` / ycash-dd `ed828e7b2`, with `cancelSignersMax` 4 rather than the 5 D-MP-1 cites), and the re-run has not been done. `claimDelay`, the cancel/unlock thresholds and `rateLimitBps` have no registry entry or study.
+**Amendment (W4-K-3, applies to D-RD-COL-6 and D-RD-COL-7).** θ 12,500, `emergencyRatioBps` 10,500 and the 10,000-YEC bond floor were set from the v3 claim model and are **not calibrated against** the upgrade line's claim/cancel mechanics (claim intents, `claimDelay`, cancel by one set member (CAN-2 then escalates a vault's later cancels to 2, 3, 4 co-signers, `cancelSignersMax` 4, reset after `cancelQuiet` 8,064 blocks), CAN-1 refund, residual release, CAN-2/CAN-3 cancel limit, RED-5a/5b path-(b) residual sized at pEmerg with the claimant floored): the vault book still does not run a book of them. One spread bucket is accounted by `account_claim_cancel` / `one_spread_bucket`: a claim intent, `claimDelay`, a one-seat cancel, a CAN-1 refund, and a residual that is not re-locked. With the module sizing off, a path-(b) claim at the path-(a) boundary extracts (1 − 1/θ)·C (9.09 % of the collateral at θ 11,000, 20.00 % at 12,500, 59,524 YEC for a $100,000 debt at `pClaim` $0.42). With RED-5b on, the same bucket extracts less. θ, `emergencyRatioBps`, the bond floor and `claimDelay` were not re-scored. D-MP-1's planned T5 re-run models the cancel limit as "one extra 12 h round per griefed vault"; that holds only with CAN-2 merged (it is, at ycash6 `4129f22cd` / ycash-dd `ed828e7b2`, with `cancelSignersMax` 4 rather than the 5 D-MP-1 cites), and the re-run has not been done. `claimDelay` and the cancel/unlock thresholds have no registry entry. `rateLimitBps` is not a field of the vendored model at `4129f22cd`; the YED set's value 0 is a checked invariant in the spread-bucket test (node pin ycash6 `90b1ac763`, ycash-dd #97) and was not sized by a study.
 
 ## D-RD-COL-7 (2026-10-04, collateral) — emergencyRatioBps: KEEP, and on real crashes it does not matter
 
@@ -2600,9 +2600,21 @@ now differ; the test pins that set, so the registry re-pin will be noticed.
 - **G5** (activation): retired in full.
 - **G6** (miners / fees): FEE-1 is retired; the fee structure is `ybcal fees` (Option D, already on FEE-1′).
 - **G7** (supply / halts): no participation / enforcement halts; HALT-2 200 % with the 500 % recap gate;
-  the supply cap reads the circulating supply (D-Q-25) and MINT-6b bounds one vault.
+  the supply cap reads the circulating supply (D-Q-25). MINT-6b at 1,000 bps does **not** bound one vault on that base at a realistic price (the share reaches maxMint near $0.393 and exceeds the $34,675 p50 executable claim above about $0.136; height 3,062,423, circulating 16,972,537.5 YEC). The owner ruling is absent; the node constant is unchanged (W4-K-2).
 - **G8** (attestation): registration is the set's SET_JOIN; seating by seat weight and eviction (the seat
   study already models them; its numbers are unchanged).
 - **G9** (amounts): maxMint $100,000 everywhere (D-Q-24), MINT-6b, PRICE_MAX = UINT32_MAX.
 - **G1 / G2**: the price windows and HALT-3 are unchanged; σ is pinned at 1 (`sigmaRefBps` 0, D-IT-5), so G2's
   σ-multiplier outputs no longer feed a live rule.
+
+## D-MP-2 (2026-10-17) — the registry re-pin is not done
+
+**Not a re-pin.** `PINNED_COMMIT` remains `7702d22` (retired v3). The registry is not equal to `Params` at the release line, and zero drift is not claimed. `ybcal params check` against the v3 snapshot still matches that snapshot and warns that the result is not a release input. Pointed at a newer ycash6 commit, extraction fails closed on the first field the v3 registry does not know (`Params() leaves 'pqAddressVersion' uninitialised`).
+
+**Model commit recorded.** The vendored reference was checked against ycash6 `4129f22cd7a9732b5a15dd2b1893dd09b7f4471c` (`vendor.VENDORED_COMMIT`, `registry.model_checked_commit`). That commit is not the registry pin.
+
+**Patch check.** The lock-readiness item "params.cpp patch applies at the release commit" is required. While the pin is retired it fails, because the patch is still built at `7702d22`.
+
+**Not re-run.** Studies G1–G9, the policy base set and the 96-row registry were not moved onto the upgrade `Params`. `extract.py` cannot read that struct (`feeBands[i].uptoCents`, `uint256`, address-version vectors, the new constructor). Extending it and rewriting the registry without a field-equality test would be a false claim of zero drift.
+
+**One measurement that did land, and what it did not do.** `one_spread_bucket` reports extraction for one path-(b) spread bucket with RED-5b on and the pre-RED-5b residual off. θ, `emergencyRatioBps`, the bond floor and `claimDelay` were not re-scored. The YED set's `rateLimitBps` = 0 is a checked constant in that test (node pin ycash6 `90b1ac763`, ycash-dd #97); the vendored model has no such field.

@@ -6,8 +6,9 @@ already in the repo (the frozen 2026-10-04 order books for depth, the policy's a
 
 1. **Supply cap reality.** YEC circulating supply from the emission schedule (Zcash's slow start and
    halvings, Ycash's Blossom at 1,100,000), market cap and the 15 % cap at $0.40 / $1 / $5 / $10, how
-   many $100,000 vaults fit, and what MINT-6 actually caps (coinbase issued *since the start height*,
-   soft above ``recapRatioBps``). Concentration: one vault at 25 % / 50 % of the cap against the same
+   many $100,000 vaults fit, and what MINT-6 caps on the shipped rule (the circulating supply,
+   D-Q-25). The ``rule_cap_*`` columns are the retired issuance base this study was first published
+   against; they are not the shipped cap. Concentration: one vault at 25 % / 50 % of the cap against the same
    debt over 100 vaults, through the G3 claimant model (slippage against the frozen bid depth) and the
    idiosyncratic owner risks the policy declares.
 2. **Option D protocol fee**: tiered on the debt in dollars at ``pMint`` (1.0 % ≤ $1k, 0.5 % to $10k,
@@ -328,12 +329,34 @@ class SupplyRow:
     market_cap_usd: float
     cap_15pct_usd: float  #: the owner's framing: 15 % of the circulating market cap
     vaults_100k: int
-    rule_cap_30d_usd: float  #: MINT-6's base: 15 % of coinbase issued since the start height
+    rule_cap_30d_usd: float  #: retired issuance base, not D-Q-25: 15 % of coinbase since the start height
     rule_cap_365d_usd: float
     rule_cap_365d_vaults_100k: float
     rule_days_to_one_100k: (
         float  #: days of issuance before one $100k mint fits (classes A/B only; C bypasses)
     )
+
+
+#: Circulating YEC at height 3,062,423 (W4-K-2). The node constant is not derived from this.
+CIRCULATING_YEC_AT_3062423 = 16_972_537.5
+
+
+def circulating_max_vault_cents(
+    price_usd: float, share_bps: int = 1_000, floor_cents: int = 1_000_000
+) -> int:
+    """MINT-6b debt ceiling in cents on the circulating supply at height 3,062,423.
+
+    ``share_bps`` defaults to the shipped 1,000. This does not apply ``maxMint`` and
+    does not recommend a new share: the W4-K-2 owner ruling is absent.
+    """
+    from ybcal.model.kernels import max_vault_cents, supply_cap_cents
+
+    issued = round(CIRCULATING_YEC_AT_3062423 * COIN)
+    cap = supply_cap_cents(issued, round(price_usd * 1_000_000), SUPPLY_CAP_BPS)
+    bound = max_vault_cents(cap, share_bps, floor_cents)
+    if bound is None:
+        raise ValueError("MINT-6b has no bound at this price")
+    return bound
 
 
 def supply_rows(height: int, prices: Sequence[float] = PRICES_USD) -> list[SupplyRow]:
@@ -858,13 +881,18 @@ def recommend(policy: Policy, d: OptionD, height: int) -> Recommendation:
         f"max($2 at the attested price, 0.1 YEC), for the vault / Yellowback builders only (policy, not "
         f"consensus); $2 covers every path's target up to a 40 KB transaction and is "
         f"{2 / PRICE_MAX_USD * COIN:,.0f} zat at the ceiling.",
-        f"Supply cap: at $0.40 the circulating cap is ${sup.cap_15pct_usd:,.0f} ({sup.vaults_100k} vaults of "
-        "$100k) but MINT-6 caps against coinbase issued since the start height: "
-        f"${sup.rule_cap_30d_usd:,.0f} "
-        f"after 30 days, ${sup.rule_cap_365d_usd:,.0f} after a year — one $100k class-A/B vault fits only "
-        f"after {sup.rule_days_to_one_100k:,.0f} days; class C (500 %) bypasses the cap. $100k vaults are "
-        f"class-C-only for the first years at $0.40, and one class-C whale is "
-        f"{MAX_MINT_USD / sup.rule_cap_365d_usd:.1f}× the whole first-year cap of the bound classes.",
+        f"Supply cap: D-Q-25's shipped base is the circulating supply "
+        f"({CIRCULATING_YEC_AT_3062423:,.1f} YEC at height 3,062,423), not coinbase issued since the start "
+        f"height. The ${sup.rule_cap_30d_usd:,.0f} / ${sup.rule_cap_365d_usd:,.0f} figures are that retired "
+        "issuance base and do not describe the rule. On the circulating base, MINT-6b at the unchanged "
+        f"maxVaultShareBps 1,000 (floor $10,000) is ${circulating_max_vault_cents(0.40) / 100:,.0f} at "
+        f"$0.40, above maxMint ${MAX_MINT_USD:,.0f}, so the share does not bound one vault there: the "
+        f"ceiling is maxMint, and the share reaches it near $0.393 "
+        f"(${circulating_max_vault_cents(0.3928) / 100:,.0f}) and exceeds the "
+        f"${exec50:,.0f} p50 executable claim above about $0.136 "
+        f"(${circulating_max_vault_cents(0.1362) / 100:,.0f}). The owner ruling is absent (W4-K-2); "
+        "the node constant was not changed. Class C's base equals recapRatioBps, so the aggregate cap "
+        "never refuses a class C mint.",
         f"Concentration: a $100k debt's claim must sell $125k of YEC into a bid book of "
         f"${BID_DEPTH_USD['30pct']['p50']:,.0f} (whole visible book, p50) — the claimant model says no claim "
         f"executes above a debt of ${exec50:,.0f} at that depth (${exec2:,.0f} in G3's own 2 % band at p10), "
@@ -872,14 +900,11 @@ def recommend(policy: Policy, d: OptionD, height: int) -> Recommendation:
         "or "
         "lost key puts the whole position in the claim path; 100 vaults of the same total are each "
         "executable "
-        "and expose 1 % per owner. Recommend a per-vault share-of-cap limit: maxVaultShareBps = 1,000 of "
-        "the "
-        "MINT-6 cap with a $10,000 floor (so the rule never binds below H-12's scale), one more MINT check "
-        "on "
-        f"state the snapshot already holds; and the owner should know that $100,000 is "
-        f"{MAX_MINT_USD / exec50:.0f}× the largest claim the frozen books can absorb, so D-Q-24's maxMint "
-        "is a "
-        f"depth bet, not a parameter the data supports.",
+        "and expose 1 % per owner. The shipped maxVaultShareBps stays 1,000 of the MINT-6 cap with a "
+        "$10,000 floor: on the circulating base that share does not bound one vault at a realistic price. "
+        f"No owner ruling has replaced it (W4-K-2). $100,000 is {MAX_MINT_USD / exec50:.0f}× the largest "
+        "claim the frozen books can absorb, so D-Q-24's maxMint is a depth bet, not a parameter the data "
+        "supports.",
         "residualMinZat follows the fee pattern: "
         f"${rec.residual_min_usd:.2f} at pMint (floor 100,000 zat). bondMin does not: this study proposed "
         "$8,000 at the registration price (floor 2,000 YEC), and the owner replaced it with D-Q-30 "
