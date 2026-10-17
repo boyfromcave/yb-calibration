@@ -540,7 +540,12 @@ def set_create_adoptable(open_set: bool, seats: int, cancel_threshold: int, unlo
     """state.cpp:1035-1042 (reference ``_apply_set_act``): YED adopts its attestor set's SET_CREATE only
     when the set is OPEN with exactly ``ATTESTOR_SEATS`` seats, its cancel and unlock thresholds are the
     pinned constants (03/I-3; CAN-1 makes a cancel value-neutral), its maturity (the bond exit delay)
-    is ``BOND_MATURITY`` and its liveness window at least ``ATTESTOR_LIVENESS_MIN`` (seats review B3)."""
+    is ``BOND_MATURITY`` and its liveness window at least ``ATTESTOR_LIVENESS_MIN`` (seats review B3).
+
+    The vendored model at ycash6 ``4129f22cd`` does not compare ``rateLimitBps``. The node
+    later pins the YED set to 0 (ycash6 ``90b1ac763``, ycash-dd #97). That invariant is
+    ``ybcal.sim.extract.YED_ATTESTOR_RATE_LIMIT_BPS``, not a parameter of this function,
+    until the model is re-vendored."""
     return (open_set and seats == attestor_seats and cancel_threshold == attestor_cancel_threshold
             and unlock_threshold == attestor_unlock_threshold and maturity == bond_maturity
             and liveness_window >= attestor_liveness_min)
