@@ -62,6 +62,18 @@ def pin_matches_model() -> bool:
     return min(len(a), len(b)) >= 7 and (a.startswith(b) or b.startswith(a))
 
 
+def model_checked_commit() -> str:
+    """ycash6 commit the vendored reference was checked against.
+
+    This is not :data:`PINNED_COMMIT`. While :func:`pin_matches_model` is false the
+    registry is the retired v3 set and is not equal to ``Params`` at this commit
+    (D-MP-2). Callers must not report zero drift against the release line.
+    """
+    from ybcal.model.vendor import VENDORED_COMMIT
+
+    return VENDORED_COMMIT
+
+
 Klass = Literal["locked", "excluded", "per-release", "constant", "derived", "meta"]
 Unit = Literal[
     "blocks", "height", "bps", "zat", "cents", "micro-usd", "count", "enum", "bool", "hex", "string",

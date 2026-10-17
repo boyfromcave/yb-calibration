@@ -42,6 +42,18 @@ def test_params_check_snapshot(capsys, monkeypatch):
     monkeypatch.delenv("YBCAL_YCASH6", raising=False)
     rc, out, _ = run(["params", "check", "--release-tip", "3052055"], capsys)
     assert rc == 0 and "OK" in out
+    # the v3 snapshot still matches the registry, and that match is not a release check
+    assert "WARNING:" in out and "retired v3" in out and "not a release input" in out
+
+
+def test_params_check_fails_closed_on_the_release_line(capsys):
+    repo = ycash6_path()
+    if repo is None:
+        pytest.skip("no ycash6 clone")
+    rc, out, _ = run(["params", "check", "--ycash6", str(repo), "--ref", "HEAD"], capsys)
+    assert rc == 1
+    assert "pqAddressVersion" in out
+    assert "fails closed" in out and "D-MP-2" in out
 
 
 def test_params_check_live(capsys):
