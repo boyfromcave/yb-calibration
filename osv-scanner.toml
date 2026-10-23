@@ -1,27 +1,6 @@
 # OSV-Scanner exceptions (SECURITY-CI.md). Each entry: the advisory, why it does not reach this repository,
 # and an ignoreUntil at most 90 days out, after which it fails the scan again.
-#
-# All three are in contrib/semgrep/requirements.txt, Semgrep's own hash-locked dependency set. That file is
-# shared verbatim with ycash-dd, ycash6 and librustzcash6 (contrib/semgrep/README.md), so it moves there
-# first, together with config.json "semgrep_version", and is copied here; it is CI tooling, never a ybcal
-# dependency. requirements-lock.txt (ybcal) and contrib/secops/ have no open advisory.
 
-[[IgnoredVulns]]
-id = "GHSA-84m7-p3x7-pcfv"  # CVE-2026-59951, mcp 1.29.0
-ignoreUntil = 2026-11-22T00:00:00Z
-reason = "Session-state exhaustion in mcp's Streamable HTTP server. Semgrep's optional MCP server is never started: scan.py runs only `semgrep scan` on the runner, with no listening socket. Bump with the shared semgrep lock."
-
-[[IgnoredVulns]]
-id = "GHSA-xcq7-p3pf-p88h"  # CVE-2026-114603, opentelemetry-api 1.37.0
-ignoreUntil = 2026-11-22T00:00:00Z
-reason = "ReDoS in TraceState.from_header on an inbound W3C tracestate header. Semgrep runs with --metrics=off and receives no HTTP requests, so no attacker-supplied header is parsed. Bump with the shared semgrep lock."
-
-[[IgnoredVulns]]
-id = "GHSA-6q48-6c7w-9gw2"  # PYSEC-2026-4320, certifi 2026.7.22 (semgrep lock only; fixed in contrib/secops)
-ignoreUntil = 2026-11-22T00:00:00Z
-reason = "Distrusted eMudhra root in certifi's bundle. The semgrep venv makes no TLS connection of its own: no registry, no login, --metrics=off; rule packs are fetched by git, which uses the system CA store. Bump with the shared semgrep lock."
-
-[[IgnoredVulns]]
-id = "PYSEC-2026-4320"  # alias of GHSA-6q48-6c7w-9gw2
-ignoreUntil = 2026-11-22T00:00:00Z
-reason = "Alias of GHSA-6q48-6c7w-9gw2 above (certifi in the shared semgrep lock); same reason."
+# contrib/semgrep/requirements.txt (the shared, hash-locked Semgrep CLI, copied byte-for-byte from
+# ycash-dd) has no open advisory: certifi, mcp and opentelemetry-* are overridden there to fixed
+# versions (contrib/semgrep/security-overrides.txt), so it needs no entry here.
