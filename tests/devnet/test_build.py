@@ -326,3 +326,50 @@ def test_default_artifact():
     assert b.default_artifact("Darwin", "arm64") == "release-macos_aarch64"
     assert b.default_artifact("Darwin", "x86_64") == "release-macos_x86_64"
     assert b.default_artifact("Linux", "aarch64") == "release-linux_aarch64"
+
+
+def _tar_with(path: Path, name: str, data: bytes = b"x", *, link: str | None = None) -> Path:
+    with tarfile.open(path, "w:gz") as tf:
+        info = tarfile.TarInfo(name)
+        if link is not None:
+            info.type, info.linkname = tarfile.SYMTYPE, link
+            tf.addfile(info)
+        else:
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+    return path
+
+
+def test_safe_extract_tar_extracts_inside_dest(tmp_path: Path) -> None:
+    dest = tmp_path / "out"
+    dest.mkdir()
+    b._safe_extract_tar(_tar_with(tmp_path / "ok.tgz", "bin/ycashd", b"elf"), dest)
+    assert (dest / "bin" / "ycashd").read_bytes() == b"elf"
+
+
+@pytest.mark.parametrize("name", ["../escape", "../out2/escape"])
+def test_safe_extract_tar_refuses_paths_outside_dest(tmp_path: Path, name: str) -> None:
+    # "../out2" shares the string prefix "<tmp>/out" with dest: a prefix check would admit it.
+    dest = tmp_path / "out"
+    dest.mkdir()
+    with pytest.raises(RuntimeError, match="unsafe path"):
+        b._safe_extract_tar(_tar_with(tmp_path / "bad.tgz", name), dest)
+    assert not (tmp_path / "escape").exists() and not (tmp_path / "out2").exists()
+
+
+@pytest.mark.skipif(not hasattr(tarfile, "data_filter"), reason="needs the tarfile data filter (3.11.4+)")
+def test_safe_extract_tar_refuses_link_outside_dest(tmp_path: Path) -> None:
+    dest = tmp_path / "out"
+    dest.mkdir()
+    with pytest.raises(tarfile.TarError):
+        b._safe_extract_tar(_tar_with(tmp_path / "link.tgz", "ycashd", link="/etc/passwd"), dest)
+
+
+def test_safe_extract_zip_refuses_sibling_prefix(tmp_path: Path) -> None:
+    dest = tmp_path / "out"
+    dest.mkdir()
+    zp = tmp_path / "bad.zip"
+    with zipfile.ZipFile(zp, "w") as zf:
+        zf.writestr("../out2/escape", b"x")
+    with pytest.raises(RuntimeError, match="unsafe path"):
+        b._safe_extract_zip(zp, dest)

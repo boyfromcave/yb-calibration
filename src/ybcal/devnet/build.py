@@ -749,18 +749,26 @@ def default_artifact(system: str | None = None, machine: str | None = None) -> s
 
 
 def _safe_extract_tar(tar: Path, dest: Path) -> None:
+    # Every member must resolve inside dest (is_relative_to, not a string prefix: dest "/a/b" must not
+    # admit "/a/bc"), and the "data" extraction filter (Python >= 3.11.4) also refuses absolute names,
+    # links that point outside dest, device files and setuid bits.
+    root = dest.resolve()
     with tarfile.open(tar) as tf:
-        for m in tf.getmembers():
-            target = (dest / m.name).resolve()
-            if not str(target).startswith(str(dest.resolve())):
+        members = tf.getmembers()
+        for m in members:
+            if not (dest / m.name).resolve().is_relative_to(root):
                 raise RuntimeError(f"unsafe path in {tar.name}: {m.name}")
-        tf.extractall(dest)
+        if hasattr(tarfile, "data_filter"):
+            tf.extractall(dest, members=members, filter="data")
+        else:
+            tf.extractall(dest, members=members)
 
 
 def _safe_extract_zip(zf_path: Path, dest: Path) -> None:
+    root = dest.resolve()
     with zipfile.ZipFile(zf_path) as zf:
         for name in zf.namelist():
-            if not str((dest / name).resolve()).startswith(str(dest.resolve())):
+            if not (dest / name).resolve().is_relative_to(root):
                 raise RuntimeError(f"unsafe path in {zf_path.name}: {name}")
         zf.extractall(dest)
 

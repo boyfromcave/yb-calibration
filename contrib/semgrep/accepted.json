@@ -1,0 +1,75 @@
+{
+  "_comment": "Accepted Semgrep findings (contrib/semgrep/README.md, 'Accepting a finding'). findings: fingerprint -> {rule, path, reason, by, date}. rule_paths: [{rule (glob), paths (globs), reason, by, date}]. Every entry needs a reason a reviewer can check.",
+  "findings": {},
+  "rule_paths": [
+    {
+      "rule": "ybcal.data.network-fetch-without-provenance",
+      "paths": [
+        "src/ybcal/devnet/build.py"
+      ],
+      "reason": "probe_host() sends an HTTPS HEAD to check that the depends/ download hosts are reachable before a devnet build; it reads no body and fetches no calibration input.",
+      "by": "secops CI setup",
+      "date": "2026-10-23"
+    },
+    {
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected",
+      "paths": [
+        "src/ybcal/devnet/build.py"
+      ],
+      "reason": "The same probe_host() HEAD request: its URLs are the fixed depends/ hosts in build.py, never a data input.",
+      "by": "secops CI setup",
+      "date": "2026-10-23"
+    },
+    {
+      "rule": "python.lang.security.audit.dangerous-subprocess-use-*",
+      "paths": [
+        "src/ybcal/devnet/overlay.py",
+        "src/ybcal/report/robust.py",
+        "contrib/semgrep/**",
+        "tests/**"
+      ],
+      "reason": "Every hit runs an argv list without a shell (git apply on a .work worktree, ybcal's own sub-runs, semgrep/git in the CI scanner, test fixtures); ybcal.subprocess.shell (critical) fails any shell use. Checked 2026-10-23.",
+      "by": "secops CI setup",
+      "date": "2026-10-23"
+    },
+    {
+      "rule": "python.lang.security.insecure-hash-algorithm-sha1",
+      "paths": [
+        "src/ybcal/studies/g1_price_windows.py",
+        "src/ybcal/studies/g3_collateral.py"
+      ],
+      "reason": "SHA-1 here keys an in-process model cache and labels a run with a short data fingerprint; nothing authenticates data with it. Input integrity is the sha256 in each provenance sidecar (data/fetch.py).",
+      "by": "secops CI setup",
+      "date": "2026-10-23"
+    },
+    {
+      "rule": "python.lang.security.use-defusedcsv",
+      "paths": [
+        "src/ybcal/**"
+      ],
+      "reason": "ybcal writes CSVs of numbers, timestamps and fixed column names for itself to read back (load_price_csv) and for reports; they are not a spreadsheet-import path, so formula injection does not apply. Checked 2026-10-23.",
+      "by": "secops CI setup",
+      "date": "2026-10-23"
+    },
+    {
+      "rule": "python.lang.security.audit.non-literal-import",
+      "paths": [
+        "src/ybcal/cli.py",
+        "src/ybcal/studies/base.py",
+        "tests/test_skeleton.py"
+      ],
+      "reason": "The module names come from in-repo constant tables (the CLI routes, STUDY_MODULES), never from input.",
+      "by": "secops CI setup",
+      "date": "2026-10-23"
+    },
+    {
+      "rule": "python.lang.security.deserialization.avoid-pickle",
+      "paths": [
+        "src/ybcal/optimize/evaluate.py"
+      ],
+      "reason": "_picklable() only calls pickle.dumps to test whether a worker can go to a process pool; nothing is unpickled from a file. ybcal.data.unsafe-deserialization (critical) fails any pickle load.",
+      "by": "secops CI setup",
+      "date": "2026-10-23"
+    }
+  ]
+}
