@@ -1,0 +1,157 @@
+name: secops
+
+# Supply-chain and secrets checks (SECURITY-CI.md). One job per leg; each writes SARIF to GitHub code
+# scanning (category = the tool) and a table to the run summary, and never opens a PR or an issue.
+#
+#   zizmor       every workflow and .github/dependabot.yml, default persona; fails on any finding
+#   gitleaks     PR: the PR's own commits, fails on a new leak; nightly / dispatch: full history
+#   osv-scanner  every lockfile (requirements-lock.txt, contrib/**/requirements*.txt); fails on a known
+#                vulnerability not excepted in osv-scanner.toml (reason + ignoreUntil)
+#   pip-audit    ybcal's locked dependencies (requirements-lock.txt) and the CI tool locks; fails on any
+#
+# Every tool is installed at an exact version: zizmor and pip-audit from hash-locked requirements
+# (contrib/secops/), gitleaks and osv-scanner as release binaries checked against the sha256 recorded below.
+# Nightly at 03:43 UTC, off semgrep's 02:17.
+on:
+  pull_request:
+  push:
+    branches: [ upgrade/vault ]
+  schedule:
+    - cron: '43 3 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: secops-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GITLEAKS_VERSION: 8.30.1
+  GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+  OSV_SCANNER_VERSION: 2.6.0
+  OSV_SCANNER_SHA256: ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108
+
+jobs:
+  zizmor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install zizmor (hash-locked)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zizmor"
+          "$RUNNER_TEMP/zizmor/bin/pip" install --quiet --disable-pip-version-check --require-hashes --no-deps \
+            -r contrib/secops/requirements-zizmor.txt
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}  # online audits (impostor commits, known-vulnerable actions)
+        run: |
+          rc=0
+          "$RUNNER_TEMP/zizmor/bin/zizmor" --format sarif . > zizmor.sarif || rc=$?
+          { echo '## zizmor'; echo '```'; "$RUNNER_TEMP/zizmor/bin/zizmor" --format plain . 2>&1 || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+      - uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        if: ${{ !cancelled() && hashFiles('zizmor.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        with:
+          sarif_file: zizmor.sarif
+          category: zizmor
+
+  gitleaks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0  # the full history (nightly) or the PR's commits
+          persist-credentials: false
+      - name: Install gitleaks ${{ env.GITLEAKS_VERSION }} (sha256-checked)
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -sSfLo gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
+          tar xzf gitleaks.tgz gitleaks
+      - name: gitleaks
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          args=(git . --redact --no-banner --exit-code 1 --report-format sarif --report-path gitleaks.sarif)
+          if [ "$EVENT" = pull_request ]; then
+            args+=(--log-opts "$PR_BASE..$PR_HEAD")
+            scope="the PR's commits ($PR_BASE..$PR_HEAD)"
+          else
+            scope="full history"
+          fi
+          rc=0
+          "$RUNNER_TEMP/gitleaks" "${args[@]}" || rc=$?
+          { echo '## gitleaks'; echo "Scope: $scope. Exit $rc (0 = no leak; findings are redacted, see code scanning)."; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+      - uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        if: ${{ !cancelled() && hashFiles('gitleaks.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        with:
+          sarif_file: gitleaks.sarif
+          category: gitleaks
+
+  osv-scanner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install osv-scanner ${{ env.OSV_SCANNER_VERSION }} (sha256-checked)
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -sSfLo osv-scanner "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SCANNER_SHA256}  osv-scanner" | sha256sum -c -
+          chmod +x osv-scanner
+      - name: osv-scanner (every lockfile; exceptions in osv-scanner.toml)
+        run: |
+          rc=0
+          "$RUNNER_TEMP/osv-scanner" scan source -r --config osv-scanner.toml --format sarif --output-file osv.sarif . || rc=$?
+          { echo '## OSV-Scanner'; echo '```'; "$RUNNER_TEMP/osv-scanner" scan source -r --config osv-scanner.toml --format table . 2>&1 || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+      - uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        if: ${{ !cancelled() && hashFiles('osv.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        with:
+          sarif_file: osv.sarif
+          category: osv-scanner
+
+  pip-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install pip-audit (hash-locked)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pip-audit"
+          "$RUNNER_TEMP/pip-audit/bin/pip" install --quiet --disable-pip-version-check --require-hashes --no-deps \
+            -r contrib/secops/requirements-pip-audit.txt
+      - name: pip-audit (ybcal's locked dependencies and the CI tool locks)
+        run: |
+          rc=0
+          for lock in requirements-lock.txt contrib/secops/requirements-zizmor.txt contrib/secops/requirements-pip-audit.txt; do
+            echo "== $lock"
+            "$RUNNER_TEMP/pip-audit/bin/pip-audit" --disable-pip --require-hashes --progress-spinner off \
+              --format markdown -r "$lock" > audit.md || rc=$?
+            cat audit.md
+            { echo "## pip-audit: \`$lock\`"; cat audit.md; echo; } >> "$GITHUB_STEP_SUMMARY"
+          done
+          exit "$rc"

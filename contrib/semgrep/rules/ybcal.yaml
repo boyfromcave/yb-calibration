@@ -1,0 +1,89 @@
+# yb-calibration's own Semgrep rules, scanned beside the pinned rule packs (contrib/semgrep/README.md).
+# Its outputs justify constants baked into node releases, so the rules guard the integrity of its inputs.
+# metadata.bucket pins a rule's bucket; without it the bucket follows severity/impact/confidence.
+rules:
+  - id: ybcal.data.network-fetch-without-provenance
+    languages: [python]
+    paths:
+      include: ["/src/**"]
+      exclude:
+        # The one data-input network entry point: every fetch writes <csv>.provenance.json with the URLs,
+        # fetched_at and the file's sha256 (data/fetch.py write_provenance).
+        - "/src/ybcal/data/fetch.py"
+        # JSON-RPC to the local regtest/devnet ycashd (proxy disabled); not a data input.
+        - "/src/ybcal/devnet/rpc.py"
+    pattern-either:
+      - pattern: urllib.request.urlopen(...)
+      - pattern: urllib.request.urlretrieve(...)
+      - pattern: urllib.request.build_opener(...)
+      - pattern: http.client.HTTPConnection(...)
+      - pattern: http.client.HTTPSConnection(...)
+      - pattern: socket.create_connection(...)
+      - pattern: requests.$M(...)
+      - pattern: httpx.$M(...)
+      - pattern: aiohttp.ClientSession(...)
+    message: >-
+      A network fetch outside src/ybcal/data/fetch.py. Calibration inputs must be fetched through
+      data/fetch.py, which records the URLs, fetched_at and the sha256 of what it wrote in a provenance
+      sidecar, so a recommendation can prove which bytes it rests on (docs/data.md). Route the fetch
+      through it, or, for a call that never fetches a data input, accept it in accepted.json with a reason.
+    severity: ERROR
+    metadata:
+      category: security
+      bucket: critical
+      cwe: ["CWE-494: Download of Code Without Integrity Check"]
+      references: ["docs/data.md", "data/README.md"]
+
+  - id: ybcal.data.unsafe-deserialization
+    languages: [python]
+    pattern-either:
+      - pattern: pickle.load(...)
+      - pattern: pickle.loads(...)
+      - pattern: pickle.Unpickler(...)
+      - pattern: cPickle.load(...)
+      - pattern: cPickle.loads(...)
+      - pattern: dill.load(...)
+      - pattern: dill.loads(...)
+      - pattern: marshal.load(...)
+      - pattern: marshal.loads(...)
+      - pattern: shelve.open(...)
+      - pattern: joblib.load(...)
+      - pattern: pandas.read_pickle(...)
+      - pattern: pd.read_pickle(...)
+      - pattern: yaml.unsafe_load(...)
+      - pattern: yaml.full_load(...)
+      - patterns:
+          - pattern: yaml.load(...)
+          - pattern-not: yaml.load(..., Loader=yaml.SafeLoader, ...)
+          - pattern-not: yaml.load(..., Loader=yaml.CSafeLoader, ...)
+      - pattern: numpy.load(..., allow_pickle=True, ...)
+      - pattern: np.load(..., allow_pickle=True, ...)
+    message: >-
+      A deserialiser that can execute code (pickle, marshal, shelve, yaml.load without SafeLoader,
+      np.load with allow_pickle=True). Input files (price CSVs, scenarios, policies, snapshots, saved
+      runs) are data from outside the repository; read them with json / tomllib / csv /
+      np.load(allow_pickle=False) instead.
+    severity: ERROR
+    metadata:
+      category: security
+      bucket: critical
+      cwe: ["CWE-502: Deserialization of Untrusted Data"]
+
+  - id: ybcal.subprocess.shell
+    languages: [python]
+    pattern-either:
+      - pattern: subprocess.$F(..., shell=True, ...)
+      - pattern: os.system(...)
+      - pattern: os.popen(...)
+      - pattern: os.spawnlp(...)
+      - pattern: os.spawnvp(...)
+      - pattern: commands.getoutput(...)
+    message: >-
+      A command run through a shell. ybcal runs git, ycashd and its own sub-runs with an argv list and
+      shell=False (devnet/runner.py, report/robust.py); paths from the command line or a config must
+      never reach a shell. Pass a list to subprocess.run without shell=True.
+    severity: ERROR
+    metadata:
+      category: security
+      bucket: critical
+      cwe: ["CWE-78: Improper Neutralization of Special Elements used in an OS Command"]

@@ -1,0 +1,14 @@
+# Paths Semgrep never scans (contrib/semgrep/README.md). Semgrep scans git-tracked files only; this file
+# replaces its built-in ignore list, so the usual build and cache directories are named here too.
+.venv/
+build/
+dist/
+.work/
+data/local/
+reports/
+# The vendored reference model: byte-for-byte copies (or extracts) of boyfromcave/ycash6 test-framework files, pinned
+# by sha256 in src/ybcal/model/VENDOR.json / VENDOR_V3.json and checked by `ybcal verify`. Editing them
+# breaks parity; their findings are ycash6's to fix, where its own Semgrep scan covers the originals.
+src/ybcal/model/reference*.py
+# Test cases for this repository's own rules (semgrep --test contrib/semgrep/rules): they match on purpose.
+contrib/semgrep/rules/*.py

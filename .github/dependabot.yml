@@ -1,0 +1,28 @@
+# Dependabot: security updates only, one grouped PR per ecosystem (SECURITY-CI.md). Version updates are
+# suppressed (open-pull-requests-limit: 0): ybcal's dependencies move by regenerating requirements-lock.txt
+# (its header has the command), and the shared tool locks (contrib/semgrep, contrib/secops) move with the
+# other Yellowback repos.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directories: [ "/", "/contrib/semgrep", "/contrib/secops" ]
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    cooldown:
+      default-days: 7
+    groups:
+      security:
+        applies-to: security-updates
+        patterns: [ "*" ]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    cooldown:
+      default-days: 7
+    groups:
+      security:
+        applies-to: security-updates
+        patterns: [ "*" ]
