@@ -406,3 +406,14 @@ def test_short_environment_record_renders():
     assert e["constraints"] == [] and e["note"] == "G5-DN-VALVE" and e["least_harm"] == 12
     assert e["why"] and e["harm_metric"] and e["exposure"] is None
     assert X._env_record({"constraints": "false_halt"})["constraints"] == ["false_halt"]
+
+
+def test_html_template_escapes_by_default_and_md_is_verbatim():
+    from ybcal.report.build import report_env
+
+    env = report_env()
+    assert env.autoescape("report.html.j2") is True
+    assert env.autoescape("report.md.j2") is False
+    # a value from fetched data or a data-file name, with and without the explicit |e filter
+    html = env.from_string("{{ x|e }} {{ x }}").render(x="<script>&")
+    assert html == "&lt;script&gt;&amp; &lt;script&gt;&amp;"

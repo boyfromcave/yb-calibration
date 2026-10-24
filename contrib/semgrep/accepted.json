@@ -26,9 +26,10 @@
         "src/ybcal/devnet/overlay.py",
         "src/ybcal/report/robust.py",
         "contrib/semgrep/**",
-        "tests/**"
+        "tests/**",
+        "contrib/secops/**"
       ],
-      "reason": "Every hit runs an argv list without a shell (git apply on a .work worktree, ybcal's own sub-runs, semgrep/git in the CI scanner, test fixtures); ybcal.subprocess.shell (critical) fails any shell use. Checked 2026-10-23.",
+      "reason": "Every hit runs an argv list without a shell (git apply on a .work worktree, ybcal's own sub-runs, semgrep/git in the CI scanner, test fixtures); ybcal.subprocess.shell (critical) fails any shell use. Checked 2026-10-23. contrib/secops/code-scanning-triage.py (2026-10-24): gh api argv lists from constants and the workflow-supplied repository name, run only by the code-scanning workflow.",
       "by": "secops CI setup",
       "date": "2026-10-23"
     },
