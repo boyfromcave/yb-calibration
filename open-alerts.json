@@ -1,0 +1,173 @@
+[
+ {
+  "number": 10,
+  "created_at": "2026-10-23T06:10:37Z",
+  "updated_at": "2026-10-23T06:10:37Z",
+  "url": "https://api.github.com/repos/boyfromcave/yb-calibration/code-scanning/alerts/10",
+  "html_url": "https://github.com/boyfromcave/yb-calibration/security/code-scanning/10",
+  "state": "open",
+  "fixed_at": null,
+  "dismissed_by": null,
+  "dismissed_at": null,
+  "dismissed_reason": null,
+  "dismissed_comment": null,
+  "rule": {
+   "id": "py/jinja2/autoescape-false",
+   "severity": "error",
+   "description": "Jinja2 templating with autoescape=False",
+   "name": "py/jinja2/autoescape-false",
+   "tags": [
+    "external/cwe/cwe-079",
+    "security"
+   ],
+   "full_description": "Using jinja2 templates with 'autoescape=False' can cause a cross-site scripting vulnerability.",
+   "help": "# Jinja2 templating with autoescape=False\nCross-site scripting (XSS) attacks can occur if untrusted input is not escaped. This applies to templates as well as code. The `jinja2` templates may be vulnerable to XSS if the environment has `autoescape` set to `False`. Unfortunately, `jinja2` sets `autoescape` to `False` by default. Explicitly setting `autoescape` to `True` when creating an `Environment` object will prevent this.\n\n\n## Recommendation\nAvoid setting jinja2 autoescape to False. Jinja2 provides the function `select_autoescape` to make sure that the correct auto-escaping is chosen. For example, it can be used when creating an environment `Environment(autoescape=select_autoescape(['html', 'xml'])`\n\n\n## Example\nThe following example is a minimal Flask app which shows a safe and an unsafe way to render the given name back to the page. The first view is unsafe as `first_name` is not escaped, leaving the page vulnerable to cross-site scripting attacks. The second view is safe as `first_name` is escaped, so it is not vulnerable to cross-site scripting attacks.\n\n\n```python\nfrom flask import Flask, request, make_response, escape\nfrom jinja2 import Environment, select_autoescape, FileSystemLoader\n\napp = Flask(__name__)\nloader = FileSystemLoader( searchpath=\"templates/\" )\n\nunsafe_env = Environment(loader=loader)\nsafe1_env = Environment(loader=loader, autoescape=True)\nsafe2_env = Environment(loader=loader, autoescape=select_autoescape())\n\ndef render_response_from_env(env):\n    name = request.args.get('name', '')\n    template = env.get_template('template.html')\n    return make_response(template.render(name=name))\n\n@app.route('/unsafe')\ndef unsafe():\n    return render_response_from_env(unsafe_env)\n\n@app.route('/safe1')\ndef safe1():\n    return render_response_from_env(safe1_env)\n\n@app.route('/safe2')\ndef safe2():\n    return render_response_from_env(safe2_env)\n\n\n```\n\n## References\n* Jinja2: [API](http://jinja.pocoo.org/docs/2.10/api/).\n* Wikipedia: [Cross-site scripting](http://en.wikipedia.org/wiki/Cross-site_scripting).\n* OWASP: [XSS (Cross Site Scripting) Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html).\n* Common Weakness Enumeration: [CWE-79](https://cwe.mitre.org/data/definitions/79.html).\n",
+   "security_severity_level": "high"
+  },
+  "tool": {
+   "name": "CodeQL",
+   "guid": null,
+   "version": "2.27.3"
+  },
+  "most_recent_instance": {
+   "ref": "refs/heads/upgrade/vault",
+   "analysis_key": ".github/workflows/codeql.yml:analyze",
+   "environment": "{\"language\":\"python\"}",
+   "category": "codeql-python",
+   "state": "open",
+   "commit_sha": "164d664c058f7d0c788e3fd106a378c9204d9408",
+   "message": {
+    "text": "Using jinja2 templates with autoescape=False can potentially allow XSS attacks."
+   },
+   "location": {
+    "path": "src/ybcal/report/build.py",
+    "start_line": 1065,
+    "end_line": 1071,
+    "start_column": 11,
+    "end_column": 6
+   },
+   "classifications": []
+  },
+  "instances_url": "https://api.github.com/repos/boyfromcave/yb-calibration/code-scanning/alerts/10/instances",
+  "dismissal_approved_by": null,
+  "assignees": [],
+  "linked_pull_requests": [],
+  "linked_issues": []
+ },
+ {
+  "number": 9,
+  "created_at": "2026-10-23T06:10:37Z",
+  "updated_at": "2026-10-23T06:10:37Z",
+  "url": "https://api.github.com/repos/boyfromcave/yb-calibration/code-scanning/alerts/9",
+  "html_url": "https://github.com/boyfromcave/yb-calibration/security/code-scanning/9",
+  "state": "open",
+  "fixed_at": null,
+  "dismissed_by": null,
+  "dismissed_at": null,
+  "dismissed_reason": null,
+  "dismissed_comment": null,
+  "rule": {
+   "id": "py/incomplete-url-substring-sanitization",
+   "severity": "warning",
+   "description": "Incomplete URL substring sanitization",
+   "name": "py/incomplete-url-substring-sanitization",
+   "tags": [
+    "correctness",
+    "external/cwe/cwe-020",
+    "security"
+   ],
+   "full_description": "Security checks on the substrings of an unparsed URL are often vulnerable to bypassing.",
+   "help": "# Incomplete URL substring sanitization\nSanitizing untrusted URLs is a common technique for preventing attacks such as request forgeries and malicious redirections. Usually, this is done by checking that the host of a URL is in a set of allowed hosts.\n\nHowever, treating the URL as a string and checking if one of the allowed hosts is a substring of the URL is very prone to errors. Malicious URLs can bypass such security checks by embedding one of the allowed hosts in an unexpected location.\n\nEven if the substring check is not used in a security-critical context, the incomplete check may still cause undesirable behaviors when the check succeeds accidentally.\n\n\n## Recommendation\nParse a URL before performing a check on its host value, and ensure that the check handles arbitrary subdomain sequences correctly.\n\n\n## Example\nThe following example code checks that a URL redirection will reach the `example.com` domain.\n\n\n```python\nfrom flask import Flask, request, redirect\nfrom urllib.parse import urlparse\n\napp = Flask(__name__)\n\n# Not safe, as \"evil-example.net/example.com\" would be accepted\n\n@app.route('/some/path/bad1')\ndef unsafe1(request):\n    target = request.args.get('target', '')\n    if \"example.com\" in target:\n        return redirect(target)\n\n# Not safe, as \"benign-looking-prefix-example.com\" would be accepted\n\n@app.route('/some/path/bad2')\ndef unsafe2(request):\n    target = request.args.get('target', '')\n    if target.endswith(\"example.com\"):\n        return redirect(target)\n\n\n\n#Simplest and safest approach is to use an allowlist\n\n@app.route('/some/path/good1')\ndef safe1(request):\n    allowlist = [\n        \"example.com/home\",\n        \"example.com/login\",\n    ]\n    target = request.args.get('target', '')\n    if target in allowlist:\n        return redirect(target)\n\n#More complex example allowing sub-domains.\n\n@app.route('/some/path/good2')\ndef safe2(request):\n    target = request.args.get('target', '')\n    host = urlparse(target).hostname\n    #Note the '.' preceding example.com\n    if host and host.endswith(\".example.com\"):\n        return redirect(target)\n\n\n```\nThe first two examples show unsafe checks that are easily bypassed. In `unsafe1` the attacker can simply add `example.com` anywhere in the url. For example, `http://evil-example.net/example.com`.\n\nIn `unsafe2` the attacker must use a hostname ending in `example.com`, but that is easy to do. For example, `http://benign-looking-prefix-example.com`.\n\nThe second two examples show safe checks. In `safe1`, an allowlist is used. Although fairly inflexible, this is easy to get right and is most likely to be safe.\n\nIn `safe2`, `urlparse` is used to parse the URL, then the hostname is checked to make sure it ends with `.example.com`.\n\n\n## References\n* OWASP: [SSRF](https://www.owasp.org/index.php/Server_Side_Request_Forgery)\n* OWASP: [XSS Unvalidated Redirects and Forwards Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html).\n* Common Weakness Enumeration: [CWE-20](https://cwe.mitre.org/data/definitions/20.html).\n",
+   "security_severity_level": "high"
+  },
+  "tool": {
+   "name": "CodeQL",
+   "guid": null,
+   "version": "2.27.3"
+  },
+  "most_recent_instance": {
+   "ref": "refs/heads/upgrade/vault",
+   "analysis_key": ".github/workflows/codeql.yml:analyze",
+   "environment": "{\"language\":\"python\"}",
+   "category": "codeql-python",
+   "state": "open",
+   "commit_sha": "164d664c058f7d0c788e3fd106a378c9204d9408",
+   "message": {
+    "text": "The string api.coingecko.com may be at an arbitrary position in the sanitized URL."
+   },
+   "location": {
+    "path": "tests/data/test_fetch.py",
+    "start_line": 131,
+    "end_line": 131,
+    "start_column": 12,
+    "end_column": 38
+   },
+   "classifications": [
+    "test"
+   ]
+  },
+  "instances_url": "https://api.github.com/repos/boyfromcave/yb-calibration/code-scanning/alerts/9/instances",
+  "dismissal_approved_by": null,
+  "assignees": [],
+  "linked_pull_requests": [],
+  "linked_issues": []
+ },
+ {
+  "number": 8,
+  "created_at": "2026-10-23T06:10:37Z",
+  "updated_at": "2026-10-23T06:10:37Z",
+  "url": "https://api.github.com/repos/boyfromcave/yb-calibration/code-scanning/alerts/8",
+  "html_url": "https://github.com/boyfromcave/yb-calibration/security/code-scanning/8",
+  "state": "open",
+  "fixed_at": null,
+  "dismissed_by": null,
+  "dismissed_at": null,
+  "dismissed_reason": null,
+  "dismissed_comment": null,
+  "rule": {
+   "id": "py/incomplete-url-substring-sanitization",
+   "severity": "warning",
+   "description": "Incomplete URL substring sanitization",
+   "name": "py/incomplete-url-substring-sanitization",
+   "tags": [
+    "correctness",
+    "external/cwe/cwe-020",
+    "security"
+   ],
+   "full_description": "Security checks on the substrings of an unparsed URL are often vulnerable to bypassing.",
+   "help": "# Incomplete URL substring sanitization\nSanitizing untrusted URLs is a common technique for preventing attacks such as request forgeries and malicious redirections. Usually, this is done by checking that the host of a URL is in a set of allowed hosts.\n\nHowever, treating the URL as a string and checking if one of the allowed hosts is a substring of the URL is very prone to errors. Malicious URLs can bypass such security checks by embedding one of the allowed hosts in an unexpected location.\n\nEven if the substring check is not used in a security-critical context, the incomplete check may still cause undesirable behaviors when the check succeeds accidentally.\n\n\n## Recommendation\nParse a URL before performing a check on its host value, and ensure that the check handles arbitrary subdomain sequences correctly.\n\n\n## Example\nThe following example code checks that a URL redirection will reach the `example.com` domain.\n\n\n```python\nfrom flask import Flask, request, redirect\nfrom urllib.parse import urlparse\n\napp = Flask(__name__)\n\n# Not safe, as \"evil-example.net/example.com\" would be accepted\n\n@app.route('/some/path/bad1')\ndef unsafe1(request):\n    target = request.args.get('target', '')\n    if \"example.com\" in target:\n        return redirect(target)\n\n# Not safe, as \"benign-looking-prefix-example.com\" would be accepted\n\n@app.route('/some/path/bad2')\ndef unsafe2(request):\n    target = request.args.get('target', '')\n    if target.endswith(\"example.com\"):\n        return redirect(target)\n\n\n\n#Simplest and safest approach is to use an allowlist\n\n@app.route('/some/path/good1')\ndef safe1(request):\n    allowlist = [\n        \"example.com/home\",\n        \"example.com/login\",\n    ]\n    target = request.args.get('target', '')\n    if target in allowlist:\n        return redirect(target)\n\n#More complex example allowing sub-domains.\n\n@app.route('/some/path/good2')\ndef safe2(request):\n    target = request.args.get('target', '')\n    host = urlparse(target).hostname\n    #Note the '.' preceding example.com\n    if host and host.endswith(\".example.com\"):\n        return redirect(target)\n\n\n```\nThe first two examples show unsafe checks that are easily bypassed. In `unsafe1` the attacker can simply add `example.com` anywhere in the url. For example, `http://evil-example.net/example.com`.\n\nIn `unsafe2` the attacker must use a hostname ending in `example.com`, but that is easy to do. For example, `http://benign-looking-prefix-example.com`.\n\nThe second two examples show safe checks. In `safe1`, an allowlist is used. Although fairly inflexible, this is easy to get right and is most likely to be safe.\n\nIn `safe2`, `urlparse` is used to parse the URL, then the hostname is checked to make sure it ends with `.example.com`.\n\n\n## References\n* OWASP: [SSRF](https://www.owasp.org/index.php/Server_Side_Request_Forgery)\n* OWASP: [XSS Unvalidated Redirects and Forwards Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html).\n* Common Weakness Enumeration: [CWE-20](https://cwe.mitre.org/data/definitions/20.html).\n",
+   "security_severity_level": "high"
+  },
+  "tool": {
+   "name": "CodeQL",
+   "guid": null,
+   "version": "2.27.3"
+  },
+  "most_recent_instance": {
+   "ref": "refs/heads/upgrade/vault",
+   "analysis_key": ".github/workflows/codeql.yml:analyze",
+   "environment": "{\"language\":\"python\"}",
+   "category": "codeql-python",
+   "state": "open",
+   "commit_sha": "164d664c058f7d0c788e3fd106a378c9204d9408",
+   "message": {
+    "text": "The string https://download.z.cash/ may be at an arbitrary position in the sanitized URL."
+   },
+   "location": {
+    "path": "tests/devnet/test_build.py",
+    "start_line": 67,
+    "end_line": 67,
+    "start_column": 12,
+    "end_column": 52
+   },
+   "classifications": [
+    "test"
+   ]
+  },
+  "instances_url": "https://api.github.com/repos/boyfromcave/yb-calibration/code-scanning/alerts/8/instances",
+  "dismissal_approved_by": null,
+  "assignees": [],
+  "linked_pull_requests": [],
+  "linked_issues": []
+ }
+]
