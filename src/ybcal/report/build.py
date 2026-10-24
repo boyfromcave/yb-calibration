@@ -796,10 +796,32 @@ def write_csv(path: Path, header: Sequence[str], rows: Sequence[Sequence[Any]]) 
     return path
 
 
+def report_env() -> Any:
+    """The Jinja environment of report.html.j2 and report.md.j2.
+
+    report.html.j2 is HTML-escaped by default: its values include fetched price-data provenance,
+    data-file names, notes and policy text. ``|e`` returns Markup, so an explicitly escaped value is
+    not escaped twice. report.md.j2 is rendered verbatim (Markdown).
+    """
+    import jinja2
+    from markupsafe import escape
+
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(TEMPLATES)),
+        autoescape=jinja2.select_autoescape(enabled_extensions=("html.j2",), default=False),
+        trim_blocks=True,
+        lstrip_blocks=True,
+        undefined=jinja2.StrictUndefined,
+    )
+    env.filters["num"] = X.fmt_number
+    env.filters["pct"] = lambda x: "—" if x is None else f"{x:.2%}"
+    env.filters["mdcell"] = lambda s: str(s).replace("|", "\\|").replace("\n", " ")
+    env.filters["e"] = lambda s: escape(str(s))
+    return env
+
+
 def write_report(ctx: ReportContext, out: Path) -> dict[str, Path]:
     """Render ``ctx`` into ``out`` (see the module docstring); returns the written paths."""
-    import jinja2
-
     t0 = time.perf_counter()
     out.mkdir(parents=True, exist_ok=True)
     evidence = out / "evidence"
@@ -1062,23 +1084,7 @@ def write_report(ctx: ReportContext, out: Path) -> dict[str, Path]:
 
     # -- render ----------------------------------------------------------------------------------
     images: dict[str, str] = {}
-    env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(str(TEMPLATES)),
-        autoescape=False,
-        trim_blocks=True,
-        lstrip_blocks=True,
-        undefined=jinja2.StrictUndefined,
-    )
-    env.filters["num"] = X.fmt_number
-    env.filters["pct"] = lambda x: "—" if x is None else f"{x:.2%}"
-    env.filters["mdcell"] = lambda s: str(s).replace("|", "\\|").replace("\n", " ")
-
-    def esc(s: Any) -> str:
-        from markupsafe import escape
-
-        return str(escape(str(s)))
-
-    env.filters["e"] = esc
+    env = report_env()
 
     def img(rel: str) -> str:
         if rel not in images:
