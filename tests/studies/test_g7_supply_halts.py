@@ -89,6 +89,21 @@ def test_demand_split_and_halt_metrics(tiny_run):
     )
 
 
+def test_halt2_reads_open_debt(tiny_run):
+    """HALT-2 divides by open debt (node Totals.openDebtCents, owner 2026-10-28): the halt family's R0 is the
+    book's collateral over the debt of its open vaults, and the supply reading is reported beside it. The book
+    burns nothing outside its redemptions and has no CLAIMING window, so the two agree, and supply never
+    exceeds open debt (the node's invariant)."""
+    run, _ = tiny_run
+    for r in run.table:
+        v = r.metrics.values
+        if not math.isfinite(v["book.global_ratio_true"]):
+            continue
+        assert v["book.open_debt_usd_year1"] >= v["book.supply_usd_year1"] - 1e-6
+        assert v["book.global_ratio_true"] <= v["book.global_ratio_true_supply"] + 1e-9
+        assert v["book.global_ratio_true"] == pytest.approx(v["book.global_ratio_true_supply"])
+
+
 def test_system_tolerance_and_drawdown_curve():
     pol = Policy()
     tol = G.system_tolerance(pol, mainnet())

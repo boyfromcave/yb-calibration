@@ -2618,3 +2618,26 @@ now differ; the test pins that set, so the registry re-pin will be noticed.
 **Not re-run.** Studies G1–G9, the policy base set and the 96-row registry were not moved onto the upgrade `Params`. `extract.py` cannot read that struct (`feeBands[i].uptoCents`, `uint256`, address-version vectors, the new constructor). Extending it and rewriting the registry without a field-equality test would be a false claim of zero drift.
 
 **One measurement that did land, and what it did not do.** `one_spread_bucket` reports extraction for one path-(b) spread bucket with RED-5b on and the pre-RED-5b residual off. θ, `emergencyRatioBps`, the bond floor and `claimDelay` were not re-scored. The YED set's `rateLimitBps` = 0 is a checked constant in that test (node pin ycash6 `90b1ac763`, ycash-dd #97); the vendored model has no such field.
+
+## D-MP-3 (2026-10-28) — G7 reads HALT-2 on open debt; the re-run does not move `globalRatioHaltBps`
+
+**The rule.** The node's HALT-2 now divides the ACTIVE and CLAIMING vaults' collateral by their open debt
+(`Totals.openDebtCents`, the sum of their `mintedCents`), not by `supplyCents` (owner decision 2026-10-28; upgrade
+plan §15.10 "HALT-2 reads open debt", in-term IT-6 amended; DigiByte v9.26.6 `2c1f09a0d8` made the same move).
+`supplyCents ≤ openDebtCents` always; supply still drives MINT-6.
+
+**What G7 changes.** The halt family's `R0` (`book.global_ratio_true`) is the book's collateral at the true price
+over the debt of its open vaults at the end of the year-1 prefix; the supply reading is reported beside it
+(`book.global_ratio_true_supply`, `book.open_debt_usd_year1`). The crash metrics already froze collateral and the
+denominator through the fall, which is what the open-debt denominator does during a claim's window (a claim moves
+neither until its release), where the supply one rose with each claim's burn.
+
+**Re-run (`recommend --budget quick --synthetic --allow-retired-v3 --groups G7`, seed 20261003, before and after).**
+Identical tables: the book burns nothing outside its redemptions and has no CLAIMING window, so open debt equals
+supply on every path (`R0` 5.97 both at the current set) and every halt-family metric is unchanged. At 20,000 bps the
+run reads P(system bad debt within grace) 3.20 % against a 1.62 % tolerance, recall 100 %, no false calm halt; at
+the registry's 25,000 bps 1.09 %. Those figures are on the **retired v3 registry** (D-MP-2: class ratios, θ and the
+grace are v3's, not the in-term set that `globalRatioHaltBps` 20,000 belongs to, D-IT-11), so they neither confirm
+nor refute 20,000. **Conclusion:** the denominator change gives G7 no reason to move the constant; whether 20,000
+stands is not established by this tool until the registry is re-pinned to the upgrade line and the book models the
+CLAIMING window (D-MP-1's T5). The constant is unchanged.
