@@ -235,13 +235,29 @@ def book_metrics(env: Env, cand: ParamSet) -> dict[str, Any]:
             if rows.size:
                 worst = max(worst, float(np.percentile(rows.max(axis=1), q)))
         out["liq.claims_max_day_usd"] = worst
-        # mature book: global ratio at the true price at the end of the prefix
+        # mature book: global ratio at the true price at the end of the prefix. HALT-2 divides by open debt
+        # (node: Totals.openDebtCents, the ACTIVE and CLAIMING vaults' mintedCents; owner 2026-10-28),
+        # not by supply. The book has no CLAIMING window (a claim closes its vault at once, so its collateral
+        # and debt leave together), so its open debt is the debt of the vaults still open at the prefix end;
+        # the supply reading is kept beside it for the comparison.
         je = max(0, j0 - 1)
         sup = res.supply_cents[:, je].astype(np.float64) / 100
         col = res.collateral_zat[:, je].astype(np.float64) / COIN * tp[:, je] / MICRO_USD_PER_USD
+        debt = np.zeros(Pn)
+        for p in range(Pn):
+            m = (
+                (v["outcome"] == VB.O_ACTIVE)
+                & (v["path"] == p + p0)
+                & (v["step"] <= ts[je])
+                & ((v["close_step"] < 0) | (v["close_step"] > ts[je]))
+            )
+            debt[p] = float(v["cents"][m].sum()) / 100
+        okd = debt > 0
         ok = sup > 0
-        out["book.global_ratio_true"] = float(np.median(col[ok] / sup[ok])) if ok.any() else math.nan
+        out["book.global_ratio_true"] = float(np.median(col[okd] / debt[okd])) if okd.any() else math.nan
+        out["book.global_ratio_true_supply"] = float(np.median(col[ok] / sup[ok])) if ok.any() else math.nan
         out["book.supply_usd_year1"] = float(np.median(sup))
+        out["book.open_debt_usd_year1"] = float(np.median(debt))
         exempt_usd = []
         for p in range(Pn):
             m = (
@@ -485,6 +501,8 @@ def _fams() -> tuple[Family, ...]:
         "halt.lead_hours_p50",
         "halt.bypass_classes",
         "book.global_ratio_true",
+        "book.global_ratio_true_supply",
+        "book.open_debt_usd_year1",
     )
     div = (
         "div.f1",
