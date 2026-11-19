@@ -39,13 +39,17 @@ from pathlib import Path
 
 OWNER_WP = "WP-1"
 
-#: The commit the shipped files were vendored from: ycash6 ``upgrade/vault`` ``4129f22cd`` (2026-10-15, golden
-#: SCHEMA_VERSION 14 with RED-5a/5b: the claimant intent floored at collateral - residual, path (b) sized at
-#: pEmerg; the model, golden and SERIALISATION files are byte-identical on ycash-dd ``ed828e7b2``, whose
-#: ``yellowback_util.py`` differs only in a comment and a trailing space). Previous pins: ``a983720de``
+#: The commit the shipped files were vendored from: ycash6 ``upgrade/vault`` ``d50e3b843`` (2026-11-19, the
+#: beta4 consensus line, ycash6 #145: golden SCHEMA_VERSION 16, tag v2 with a post-quantum payout key, the
+#: Payee type (kind, hash) keying E(R), PIN-1, the penalty and accuracy reads and the fee payees; also HALT-2
+#: over open vault debt (#59) and the YED set's rateLimitBps pinned to 0 (#18) since the previous pin).
+#: Previous pin ``4129f22cd`` (2026-10-15, golden SCHEMA_VERSION 14 with RED-5a/5b: the claimant intent
+#: floored at collateral - residual, path (b) sized at pEmerg; the model, golden and SERIALISATION files are
+#: byte-identical on ycash-dd ``ed828e7b2``, whose ``yellowback_util.py`` differs only in a comment and a
+#: trailing space). Earlier pins: ``a983720de``
 #: (SCHEMA_VERSION 14, the per-vault cancel limit), ``1310a41a1`` (SCHEMA_VERSION 13), ``7702d22`` (v3,
 #: SCHEMA_VERSION 4).
-VENDORED_COMMIT = "4129f22cd7a9732b5a15dd2b1893dd09b7f4471c"
+VENDORED_COMMIT = "d50e3b843122b46010326a4ea0bbf8cb5bd14ab1"
 SOURCE_REPO = "boyfromcave/ycash6"
 TF = "qa/rpc-tests/test_framework/"
 MODEL_DIR = Path(__file__).resolve().parent

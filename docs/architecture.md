@@ -285,7 +285,11 @@ selection inside each study only; there is no cross-group robust pass, D-WP8-7.)
 `src/ybcal/model/` is the exact arithmetic of the overlay. Everything here is checked by
 `ybcal verify` (and by `tests/model/`, which run the same checks plus hypothesis property tests).
 
-**Pin.** ycash6 `upgrade/vault` `4129f22cd` (2026-10-15; SCHEMA 14, the per-vault cancel limit CAN-2/CAN-3/C4b and
+**Pin.** ycash6 `upgrade/vault` `d50e3b843` (2026-11-19, beta4, ycash6 #145; SCHEMA 16): tag v2 (a
+post-quantum payout key; a payee is kind ‖ hash, P2PKH or post-quantum, keying E(R), PIN-1 and the fee
+outputs), HALT-2 over `Totals.openDebtCents` (ycash6 #59, SCHEMA 15; the golden check passes it as the
+ratio's denominator, the simulator still feeds `supplyCents`) and the YED set's `rateLimitBps` 0 (ycash6
+`90b1ac763`). The kernels' citations are otherwise unchanged. Previous pin: ycash6 `upgrade/vault` `4129f22cd` (2026-10-15; SCHEMA 14, the per-vault cancel limit CAN-2/CAN-3/C4b and
 RED-5a/5b, the model, golden and SERIALISATION files byte-identical on ycash-dd `ed828e7b2`; `kernels.claim_split` follows
 RED-5b (path (b) caps at pEmerg, state.cpp:690-711 at `4129f22cd`); the other kernels and the citations below are still
 those of `1310a41a1`, which `ybcal verify` checks against the new golden). At `1310a41a1` every vendored file was

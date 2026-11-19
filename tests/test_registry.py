@@ -22,7 +22,7 @@ def test_registry_pin_is_still_the_retired_v3_pin():
     """D-MP-2: no field-equality claim against the release Params until a real re-pin."""
     assert PINNED_COMMIT == "7702d22"
     assert pin_matches_model() is False
-    assert model_checked_commit().startswith("4129f22cd")
+    assert model_checked_commit().startswith("d50e3b843")   # the vendored model: ycash6 beta4 (#145)
     assert not model_checked_commit().startswith(PINNED_COMMIT)
 
 

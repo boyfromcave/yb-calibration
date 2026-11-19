@@ -162,8 +162,10 @@ def test_one_spread_bucket_reports_extraction_with_the_module_fix_on_and_off(cap
     assert "constants_rescored=False" in printed
 
 
-def test_yed_rate_limit_bps_is_zero_and_absent_from_the_vendored_model():
-    """ycash-dd #97 / ycash6 90b1ac763 pin the YED set; the vendored model does not."""
+def test_yed_rate_limit_bps_is_zero_in_the_sim_and_the_vendored_model():
+    """ycash-dd #97 / ycash6 90b1ac763 pin the YED set's rateLimitBps to 0; the vendored model carries
+    it from the beta4 re-vendor (ycash6 d50e3b843) on, at the same value. The kernel keeps it out of
+    its signature (the sim's constant is the invariant)."""
     import inspect
 
     from ybcal.model import reference as ref
@@ -171,4 +173,4 @@ def test_yed_rate_limit_bps_is_zero_and_absent_from_the_vendored_model():
 
     assert YED_ATTESTOR_RATE_LIMIT_BPS == 0
     assert "rate_limit_bps" not in inspect.signature(set_create_adoptable).parameters
-    assert not hasattr(ref.Params.mainnet(1), "attestor_rate_limit_bps")
+    assert ref.Params.mainnet(1).attestor_rate_limit_bps == YED_ATTESTOR_RATE_LIMIT_BPS

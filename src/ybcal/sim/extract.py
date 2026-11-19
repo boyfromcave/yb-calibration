@@ -12,8 +12,8 @@ off. It does not recommend a value of θ, ``emergencyRatioBps``, the bond floor,
 ``claimDelay``, or ``rateLimitBps``, and nothing here is a re-run of G3, the
 seats study, or D-MP-1's T5 plan.
 
-The vendored reference at ``vendor.VENDORED_COMMIT`` (ycash6 ``4129f22cd``) has
-no ``attestor_rate_limit_bps``. The node pins the YED set's ``rateLimitBps`` to
+The vendored reference had no ``attestor_rate_limit_bps`` until ycash6 ``d50e3b843`` (the
+re-vendor at beta4); it now checks it against 0. The node pins the YED set's ``rateLimitBps`` to
 0 (ycash6 ``90b1ac763``, ycash-dd #97, W3-Y-3 / R-1d). That constant is
 :data:`YED_ATTESTOR_RATE_LIMIT_BPS`; :func:`ybcal.model.kernels.set_create_adoptable`
 does not grow a parameter the vendored model does not have.
@@ -54,7 +54,7 @@ __all__ = [
 ]
 
 #: YED adopted set: ``rateLimitBps`` == 0.
-#: The vendored model (ycash6 4129f22cd) has no such field. The node pin is
+#: The vendored model checks it from ycash6 d50e3b843 on (beta4 re-vendor). The node pin is
 #: ycash6 90b1ac763 / ycash-dd #97 (W3-Y-3, R-1d). Not a re-scored constant.
 YED_ATTESTOR_RATE_LIMIT_BPS: int = 0
 

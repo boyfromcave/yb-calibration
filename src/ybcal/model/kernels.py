@@ -307,7 +307,11 @@ def global_ratio_bps(collateral_zat: int, p_mint: Price, supply_cents: int) -> i
 
 
 def halt2_global_ratio(collateral_zat: int, p_mint: Price, supply_cents: int, halt_bps: int) -> bool:
-    """state.cpp:1701 HALT-2: pMint defined, supply > 0 and globalRatioBps < globalRatioHaltBps."""
+    """state.cpp:1701 HALT-2: pMint defined, supply > 0 and globalRatioBps < globalRatioHaltBps.
+
+    Since ycash6 #59 (SCHEMA_VERSION 15) the node's denominator is ``Totals.openDebtCents`` (the
+    mintedCents of every ACTIVE and CLAIMING vault), not ``supplyCents``: pass that value as
+    ``supply_cents`` to reproduce the node (the golden check does)."""
     r = global_ratio_bps(collateral_zat, p_mint, supply_cents)
     return r is not None and r < halt_bps
 
@@ -542,10 +546,9 @@ def set_create_adoptable(open_set: bool, seats: int, cancel_threshold: int, unlo
     pinned constants (03/I-3; CAN-1 makes a cancel value-neutral), its maturity (the bond exit delay)
     is ``BOND_MATURITY`` and its liveness window at least ``ATTESTOR_LIVENESS_MIN`` (seats review B3).
 
-    The vendored model at ycash6 ``4129f22cd`` does not compare ``rateLimitBps``. The node
-    later pins the YED set to 0 (ycash6 ``90b1ac763``, ycash-dd #97). That invariant is
-    ``ybcal.sim.extract.YED_ATTESTOR_RATE_LIMIT_BPS``, not a parameter of this function,
-    until the model is re-vendored."""
+    The vendored model from ycash6 ``d50e3b843`` on compares ``rateLimitBps`` too (pinned to 0
+    for the YED set, ycash6 ``90b1ac763``, ycash-dd #97); this kernel keeps it out of its
+    signature and the invariant is ``ybcal.sim.extract.YED_ATTESTOR_RATE_LIMIT_BPS``."""
     return (open_set and seats == attestor_seats and cancel_threshold == attestor_cancel_threshold
             and unlock_threshold == attestor_unlock_threshold and maturity == bond_maturity
             and liveness_window >= attestor_liveness_min)

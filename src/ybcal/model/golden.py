@@ -72,7 +72,7 @@ def check_golden(model: ref.YellowbackModel | None = None, doc: dict | None = No
 def _quotes(model, lo: int, hi: int, excluded=()) -> list[int]:
     p = model.params
     return [t.price_micro_usd for h in range(max(lo + 1, p.start_height), hi + 1)
-            if (t := model.tags.get(h)) is not None and t.is_quote and t.payout_key not in excluded]
+            if (t := model.tags.get(h)) is not None and t.is_quote and t.payee not in excluded]
 
 
 def _golden_txs(doc: dict[str, Any]) -> dict[str, tuple[int, Any]]:
@@ -116,9 +116,11 @@ def check_chain_kernels(model: ref.YellowbackModel | None = None, doc: dict | No
         prices2 = (K.price_mint(*meds), K.price_claim(meds[1], meds[2]))
         check("PRICE-2 pMint/pClaim", prices2 == (s.p_mint, s.p_claim), h)
         # U-21: no activation state machine, no signal count, no PARTICIPATION / ENFORCEMENT bit
-        mask = K.halt_mask(*meds, s.collateral_zat, s.supply_cents, p.global_ratio_halt_bps, p.divergence_bps)
+        # HALT-2's denominator is Totals.openDebtCents (ycash6 #59, SCHEMA_VERSION 15), not supplyCents
+        mask = K.halt_mask(*meds, s.collateral_zat, s.open_debt_cents, p.global_ratio_halt_bps,
+                           p.divergence_bps)
         check("HALT-1..3 mask (U-21: no ACT bits)", mask == s.halt_mask, h)
-        ratio = K.global_ratio_bps(s.collateral_zat, s.p_mint, s.supply_cents)
+        ratio = K.global_ratio_bps(s.collateral_zat, s.p_mint, s.open_debt_cents)
         check("HALT-2 global ratio", ratio == s.global_ratio_bps, h)
         issued += subsidy[h]                                   # D-Q-25: the golden's issuedBeforeStart is 0
         check("MINT-6 issuedZat (D-Q-25)", s.issued_zat == issued, h)
@@ -127,7 +129,7 @@ def check_chain_kernels(model: ref.YellowbackModel | None = None, doc: dict | No
         rows = [model.bundle_log[x] for x in range(lo, h) if x in model.bundle_log]
         keys: list = []
         if K.pin1_triggered([r.a_mint for r in rows], p.pin_min_bundles, p.pin_delta_bps):
-            quotes = [(t.payout_key, t.price_micro_usd) for x in range(lo, h)
+            quotes = [(t.payee, t.price_micro_usd) for x in range(lo, h)
                       if (t := model.tags.get(x)) is not None and t.is_quote]
             keys = K.pin1_pinned_keys(quotes, p.pin_min_tags)
         check("PIN-1 pinned keys", keys == list(s.pinned_keys), h)

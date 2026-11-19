@@ -1,8 +1,8 @@
 # ==== ybcal vendored file -- do not edit; re-vendor with `ybcal verify --revendor` ====
 # source: boyfromcave/ycash6 qa/rpc-tests/test_framework/yellowback_model.py
-# commit: 4129f22cd7a9732b5a15dd2b1893dd09b7f4471c
-# sha256: bb1f6a3b96b9a77fad5c9d933fccf775625d2e6e35324d1b4190d9e1a22344e5
-# body-sha256: d9f54de18a5287d54cf4372b7f285152d051e492024be1267dc8c937a19311cf
+# commit: d50e3b843122b46010326a4ea0bbf8cb5bd14ab1
+# sha256: 4cdb450a2ab7c0a1382534b6aeb87d008bb387138201975a7f1108ee56388b31
+# body-sha256: c5fbbf536de8185e297701fa09449bd71c2eabdaeacbb504037b0cba5e98cefd
 # mode: whole file, unmodified except these import-line rewrites (vendor.SPECS):
 # rewrites: 'from . import yellowback_attest as ya' -> 'from . import reference_attest as ya' (x10); 'from . import yellowback_attest as ya' -> 'from . import reference_attest as ya' (x1); 'from . import yellowback_attest as ya' -> 'from . import reference_attest as ya' (x1); 'from . import vault as va' -> 'from . import reference_vault as va' (x1); 'from . import vault as va' -> 'from . import reference_vault as va' (x4)
 # ruff: noqa
@@ -75,6 +75,11 @@ TAG_MAGIC = b'YED!'
 TAG_VERSION = 1
 TAG_SIZE = 36
 TAG_PATTERN = b'\x24' + TAG_MAGIC      # direct-push opcode 0x24 (36) followed by the magic (P10)
+# Tag v2 (docs/plans/beta4/price-feed.md section 4.3): 49 bytes, a post-quantum payout key (scheme || 32-byte hash)
+TAG_VERSION_V2 = 2
+TAG_SIZE_V2 = 49
+TAG_PATTERN_V2 = b'\x31' + TAG_MAGIC   # direct-push opcode 0x31 (49) followed by the magic
+PAYEE_P2PKH = 0                        # Payee kind 0: P2PKH (20-byte Hash160); kind 1/2: the PQ scheme byte
 
 PAYLOAD_MAGIC = b'YB'
 PAYLOAD_VERSION = 3
@@ -270,7 +275,7 @@ class Params(object):
                  bond_min_lock=0, bond_maturity=16_128, age_cap=207_360,
                  founding_window=8_064, dormancy_blocks=16_128, dormancy_min_bundles=20, dormancy_check=48,
                  seat_age_unit=1_152, seat_age_cap=420_480, seat_margin_bps=500, evict_margin_bps=500, attestor_seats=15,
-                 attestor_cancel_threshold=1, attestor_unlock_threshold=1, attestor_liveness_min=1_152,
+                 attestor_cancel_threshold=1, attestor_unlock_threshold=1, attestor_rate_limit_bps=0, attestor_liveness_min=1_152,
                  cancel_signers_max=4, cancel_quiet=8_064)       # CAN-2/CAN-3 (owner 2026-10-13; round 2: max 4, was 5); not hashed
         a.update(attest or {})
         for k, v in a.items():
@@ -285,7 +290,7 @@ class Params(object):
                           bond_min_lock=0, bond_maturity=8, age_cap=64, founding_window=16,
                           dormancy_blocks=16, dormancy_min_bundles=2, dormancy_check=4,
                           seat_age_unit=1_152, seat_age_cap=420_480, seat_margin_bps=500, evict_margin_bps=500, attestor_seats=15,
-                          attestor_cancel_threshold=1, attestor_unlock_threshold=1, attestor_liveness_min=16,
+                          attestor_cancel_threshold=1, attestor_unlock_threshold=1, attestor_rate_limit_bps=0, attestor_liveness_min=16,
                           cancel_signers_max=3, cancel_quiet=40)
 
     def pq_falcon_active(self, height):
@@ -554,10 +559,12 @@ def supply_cap_cents(issued_zat, p_mint, cap_bps):
     return u256(c * cap_bps) // BPS
 
 
-def global_ratio_bps(collateral_zat, p_mint, supply_cents):
-    if p_mint is None or supply_cents <= 0:
+def global_ratio_bps(collateral_zat, p_mint, debt_cents):
+    """HALT-2's ratio: collateral at p_mint against debt_cents, which SNAP passes as Totals.openDebtCents (the
+    mintedCents of every ACTIVE and CLAIMING vault; owner 2026-10-28), not supplyCents."""
+    if p_mint is None or debt_cents <= 0:
         return None
-    return u256(collateral_zat * p_mint) // (COIN * supply_cents)
+    return u256(collateral_zat * p_mint) // (COIN * debt_cents)
 
 
 def is_underwater(collateral_zat, p_claim, minted_cents, threshold_bps):
@@ -763,6 +770,27 @@ def base58check_decode(s):
     if len(data) < 4 or hash256(data[:-4])[:4] != data[-4:]:
         return None
     return data[:-4]
+
+
+# The plain post-quantum address versions (D-9, key_io.h PlainPQAddressVersions): 3-byte version -> scheme.
+PLAIN_PQ_ADDRESS_VERSIONS = {
+    bytes.fromhex('4ddd04'): 0x02, bytes.fromhex('4dde6a'): 0x01,   # main sqf / sqs
+    bytes.fromhex('4f6519'): 0x02, bytes.fromhex('4f667f'): 0x01,   # test tqf / tqs
+    bytes.fromhex('4c54ef'): 0x02, bytes.fromhex('4c5655'): 0x01,   # regtest rqf / rqs
+}
+PAYOUT_SCHEME_NAMES = {0x00: 'p2pkh', 0x01: 'slh-dsa-sha2-128s', 0x02: 'fn-dsa-512'}   # yed_gettag.payoutScheme (rpcversion 11)
+
+
+def address_payee(addr):
+    """The payee (kind || hash) of a P2PKH address (22-byte payload) or a plain PQ address (35), else None."""
+    payload = base58check_decode(addr)
+    if payload is None:
+        return None
+    if len(payload) == 35 and payload[:3] in PLAIN_PQ_ADDRESS_VERSIONS:
+        return bytes([PLAIN_PQ_ADDRESS_VERSIONS[payload[:3]]]) + payload[3:]
+    if len(payload) == 22:
+        return payee_p2pkh(payload[2:])
+    return None
 
 
 def address_key_hash(addr):
@@ -1174,15 +1202,53 @@ def selector_of(script_sig):
 # ---------------------------------------------------------------------------
 # section 3.2  Coinbase tag codec
 
-class Tag(object):
-    __slots__ = ('version', 'flags', 'price_micro_usd', 'source_mask', 'payout_key')
+# ---------------------------------------------------------------------------
+# The payee (beta4 P1 spec section 2): kind u8 (0 = P2PKH, else the PQ scheme byte) || hash (20 or 32 bytes).
+# Python bytes order (kind first, then the hash bytes) is the spec's order; the bytes are the serialisation.
 
-    def __init__(self, version, flags, price_micro_usd, source_mask, payout_key):
+def payee_p2pkh(key20):
+    assert len(key20) == 20
+    return bytes([PAYEE_P2PKH]) + bytes(key20)
+
+
+def payee_pq(scheme, hash32):
+    assert scheme in PQ_SCHEMES and len(hash32) == 32
+    return bytes([scheme]) + bytes(hash32)
+
+
+def payee_script(payee):
+    """kind 0: the 25-byte P2PKH script; kind 1/2: the 35-byte TX_PQPKH script (GetScriptForPQKey)."""
+    payee = bytes(payee)
+    if payee[0] == PAYEE_P2PKH:
+        return p2pkh_script(payee[1:])
+    return pqpkh_script(payee)
+
+
+def payee_of_script(spk):
+    """The payee of a fee output: exactly a P2PKH or a TX_PQPKH with a known scheme, else None."""
+    key = p2pkh_key(spk)
+    if key is not None:
+        return payee_p2pkh(key)
+    owner = pqpkh_owner(spk)
+    if owner is not None and owner[0] in PQ_SCHEMES:
+        return owner
+    return None
+
+
+class Tag(object):
+    __slots__ = ('version', 'flags', 'price_micro_usd', 'source_mask', 'payout_key', 'payout_scheme')
+
+    def __init__(self, version, flags, price_micro_usd, source_mask, payout_key, payout_scheme=PAYEE_P2PKH):
         self.version = version
         self.flags = flags
         self.price_micro_usd = price_micro_usd
         self.source_mask = source_mask
-        self.payout_key = payout_key
+        self.payout_key = payout_key          # v1: the 20-byte Hash160; v2: the 32-byte CPQKeyID hash
+        self.payout_scheme = payout_scheme    # v1: 0 (P2PKH); v2: 0x01 SLH-DSA-SHA2-128s or 0x02 FN-DSA-512
+
+    @property
+    def payee(self):
+        return bytes([self.payout_scheme]) + bytes(self.payout_key)
 
     @property
     def signal(self):
@@ -1200,11 +1266,11 @@ class Tag(object):
         return isinstance(other, Tag) and self.as_tuple() == other.as_tuple()
 
     def as_tuple(self):
-        return (self.version, self.flags, self.price_micro_usd, self.source_mask, self.payout_key)
+        return (self.version, self.flags, self.price_micro_usd, self.source_mask, self.payout_key, self.payout_scheme)
 
     def __repr__(self):
-        return 'Tag(v=%d flags=%d price=%d mask=%d key=%s)' % (
-            self.version, self.flags, self.price_micro_usd, self.source_mask, self.payout_key.hex())
+        return 'Tag(v=%d flags=%d price=%d mask=%d scheme=%d key=%s)' % (
+            self.version, self.flags, self.price_micro_usd, self.source_mask, self.payout_scheme, self.payout_key.hex())
 
 
 def encode_tag(flags, price_micro_usd, source_mask, payout_key, version=TAG_VERSION):
@@ -1219,33 +1285,70 @@ def tag_push(flags, price_micro_usd, source_mask, payout_key, version=TAG_VERSIO
     return b'\x24' + encode_tag(flags, price_micro_usd, source_mask, payout_key, version)
 
 
+def encode_tag_v2(flags, price_micro_usd, source_mask, payout_scheme, payout_hash, version=TAG_VERSION_V2):
+    """The 49-byte v2 tag body: magic | 0x02 | flags | price u64 | sourceMask u16 | payoutScheme u8 | payoutHash 32."""
+    assert len(payout_hash) == 32
+    return (TAG_MAGIC + bytes([version & 0xFF, flags & 0xFF]) + struct.pack('<Q', price_micro_usd)
+            + struct.pack('<H', source_mask) + bytes([payout_scheme & 0xFF]) + bytes(payout_hash))
+
+
+def tag_push_v2(flags, price_micro_usd, source_mask, payout_scheme, payout_hash, version=TAG_VERSION_V2):
+    """``0x31 || 49 bytes``."""
+    return b'\x31' + encode_tag_v2(flags, price_micro_usd, source_mask, payout_scheme, payout_hash, version)
+
+
+def tag_push_for_payee(flags, price_micro_usd, source_mask, payee):
+    """The push a node emits for a payee: v1 for P2PKH, v2 for a post-quantum payee."""
+    payee = bytes(payee)
+    if payee[0] == PAYEE_P2PKH:
+        return tag_push(flags, price_micro_usd, source_mask, payee[1:])
+    return tag_push_v2(flags, price_micro_usd, source_mask, payee[0], payee[1:])
+
+
 def tag_is_valid(tag, params):
-    """TAG-2."""
-    return (tag.version == TAG_VERSION and (tag.flags & 0xFE) == 0
+    """TAG-2 (v1) and its v2 form: the version matches the pattern, a v2 scheme is registered."""
+    if tag.version == TAG_VERSION:
+        if tag.payout_scheme != PAYEE_P2PKH or len(tag.payout_key) != 20:
+            return False
+    elif tag.version == TAG_VERSION_V2:
+        if tag.payout_scheme not in PQ_SCHEMES or len(tag.payout_key) != 32:
+            return False
+    else:
+        return False
+    return ((tag.flags & 0xFE) == 0
             and (tag.price_micro_usd == 0
                  or params.price_min <= tag.price_micro_usd <= params.price_max))
 
 
 def find_tag(script_sig, height, params):
-    """TAG-1..5: skip ``CScript() << height``, find the first ``24 59 45 44 21``, read the 32 bytes
-    after it, apply TAG-2.  Returns a valid Tag or None (invalid tag == no tag; never scans past
-    the first occurrence, TAG-5)."""
+    """TAG-1..5: skip ``CScript() << height``, find the first ``24 59 45 44 21`` or ``31 59 45 44 21``
+    (whichever comes first by position), read the 32 (v1) or 45 (v2) bytes after it, apply TAG-2.
+    A v1 pattern must carry version 1 and a v2 pattern version 2.  Returns a valid Tag or None (invalid
+    tag == no tag; never scans past the first occurrence, TAG-5)."""
     prefix = height_prefix(height)
     if len(script_sig) < len(prefix):
         return None
     rest = bytes(script_sig[len(prefix):])
-    pos = rest.find(TAG_PATTERN)
-    if pos < 0:
+    p1 = rest.find(TAG_PATTERN)
+    p2 = rest.find(TAG_PATTERN_V2)
+    if p1 < 0 and p2 < 0:
         return None
-    body = rest[pos + len(TAG_PATTERN):pos + len(TAG_PATTERN) + 32]
-    if len(body) < 32:
+    v2 = p1 < 0 or (p2 >= 0 and p2 < p1)
+    pos = p2 if v2 else p1
+    n = TAG_SIZE_V2 - len(TAG_MAGIC) if v2 else TAG_SIZE - len(TAG_MAGIC)   # 45 or 32
+    body = rest[pos + 5:pos + 5 + n]
+    if len(body) < n:
         return None
     version = body[0]
+    if version != (TAG_VERSION_V2 if v2 else TAG_VERSION):
+        return None
     flags = body[1]
     price = struct.unpack('<Q', body[2:10])[0]
     mask = struct.unpack('<H', body[10:12])[0]
-    key = body[12:32]
-    tag = Tag(version, flags, price, mask, key)
+    if v2:
+        tag = Tag(version, flags, price, mask, body[13:45], body[12])
+    else:
+        tag = Tag(version, flags, price, mask, body[12:32])
     if not tag_is_valid(tag, params):
         return None
     return tag
@@ -1578,10 +1681,10 @@ def regtest_subsidy(height, blossom_height=1):
 # The state (section 3.6)
 
 class TagRecord(object):
-    __slots__ = ('payout_key', 'price_micro_usd', 'signal', 'source_mask')
+    __slots__ = ('payee', 'price_micro_usd', 'signal', 'source_mask')
 
-    def __init__(self, payout_key, price_micro_usd, signal, source_mask):
-        self.payout_key = payout_key
+    def __init__(self, payee, price_micro_usd, signal, source_mask):
+        self.payee = payee                  # kind || hash (SCHEMA_VERSION 16: in place of the 20-byte payoutKey)
         self.price_micro_usd = price_micro_usd
         self.signal = signal
         self.source_mask = source_mask
@@ -1678,7 +1781,7 @@ class TxLogRecord(object):
         self.yed_out = 0
         self.burned = 0
         self.fee_zat = 0
-        self.payee = None           # 20-byte key hash or None
+        self.payee = None           # payee bytes (kind || hash) or None
         self.assigned = []          # [(vout, cents)]
         self.spent_tokens = []      # [(txid, n)]
         self.closed_vaults = []     # [(txid, n)]
@@ -1710,7 +1813,7 @@ class TxLogRecord(object):
 
 class Totals(object):
     __slots__ = ('supply_cents', 'collateral_zat', 'active_vaults', 'void_vaults', 'closed_vaults',
-                 'claimed_vaults', 'unbacked_cents')
+                 'claimed_vaults', 'unbacked_cents', 'open_debt_cents')
 
     def __init__(self):
         self.supply_cents = 0
@@ -1720,12 +1823,13 @@ class Totals(object):
         self.closed_vaults = 0
         self.claimed_vaults = 0
         self.unbacked_cents = 0
+        self.open_debt_cents = 0      # HALT-2 (owner 2026-10-28): the mintedCents of every ACTIVE and CLAIMING vault
 
     def as_dict(self):
         return {'supplyCents': self.supply_cents, 'collateralZat': self.collateral_zat,
                 'activeVaults': self.active_vaults, 'voidVaults': self.void_vaults,
                 'closedVaults': self.closed_vaults, 'claimedVaults': self.claimed_vaults,
-                'unbackedCents': self.unbacked_cents}
+                'unbackedCents': self.unbacked_cents, 'openDebtCents': self.open_debt_cents}
 
 
 class AttestorRecord(object):
@@ -1816,7 +1920,7 @@ class Snapshot(object):
     __slots__ = ('block_hash', 'tagged', 'quote', 'p_fast', 'p_mid',
                  'p_slow', 'p_mint', 'p_claim', 'sigma_mult_bps', 'issued_zat', 'supply_cents',
                  'collateral_zat', 'global_ratio_bps', 'halt_mask', 'virtual',
-                 'attest', 'seated', 'pinned_keys', 'pinned_seqs')
+                 'attest', 'seated', 'pinned_keys', 'pinned_seqs', 'open_debt_cents')
 
     def __init__(self):
         self.block_hash = '00' * 32
@@ -1838,8 +1942,9 @@ class Snapshot(object):
         # combination with a bundle is per transaction and never stored.
         self.attest = AttestState()
         self.seated = []          # sorted seq
-        self.pinned_keys = []     # sorted 20-byte key hashes (PIN-1)
+        self.pinned_keys = []     # sorted payees, kind || hash (PIN-1; SCHEMA_VERSION 16)
         self.pinned_seqs = []     # sorted seq (PIN-2)
+        self.open_debt_cents = 0  # Totals.openDebtCents at H: globalRatioBps's denominator (HALT-2, owner 2026-10-28)
 
     @classmethod
     def virtual_snapshot(cls):
@@ -1857,7 +1962,8 @@ class Snapshot(object):
                 'pFast': self.p_fast, 'pMid': self.p_mid, 'pSlow': self.p_slow,
                 'pMint': self.p_mint, 'pClaim': self.p_claim, 'sigmaMultBps': self.sigma_mult_bps,
                 'issuedZat': self.issued_zat, 'supplyCents': self.supply_cents,
-                'collateralZat': self.collateral_zat, 'globalRatioBps': self.global_ratio_bps,
+                'collateralZat': self.collateral_zat, 'openDebtCents': self.open_debt_cents,
+                'globalRatioBps': self.global_ratio_bps, 'globalRatioDenominator': 'openDebt',
                 'haltMask': self.halt_names(), 'xMint': self.p_mint, 'xClaim': self.p_claim,
                 'attest': self.attest.as_dict(), 'seated': list(self.seated),
                 'pinnedKeys': [k.hex() for k in self.pinned_keys], 'pinnedSeqs': list(self.pinned_seqs)}
@@ -1957,7 +2063,8 @@ def _ser_snapshot(s):
             + _i64(s.supply_cents) + _i64(s.collateral_zat)
             + _i64(0 if s.global_ratio_bps is None else s.global_ratio_bps) + _u32(s.halt_mask)
             + _ser_attest(s.attest) + _u16_vec(s.seated)
-            + _compact(len(s.pinned_keys)) + b''.join(bytes(k) for k in s.pinned_keys) + _u16_vec(s.pinned_seqs))
+            + _compact(len(s.pinned_keys)) + b''.join(bytes(k) for k in s.pinned_keys) + _u16_vec(s.pinned_seqs)
+            + _i64(s.open_debt_cents))      # appended last (SCHEMA_VERSION 15)
 
 
 def _ser_attestor(a):
@@ -1996,7 +2103,8 @@ def _ser_token(t):
 
 def _ser_totals(t):
     return (_i64(t.supply_cents) + _i64(t.collateral_zat) + _u32(t.active_vaults) + _u32(t.void_vaults)
-            + _u32(t.closed_vaults) + _u32(t.claimed_vaults) + _i64(t.unbacked_cents))
+            + _u32(t.closed_vaults) + _u32(t.claimed_vaults) + _i64(t.unbacked_cents)
+            + _i64(t.open_debt_cents))      # appended last (SCHEMA_VERSION 15)
 
 
 def _outpoint_sort_key(op):
@@ -2009,7 +2117,7 @@ def _outpoint_sort_key(op):
 class YellowbackModel(object):
     """Section 3 as a state machine fed block by block.  See the module docstring."""
 
-    SCHEMA_VERSION = 14       # VaultRecord.cancelCount/lastCancelHeight (CAN-2), IntentRecord.claimRefHeight (C4b) and heldBy (CAN-3); 13 was IntentRecord.refundScript (CAN-1, audit 03/H-1); 12 was liveness by attestation and the join refusals (seats re-reviews); 11 was seat ranking and eviction (owner 2026-10-11) and the D-Q-30 bond minimum (view.h); 10 was the D-Q-28 bond minimum (never merged); 9 was VaultRecord.pMint (FEE-1', D-Q-23); 8 was in-term claims: VaultRecord.appHeight (IT-1) (view.h)
+    SCHEMA_VERSION = 16       # tag v2 (beta4 D-T1): TagRecord.payee, TxLogRecord.payee and Snapshot.pinnedKeys hold a Payee (kind u8 || 20 or 32 bytes); 15 was Totals.openDebtCents and Snapshot.openDebtCents (HALT-2 reads open debt, owner 2026-10-28); 14 was VaultRecord.cancelCount/lastCancelHeight (CAN-2), IntentRecord.claimRefHeight (C4b) and heldBy (CAN-3); 13 was IntentRecord.refundScript (CAN-1, audit 03/H-1); 12 was liveness by attestation and the join refusals (seats re-reviews); 11 was seat ranking and eviction (owner 2026-10-11) and the D-Q-30 bond minimum (view.h); 10 was the D-Q-28 bond minimum (never merged); 9 was VaultRecord.pMint (FEE-1', D-Q-23); 8 was in-term claims: VaultRecord.appHeight (IT-1) (view.h)
 
     def __init__(self, params, issued_before_start=0):
         self.params = params
@@ -2081,7 +2189,7 @@ class YellowbackModel(object):
         cap_reached = cap is not None and self.totals.supply_cents + self.params.min_mint > cap
         d.update({'issuedZat': s.issued_zat, 'pFast': s.p_fast, 'pMid': s.p_mid, 'pSlow': s.p_slow,
                   'pMint': s.p_mint, 'pClaim': s.p_claim, 'sigmaMultBps': s.sigma_mult_bps,
-                  'globalRatioBps': s.global_ratio_bps,
+                  'globalRatioBps': s.global_ratio_bps, 'globalRatioDenominator': 'openDebt',
                   'supplyCapCents': cap,
                   'haltMask': s.halt_names(), 'mintingAllowed': s.halt_mask == 0 and not cap_reached})
         return d
@@ -2096,7 +2204,7 @@ class YellowbackModel(object):
         out = []
         for h in range(max(lo + 1, self.params.start_height), hi + 1):
             t = self.tags.get(h)
-            if t is not None and t.is_quote and t.payout_key not in excluded:
+            if t is not None and t.is_quote and t.payee not in excluded:
                 out.append(t.price_micro_usd)
         return out
 
@@ -2107,15 +2215,15 @@ class YellowbackModel(object):
         return lower_median(vals)
 
     def eligible_payees(self, ref_height):
-        """E(R): the payoutKeys of the quote tags at h in (R - PAYEE_WINDOW, R], height order, deduplicated,
-        minus Snapshots[R].pinnedKeys (PIN-1)."""
+        """E(R): the payees of the quote tags at h in (R - PAYEE_WINDOW, R], height order, deduplicated,
+        minus Snapshots[R].pinnedKeys (PIN-1).  A payee is kind || hash (P2PKH or post-quantum, tag v1 or v2)."""
         s = self.snapshots.get(ref_height)
         pinned = s.pinned_keys if s is not None else []
         keys = []
         for h in range(max(ref_height - self.params.payee_window + 1, self.params.start_height), ref_height + 1):
             t = self.tags.get(h)
-            if t is not None and t.is_quote and t.payout_key not in keys and t.payout_key not in pinned:
-                keys.append(t.payout_key)
+            if t is not None and t.is_quote and t.payee not in keys and t.payee not in pinned:
+                keys.append(t.payee)
         return keys
 
     # -- v3 section 3.7: arming, weight, seating, selection, BUNDLE-1 ----------
@@ -2282,7 +2390,7 @@ class YellowbackModel(object):
     def registered(self, key, ref_height):
         for h in range(max(ref_height - self.params.n_reg + 1, self.params.start_height), ref_height + 1):
             t = self.tags.get(h)
-            if t is not None and t.is_quote and t.payout_key == key:
+            if t is not None and t.is_quote and t.payee == key:
                 return True
         return False
 
@@ -2290,7 +2398,7 @@ class YellowbackModel(object):
         n_penalty = self.params.n_penalty if n_penalty is None else n_penalty
         lag = self.params.peer_lag
         for t, tag in self.tags.items():
-            if tag.is_quote and tag.payout_key == key and t + lag < ref_height <= t + lag + n_penalty:
+            if tag.is_quote and tag.payee == key and t + lag < ref_height <= t + lag + n_penalty:
                 j = self.judgements.get(t)
                 if j is not None and j.penalized:
                     return True
@@ -2303,7 +2411,7 @@ class YellowbackModel(object):
         for t in range(ref_height - lag - w + 1, ref_height - lag + 1):
             tag = self.tags.get(t)
             j = self.judgements.get(t)
-            if tag is not None and tag.is_quote and tag.payout_key == key and j is not None and j.evaluated:
+            if tag is not None and tag.is_quote and tag.payee == key and j is not None and j.evaluated:
                 quoted += 1
                 if j.in_band:
                     in_band += 1
@@ -2381,7 +2489,7 @@ class YellowbackModel(object):
         # TAG-1..5
         tag = find_tag(bytes.fromhex(coinbase_scriptsig_hex), height, p)
         if tag is not None:
-            self.tags[height] = TagRecord(tag.payout_key, tag.price_micro_usd, tag.signal, tag.source_mask)
+            self.tags[height] = TagRecord(tag.payee, tag.price_micro_usd, tag.signal, tag.source_mask)
 
         self._bundle_acc = {'any': False, 'a_mints': [], 'a_claims': [], 'selected': set(), 'pairs': set()}
         for tx in txs:
@@ -2410,11 +2518,25 @@ class YellowbackModel(object):
 
         # SNAP
         self._snap(height, block_hash, subsidy_zat, tag)
+        bad = self.open_debt_violation()
+        if bad is not None:
+            raise ModelMismatch('open-debt invariant at height %d: %s' % (height, bad))
         self.tip_height = height
         self.tip_hash = block_hash
         verdict = BlockVerdict(height, block_hash, False, '')
         self.blocks[height] = verdict
         return verdict
+
+    def open_debt_violation(self):
+        """The open-debt invariant (HALT-2, owner 2026-10-28; C++ OpenDebtInvariantViolation): openDebtCents is the
+        mintedCents of the ACTIVE and CLAIMING vaults, and supplyCents <= openDebtCents.  None when both hold."""
+        t = self.totals
+        open_debt = sum(v.minted_cents for v in self.vaults.values() if v.status in (V_ACTIVE, V_CLAIMING))
+        if t.open_debt_cents != open_debt:
+            return "openDebtCents %d is not the ACTIVE and CLAIMING vaults' mintedCents %d" % (t.open_debt_cents, open_debt)
+        if t.supply_cents > t.open_debt_cents:
+            return 'supplyCents %d exceeds openDebtCents %d' % (t.supply_cents, t.open_debt_cents)
+        return None
 
     def _snap(self, height, block_hash, subsidy_zat, tag):
         p = self.params
@@ -2467,7 +2589,7 @@ class YellowbackModel(object):
                 for h in range(max(height - p.pin_window, p.start_height), height):
                     t = self.tags.get(h)
                     if t is not None and t.is_quote:
-                        per_key.setdefault(t.payout_key, []).append(t.price_micro_usd)
+                        per_key.setdefault(t.payee, []).append(t.price_micro_usd)
                 s.pinned_keys = sorted(k for k, prices in per_key.items()
                                        if len(prices) >= max(1, p.pin_min_tags) and len(set(prices)) == 1)
         s1 = self.snapshot(height - 1)                                         # PIN-2
@@ -2503,12 +2625,14 @@ class YellowbackModel(object):
         s.issued_zat = prev.issued_zat + subsidy_zat
         s.supply_cents = self.totals.supply_cents
         s.collateral_zat = self.totals.collateral_zat
-        s.global_ratio_bps = global_ratio_bps(s.collateral_zat, s.p_mint, s.supply_cents)
+        s.open_debt_cents = self.totals.open_debt_cents
+        # HALT-2 (owner 2026-10-28; cf. DigiByte v9.26.6 src/digidollar/health.cpp:109-114): collateral against open debt
+        s.global_ratio_bps = global_ratio_bps(s.collateral_zat, s.p_mint, s.open_debt_cents)
         # HALT-1..3 (HALT-4, ACT-4 and ACT-6 left with the vault upgrade)
         mask = 0
         if s.p_mint is None:
             mask |= HALT_NO_PRICE
-        if s.p_mint is not None and s.supply_cents > 0 and s.global_ratio_bps < p.global_ratio_halt_bps:
+        if s.p_mint is not None and s.open_debt_cents > 0 and s.global_ratio_bps < p.global_ratio_halt_bps:
             mask |= HALT_GLOBAL_RATIO
         if None not in (s.p_fast, s.p_mid, s.p_slow):
             if (s.p_fast * BPS < (BPS - p.divergence_bps) * s.p_mid
@@ -2723,6 +2847,7 @@ class YellowbackModel(object):
         if not cancel:
             v.status = V_CLAIMED
             self.totals.collateral_zat -= v.collateral_zat      # IT-6: the collateral leaves the system ratio at release
+            self.totals.open_debt_cents -= v.minted_cents       # HALT-2 (owner 2026-10-28): and its debt with it
             self.totals.claimed_vaults += 1
             rec.closed_vaults.append(ir.vault)
             return None
@@ -2900,8 +3025,9 @@ class YellowbackModel(object):
                 return False
             if not (act['flags'] & va.SET_FLAG_OPEN) or act['seats'] != p.attestor_seats:
                 return False              # owner 2026-10-11: only an OPEN set of ATTESTOR_SEATS seats is adopted
-            if act['cancelThreshold'] != p.attestor_cancel_threshold or act['unlockThreshold'] != p.attestor_unlock_threshold:
-                return False              # 03/I-3: ... whose cancel and unlock thresholds are the pinned constants
+            if (act['cancelThreshold'] != p.attestor_cancel_threshold or act['unlockThreshold'] != p.attestor_unlock_threshold
+                    or act['rateLimitBps'] != p.attestor_rate_limit_bps):
+                return False              # 03/I-3 thresholds; W3-Y-3 (R-1d): a cancelled claim spends S-3's budget; the YED set has none
             if act['maturity'] != p.bond_maturity:
                 return False              # ... whose maturity (the bond exit delay) is BOND_MATURITY
             if act['livenessWindow'] < p.attestor_liveness_min:
@@ -3180,7 +3306,7 @@ class YellowbackModel(object):
             if fee_applies:
                 v.fee_paid_zat = tx.vout[pl.fee_vout].value
                 rec.fee_zat = v.fee_paid_zat
-                rec.payee = p2pkh_key(tx.vout[pl.fee_vout].script)
+                rec.payee = payee_of_script(tx.vout[pl.fee_vout].script)
             if facts.get('attest_payee') is not None:
                 rec.attest_fee_zat = tx.vout[pl.attest_fee_vout].value
                 rec.attest_payee = facts['attest_payee']
@@ -3188,6 +3314,7 @@ class YellowbackModel(object):
             self.tokens[(tx.txid, 1)] = Token(pl.cents, tx.vout[1].value, tx.vout[1].script, height)
             self.totals.supply_cents += pl.cents
             self.totals.collateral_zat += vout0.value
+            self.totals.open_debt_cents += v.minted_cents     # HALT-2 (owner 2026-10-28): open until its redeem or release
             self.totals.active_vaults += 1
             rec.yed_out = pl.cents
             rec.assigned = [(1, pl.cents)]
@@ -3298,7 +3425,7 @@ class YellowbackModel(object):
             fv = pl.fee_vout
             if fv == FEE_VOUT_NONE or fv >= len(tx.vout) or fv in (0, 1, opret):
                 return 'bad-mint-fee'
-            key = p2pkh_key(tx.vout[fv].script)
+            key = payee_of_script(tx.vout[fv].script)     # MINT-8: exactly the script of a payee in E(R)
             if key is None or key not in eligible:
                 return 'bad-mint-fee'
         if not armed:
@@ -3406,7 +3533,7 @@ class YellowbackModel(object):
         if self.eligible_payees(pl.ref_height):
             v.fee_paid_zat = tx.vout[pl.fee_vout].value
             rec.fee_zat = v.fee_paid_zat
-            rec.payee = p2pkh_key(tx.vout[pl.fee_vout].script)
+            rec.payee = payee_of_script(tx.vout[pl.fee_vout].script)
         if facts.get('attest_payee') is not None:
             rec.attest_fee_zat = tx.vout[pl.attest_fee_vout].value
             rec.attest_payee = facts['attest_payee']
@@ -3414,6 +3541,9 @@ class YellowbackModel(object):
         # released (the debt left supply with this spend's burn); the owner's redeem removes it at once
         if path == 'owner':
             self.totals.collateral_zat -= v.collateral_zat
+            # HALT-2 (owner 2026-10-28): the owner's redeem closes the debt; a claim leaves it open with the CLAIMING
+            # collateral until the release, and a cancel needs no change
+            self.totals.open_debt_cents -= v.minted_cents
         self.totals.active_vaults -= 1
         if path == 'owner':
             self.totals.closed_vaults += 1
@@ -3488,7 +3618,7 @@ class YellowbackModel(object):
             fv = pl.fee_vout
             if fv == FEE_VOUT_NONE or fv >= len(tx.vout) or fv == opret or fv in assigned_vouts:
                 return 'vault-spend-bad-fee'
-            key = p2pkh_key(tx.vout[fv].script)
+            key = payee_of_script(tx.vout[fv].script)     # RED-3': exactly the script of a payee in E(R)
             if key is None or key not in eligible:
                 return 'vault-spend-bad-payee'
             if tx.vout[fv].value < protocol_fee:
@@ -3562,7 +3692,7 @@ class YellowbackModel(object):
         out += b'T' + _i32(max(self.tip_height, 0)) + _hash(self.tip_hash) + _u32(self.SCHEMA_VERSION) + _str(p.network)
         for h in sorted(self.tags):
             t = self.tags[h]
-            out += b'Q' + _u32be(h) + t.payout_key + _u64(t.price_micro_usd) + _bool(t.signal) + _u16(t.source_mask)
+            out += b'Q' + _u32be(h) + t.payee + _u64(t.price_micro_usd) + _bool(t.signal) + _u16(t.source_mask)
         for h in sorted(self.judgements):
             j = self.judgements[h]
             out += b'J' + _u32be(h) + _bool(j.evaluated) + _bool(j.in_band) + _bool(j.penalized)
@@ -3625,15 +3755,16 @@ def _price_eq(model_v, rpc_v):
 
 
 def _key_of(rpc_payee):
-    """A payee as the RPC renders it: an address (decoded to its key hash), a hex key, or None."""
+    """A payee as the RPC renders it -- a P2PKH address, a plain post-quantum address (D-9), or a 40-hex key --
+    as payee bytes (kind || hash), or None."""
     if rpc_payee in (None, ''):
         return None
     if isinstance(rpc_payee, str) and len(rpc_payee) == 40:
         try:
-            return bytes.fromhex(rpc_payee)
+            return payee_p2pkh(bytes.fromhex(rpc_payee))
         except ValueError:
             pass
-    return address_key_hash(str(rpc_payee))
+    return address_payee(str(rpc_payee))
 
 
 def _check(cond, what, height=None, extra=''):
@@ -3693,7 +3824,10 @@ def build_model_from_node(node, params=None, check_tags=True):
                        'yed_gettag.kind', h, repr(rpc))
                 _check(int(rpc.get('priceMicroUsd', 0)) == tag.price_micro_usd, 'yed_gettag.priceMicroUsd', h)
                 _check(int(rpc.get('sourceMask', 0)) == tag.source_mask, 'yed_gettag.sourceMask', h)
-                _check(_key_of(rpc.get('payoutAddress')) == tag.payout_key, 'yed_gettag.payoutAddress', h)
+                _check(_key_of(rpc.get('payoutAddress')) == tag.payee, 'yed_gettag.payoutAddress', h)
+                if 'version' in rpc:
+                    _check(int(rpc['version']) == tag.version, 'yed_gettag.version', h, repr(rpc))
+                    _check(rpc.get('payoutScheme') == PAYOUT_SCHEME_NAMES.get(tag.payout_scheme), 'yed_gettag.payoutScheme', h, repr(rpc))
         model.feed_block_json(blk, subsidy)
     return model
 
@@ -3722,7 +3856,9 @@ def compare_history(model, node):
         _check(int(row['issuedZat']) == s.issued_zat, 'issuedZat', h, 'model=%r rpc=%r' % (s.issued_zat, row['issuedZat']))
         _check(int(row['supplyCents']) == s.supply_cents, 'supplyCents', h)
         _check(int(row['collateralZat']) == s.collateral_zat, 'collateralZat', h)
+        _check(int(row['openDebtCents']) == s.open_debt_cents, 'openDebtCents', h, 'model=%r rpc=%r' % (s.open_debt_cents, row['openDebtCents']))
         _check(_price_eq(s.global_ratio_bps, row.get('globalRatioBps')), 'globalRatioBps', h)
+        _check(row.get('globalRatioDenominator') == 'openDebt', 'globalRatioDenominator', h)
         rpc_mask = row.get('haltMask', [])
         if isinstance(rpc_mask, int):
             _check(rpc_mask == s.halt_mask, 'haltMask', h)
@@ -3761,7 +3897,7 @@ def compare_txinfo(model, node):
         _check(int(info.get('attestFeeZat', 0)) == rec.attest_fee_zat, 'yed_gettxinfo.attestFeeZat', rec.height, txid)
         want_payee = None
         if rec.attest_payee is not None and rec.attest_payee in model.attestors:
-            want_payee = hash160(model.attestors[rec.attest_payee].bond_pubkey)
+            want_payee = payee_p2pkh(hash160(model.attestors[rec.attest_payee].bond_pubkey))
         _check(_key_of(info.get('attestPayee')) == want_payee, 'yed_gettxinfo.attestPayee', rec.height, '%s model=%r rpc=%r' % (txid, rec.attest_payee, info.get('attestPayee')))
         _check(int(info.get('residualZat', 0)) == rec.residual_zat, 'yed_gettxinfo.residualZat', rec.height, '%s model=%r rpc=%r' % (txid, rec.residual_zat, info.get('residualZat')))
         _check((info.get('claimPath') or '') == rec.claim_path, 'yed_gettxinfo.claimPath', rec.height, txid)
@@ -3780,7 +3916,7 @@ def compare_attestors(model, node):
     for seq, rec in model.attestors.items():
         r = rows[seq]
         _check(str(r['attestorPubKey']).lower() == rec.attestor_pubkey.hex(), 'attestor.attestorPubKey', extra=str(seq))
-        _check(_key_of(r.get('bondKeyAddress')) == hash160(rec.bond_pubkey), 'attestor.bondKeyAddress', extra=str(seq))
+        _check(_key_of(r.get('bondKeyAddress')) == payee_p2pkh(hash160(rec.bond_pubkey)), 'attestor.bondKeyAddress', extra=str(seq))
         _check(_norm_outpoint(r['bondOutpoint']) == '%s:%d' % rec.bond_outpoint, 'attestor.bondOutpoint', extra=str(seq))
         for name, val in (('bondZat', rec.bond_zat), ('bondLocktime', rec.bond_locktime), ('registerHeight', rec.register_height),
                           ('statusHeight', rec.status_height)):
@@ -3873,10 +4009,11 @@ def compare_stats(model, node):
     st = node.yed_getstats()
     m = model.stats()
     for name in ('height', 'supplyCents', 'collateralZat', 'activeVaults', 'voidVaults', 'closedVaults',
-                 'claimedVaults', 'unbackedCents', 'issuedZat', 'sigmaMultBps'):
+                 'claimedVaults', 'unbackedCents', 'openDebtCents', 'issuedZat', 'sigmaMultBps'):
         _check(int(st[name]) == m[name], 'yed_getstats.%s' % name, extra='model=%r rpc=%r' % (m[name], st[name]))
     for name in ('pFast', 'pMid', 'pSlow', 'pMint', 'pClaim', 'globalRatioBps', 'supplyCapCents'):
         _check(_price_eq(m[name], st.get(name)), 'yed_getstats.%s' % name, extra='model=%r rpc=%r' % (m[name], st.get(name)))
+    _check(st.get('globalRatioDenominator') == 'openDebt', 'yed_getstats.globalRatioDenominator')
     _check(set(str(x).upper() for x in st.get('haltMask', [])) == set(m['haltMask']), 'yed_getstats.haltMask')
     _check(bool(st.get('mintingAllowed')) == m['mintingAllowed'], 'yed_getstats.mintingAllowed')
 
