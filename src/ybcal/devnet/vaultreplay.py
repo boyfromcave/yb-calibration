@@ -10,9 +10,10 @@ amount, lock, the collateral the wallet chose, the spend's path and refHeight â€
 simulator re-derives everything the rules decide from them:
 
 * each MINT's verdict (ACTIVE or VOID + reason) via :func:`~ybcal.sim.vaults.mint_verdict` at
-  ``Snapshots[R]`` taken from the simulator's own series (HALT-2 from the replayed totals at R);
+  ``Snapshots[R]`` taken from the simulator's own series (HALT-2 from the replayed collateral and
+  open debt at R, D-MP-4);
 * each spend's verdict via :func:`~ybcal.sim.vaults.red_verdict`, hence status, closeHeight, burn;
-* per-height ``supplyCents`` / ``collateralZat`` (written into the series, so the engine's
+* per-height ``supplyCents`` / ``collateralZat`` / open debt (written into the series, so the engine's
   ``globalRatioBps`` and HALT-2 bit are then compared by the per-height diff as well);
 * per-height, per-vault ``claimable`` exactly as ``yed_listvaults`` reports it unarmed
   (``EstimateClaim``: tip â‰¥ claimHeight and RED-4 (a) underwater at the tip's pClaim);
@@ -112,6 +113,7 @@ class VaultReplayResult:
     armed_heights: set[int] = field(default_factory=set)  #: heights whose claimable test is not replayed
     supply_cents: np.ndarray = field(default_factory=lambda: np.zeros(0, np.int64))
     collateral_zat: np.ndarray = field(default_factory=lambda: np.zeros(0, np.int64))
+    open_debt_cents: np.ndarray = field(default_factory=lambda: np.zeros(0, np.int64))
 
 
 class VaultReplay:
@@ -127,15 +129,16 @@ class VaultReplay:
         res = replay_vaults(params, inputs, series, self.run)
         series.supply_cents[0] = res.supply_cents
         series.collateral_zat[0] = res.collateral_zat
+        series.open_debt_cents[0] = res.open_debt_cents
         series.extras["vault_replay"] = res
         self.result = res
 
 
-def _snap(tl: VB.Timeline, j: int, supply: int, coll: int, rp: VB.RuleParams) -> VB.Snap:
+def _snap(tl: VB.Timeline, j: int, open_debt: int, coll: int, rp: VB.RuleParams) -> VB.Snap:
     halt = int(tl.base_halt[j]) & ~VB.HALT_GLOBAL_RATIO
     xm = int(tl.x_mint[j])
-    if xm > 0 and supply > 0:
-        gr = K.global_ratio_bps(coll, xm, supply)
+    if xm > 0 and open_debt > 0:  # HALT-2 on the open debt (D-MP-4)
+        gr = K.global_ratio_bps(coll, xm, open_debt)
         if gr is not None and gr < rp.global_ratio_halt_bps:
             halt |= VB.HALT_GLOBAL_RATIO
     opt = lambda v: int(v) if int(v) > 0 else None  # noqa: E731
@@ -161,6 +164,7 @@ def replay_vaults(params: Mapping, inputs: Any, series: Any, run: NodeVaultRun) 
     book = VB.VaultBook(rp)
     supply = np.zeros(n, np.int64)
     coll = np.zeros(n, np.int64)
+    debt = np.zeros(n, np.int64)
 
     def j_of(h: int) -> int:
         j = int(h) - start
@@ -170,7 +174,7 @@ def replay_vaults(params: Mapping, inputs: Any, series: Any, run: NodeVaultRun) 
 
     def snap_at(h: int) -> VB.Snap:
         j = j_of(h)
-        return _snap(tl, j, int(supply[j]), int(coll[j]), rp)
+        return _snap(tl, j, int(debt[j]), int(coll[j]), rp)
 
     att = getattr(series, "attest", None)
 
@@ -238,6 +242,7 @@ def replay_vaults(params: Mapping, inputs: Any, series: Any, run: NodeVaultRun) 
             book.spend(H, vid_of[key], tx, snap_at(int(sp["ref"])), enforcing=bool(tl.enforcing[j]))
         supply[j] = book.totals.supply_cents
         coll[j] = book.totals.collateral_zat
+        debt[j] = book.totals.open_debt_cents
         xc = int(tl.x_claim[j])
         if tl.armed[j]:  # EstimateClaim under ARMED builds a bundle per vault: not replayed here
             armed_heights.add(H)
@@ -291,4 +296,4 @@ def replay_vaults(params: Mapping, inputs: Any, series: Any, run: NodeVaultRun) 
         tx = VB.MintTx(max(cls, 0), int(e["cents"]), R + int(e["lock"]), R, max(c, 0), rp.fee(max(c, 0)))
         verdict = VB.mint_verdict(rp, tip + 1, tx, s, int(supply[j_of(tip)]))
         refusals.append({"height": tip, "node_error": e["error"], "sim_verdict": verdict})
-    return VaultReplayResult(rows, claim_rows, collateral_rows, refusals, armed_heights, supply, coll)
+    return VaultReplayResult(rows, claim_rows, collateral_rows, refusals, armed_heights, supply, coll, debt)

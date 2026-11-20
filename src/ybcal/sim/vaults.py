@@ -30,14 +30,14 @@ Three layers, from exact to fast:
    :class:`Timeline`), mint attempts from :mod:`ybcal.sim.agents`, and the personas' decisions.
    Every lifecycle that does not depend on other vaults (owner redeem, sweeps, claims and notices) is
    planned *vectorised* with first-passage searches over sparse tables; the order-dependent part
-   (refHeight choice, MINT-4 HALT-2 at R, MINT-6 against the live supply, VOID) runs sequentially in
-   height order through the exact rule functions above, so every state change the book makes is a
-   verdict the node would give.
+   (refHeight choice, MINT-4 HALT-2 at R on the open debt, MINT-6 against the live supply, VOID) runs
+   sequentially in height order through the exact rule functions above, so every state change the
+   book makes is a verdict the node would give.
 
 3. **Engine integration** — :class:`VaultHook` is WP-3's ``vaults`` hook (block mode: fills
-   ``BlockSeries.supply_cents`` / ``collateral_zat``; the engine then recomputes HALT-2, which equals
-   the book's own HALT-2 at every height) and :func:`simulate_vault_book_hours` runs multi-year
-   horizons through WP-3's :class:`~ybcal.sim.engine.OracleTransferKernel` /
+   ``BlockSeries.supply_cents`` / ``collateral_zat`` / ``open_debt_cents``; the engine then recomputes
+   HALT-2, which equals the book's own HALT-2 at every height) and :func:`simulate_vault_book_hours`
+   runs multi-year horizons through WP-3's :class:`~ybcal.sim.engine.OracleTransferKernel` /
    :func:`~ybcal.sim.engine.simulate_hours`.
 
 Hour mode conventions (documented in docs/architecture.md): step ``t`` is the snapshot at the last
@@ -52,9 +52,12 @@ collateral fee and the MINT-5 ``4·feeMin`` floor (U-21..U-24, IT-*, D-Q-23); th
 still mirrors the v3 rules of ycash6 ``7702d22`` clause for clause, checked against the retained v3
 reference (:mod:`ybcal.model.reference_v3`, ``vendor.V3_SPECS``), because the parameter registry it
 reads is still the 7702d22 set; its outputs describe the v3 design until the registry and simulator are
-re-pinned (``docs/decisions.md`` D-MP-1). A claim and a one-seat cancel are accounted by
-:func:`ybcal.sim.extract.account_claim_cancel`; this book does not run that sequence, and θ,
-``emergencyRatioBps`` and the bond floor are not calibrated against it.
+re-pinned (``docs/decisions.md`` D-MP-1). One rule follows the node instead of 7702d22: HALT-2 divides
+the collateral by the open vault debt (``Totals.open_debt_cents``, the ``mintedCents`` of the ACTIVE
+vaults), not by the supply (ycash6 ``src/yellowback/state.cpp:1849-1855`` @ ``01ec39628e``; D-MP-4).
+A claim and a one-seat cancel are accounted by :func:`ybcal.sim.extract.account_claim_cancel`; this
+book does not run that sequence, and θ, ``emergencyRatioBps`` and the bond floor are not calibrated
+against it.
 """
 
 from __future__ import annotations
@@ -580,6 +583,10 @@ class Totals:
     closed_vaults: int = 0
     claimed_vaults: int = 0
     unbacked_cents: int = 0
+    #: HALT-2's denominator: the mintedCents of every open vault (ycash6 Totals.openDebtCents; the v3
+    #: book has no CLAIMING state, so ACTIVE only). A VOID vault never opens debt; a spend the block
+    #: carries closes it, whatever it burned (D-MP-4).
+    open_debt_cents: int = 0
 
     def as_dict(self) -> dict:
         return {
@@ -590,6 +597,7 @@ class Totals:
             "closedVaults": self.closed_vaults,
             "claimedVaults": self.claimed_vaults,
             "unbackedCents": self.unbacked_cents,
+            "openDebtCents": self.open_debt_cents,
         }
 
 
@@ -621,6 +629,7 @@ class VaultBook:
                 rec.fee_paid_zat = int(tx.fee_zat or 0)
             self.totals.supply_cents += tx.cents
             self.totals.collateral_zat += tx.collateral_zat
+            self.totals.open_debt_cents += tx.cents
             self.totals.active_vaults += 1
         else:
             rec.status = VOID
@@ -659,6 +668,7 @@ class VaultBook:
         rec.burned_cents = burned
         self.totals.supply_cents -= burned
         self.totals.collateral_zat -= rec.collateral_zat
+        self.totals.open_debt_cents -= rec.minted_cents
         self.totals.active_vaults -= 1
         self.notices.pop(vid, None)
         return out, True
@@ -864,6 +874,7 @@ class PathBook:
     counters: dict
     events: list[dict] | None = None
     totals: Totals | None = None
+    open_debt_cents: np.ndarray | None = None  #: Totals.openDebtCents trajectory (HALT-2, D-MP-4)
 
     def series_full(self, n: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Totals after every step ``0 … n−1`` (requires ``traj_every = 1``)."""
@@ -1199,12 +1210,13 @@ def _plan_claim_b(
     return None
 
 
-def _snap(ctx: _Ctx, r: int, supply: int, coll: int) -> Snap:
+def _snap(ctx: _Ctx, r: int, open_debt: int, coll: int) -> Snap:
+    """Snapshots[R] for the book; HALT-2 divides by the open debt at R (D-MP-4)."""
     tl, rp = ctx.tl, ctx.rp
     halt = int(tl.base_halt[r]) & ~HALT_GLOBAL_RATIO
     xm = int(tl.x_mint[r])
-    if xm > 0 and supply > 0:
-        gr = K.global_ratio_bps(coll, xm, supply)
+    if xm > 0 and open_debt > 0:
+        gr = K.global_ratio_bps(coll, xm, open_debt)
         if gr is not None and gr < rp.global_ratio_halt_bps:
             halt |= HALT_GLOBAL_RATIO
     return Snap(
@@ -1331,7 +1343,7 @@ def run_book(
             plan[k][pi] = v
     # ---- sequential pass
     hist_steps: list[int] = [-1]
-    hist: list[tuple[int, int, int]] = [(0, 0, 0)]
+    hist: list[tuple[int, int, int, int]] = [(0, 0, 0, 0)]  # supply, collateral, unbacked, open debt
     heap: list[tuple[int, int, int, int]] = []  # (step, kind order, seq, vault row)
     vid_of_row: dict[int, int] = {}
     row_of_vid: dict[int, int] = {}
@@ -1339,19 +1351,19 @@ def run_book(
 
     def record(s: int) -> None:
         t = book.totals
-        val = (t.supply_cents, t.collateral_zat, t.unbacked_cents)
+        val = (t.supply_cents, t.collateral_zat, t.unbacked_cents, t.open_debt_cents)
         if hist_steps[-1] == s:
             hist[-1] = val
         else:
             hist_steps.append(s)
             hist.append(val)
 
-    def totals_at(s: int) -> tuple[int, int, int]:
+    def totals_at(s: int) -> tuple[int, int, int, int]:
         return hist[bisect.bisect_right(hist_steps, s) - 1]
 
     def snap_at(r: int) -> Snap:
-        sup, col, _ = totals_at(r)
-        return _snap(ctx, r, sup, col)
+        _sup, col, _unb, debt = totals_at(r)
+        return _snap(ctx, r, debt, col)
 
     def push(s: int, kind: int, row: int) -> None:
         nonlocal seq
@@ -1645,11 +1657,19 @@ def run_book(
     every = max(1, int(opt.traj_every))
     ts = np.arange(0, n, every, dtype=np.int64)
     hs = np.asarray(hist_steps, dtype=np.int64)
-    hv = np.asarray(hist, dtype=np.int64).reshape(-1, 3)
+    hv = np.asarray(hist, dtype=np.int64).reshape(-1, 4)
     pos = np.searchsorted(hs, ts, side="right") - 1
     traj = hv[pos]
     return PathBook(
-        tab, ts, traj[:, 0].copy(), traj[:, 1].copy(), traj[:, 2].copy(), counters, events, book.totals
+        tab,
+        ts,
+        traj[:, 0].copy(),
+        traj[:, 1].copy(),
+        traj[:, 2].copy(),
+        counters,
+        events,
+        book.totals,
+        open_debt_cents=traj[:, 3].copy(),
     )
 
 
@@ -1688,6 +1708,7 @@ class VaultBookResult:
     params: Any = None
     counters: dict = field(default_factory=dict)
     meta: dict = field(default_factory=dict)
+    open_debt_cents: np.ndarray | None = None  #: (paths, samples) Totals.openDebtCents (HALT-2, D-MP-4)
 
     @property
     def n_paths(self) -> int:
@@ -1756,6 +1777,9 @@ class VaultBookResult:
             params=params,
             counters=counters,
             meta=dict(meta or {}),
+            open_debt_cents=np.stack([b.open_debt_cents for b in books])
+            if books
+            else np.zeros((0, 0), np.int64),
         )
 
     @classmethod
@@ -1790,6 +1814,7 @@ class VaultBookResult:
             params=first.params,
             counters=counters,
             meta=meta,
+            open_debt_cents=np.concatenate([p.open_debt_cents for p in parts]),
         )
 
 
@@ -1800,8 +1825,9 @@ class VaultBookResult:
 @dataclass
 class VaultHook:
     """WP-3 ``vaults`` hook (``simulate_blocks(..., hooks=(VaultHook(...),))``): runs the vault book
-    on every path, fills ``series.supply_cents`` / ``series.collateral_zat`` (the engine then
-    recomputes ``global_ratio_bps`` and HALT-2 from them — equal to the book's own HALT-2 by
+    on every path, fills ``series.supply_cents`` / ``series.collateral_zat`` /
+    ``series.open_debt_cents`` (the engine then recomputes ``global_ratio_bps`` and HALT-2 from the
+    collateral and the open debt — equal to the book's own HALT-2 by
     construction) and stores the :class:`VaultBookResult` in ``series.extras["vaults"]``.
 
     ``attempts`` overrides the sampled mint attempts (one :class:`~ybcal.sim.agents.MintAttempts`
@@ -1829,6 +1855,7 @@ class VaultHook:
             pb = run_book(params, tl, att, self.agents, options=opt)
             series.supply_cents[p] = pb.supply_cents
             series.collateral_zat[p] = pb.collateral_zat
+            series.open_debt_cents[p] = pb.open_debt_cents
             books.append(pb)
         res = VaultBookResult.from_books(
             books,

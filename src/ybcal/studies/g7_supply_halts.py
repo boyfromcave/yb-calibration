@@ -238,20 +238,13 @@ def book_metrics(env: Env, cand: ParamSet) -> dict[str, Any]:
         # mature book: global ratio at the true price at the end of the prefix. HALT-2 divides by open debt
         # (node: Totals.openDebtCents, the ACTIVE and CLAIMING vaults' mintedCents; owner 2026-10-28),
         # not by supply. The book has no CLAIMING window (a claim closes its vault at once, so its collateral
-        # and debt leave together), so its open debt is the debt of the vaults still open at the prefix end;
+        # and debt leave together), so its open debt is the debt of the vaults still open at the prefix end:
+        # the book's own Totals.open_debt_cents trajectory, the denominator its HALT-2 reads (D-MP-4);
         # the supply reading is kept beside it for the comparison.
         je = max(0, j0 - 1)
         sup = res.supply_cents[:, je].astype(np.float64) / 100
         col = res.collateral_zat[:, je].astype(np.float64) / COIN * tp[:, je] / MICRO_USD_PER_USD
-        debt = np.zeros(Pn)
-        for p in range(Pn):
-            m = (
-                (v["outcome"] == VB.O_ACTIVE)
-                & (v["path"] == p + p0)
-                & (v["step"] <= ts[je])
-                & ((v["close_step"] < 0) | (v["close_step"] > ts[je]))
-            )
-            debt[p] = float(v["cents"][m].sum()) / 100
+        debt = res.open_debt_cents[:, je].astype(np.float64) / 100
         okd = debt > 0
         ok = sup > 0
         out["book.global_ratio_true"] = float(np.median(col[okd] / debt[okd])) if okd.any() else math.nan

@@ -233,14 +233,17 @@ def cap_admits(supply_cents, cents, cap_cents, *, min_ratio_bps=None, recap_rati
     return ~over
 
 
-def global_ratio_bps(collateral_zat, x_mint, supply_cents) -> np.ndarray:
-    """``Snapshots[H].globalRatioBps`` (state.cpp:1229, math.h:162); ``UNDEF`` when undefined."""
-    return V.global_ratio_bps(collateral_zat, x_mint, supply_cents)
+def global_ratio_bps(collateral_zat, x_mint, open_debt_cents) -> np.ndarray:
+    """``Snapshots[H].globalRatioBps``: collateral at pMint over ``Totals.openDebtCents`` (ycash6
+    ``src/yellowback/state.cpp:1849`` @ ``01ec39628e``; math.h:166); ``UNDEF`` when undefined."""
+    return V.global_ratio_bps(collateral_zat, x_mint, open_debt_cents)
 
 
-def halt2_mask(collateral_zat, x_mint, supply_cents, global_ratio_halt_bps: int) -> np.ndarray:
-    """HALT-2 (state.cpp:1237): ``pMint`` defined, supply > 0 and ratio < ``globalRatioHaltBps``."""
-    return V.halt2_global_ratio(collateral_zat, x_mint, supply_cents, int(global_ratio_halt_bps))
+def halt2_mask(collateral_zat, x_mint, open_debt_cents, global_ratio_halt_bps: int) -> np.ndarray:
+    """HALT-2 (ycash6 ``src/yellowback/state.cpp:1855`` @ ``01ec39628e``): ``pMint`` defined, open debt
+    > 0 and ratio < ``globalRatioHaltBps``. The denominator is the open vault debt (the mintedCents of
+    the ACTIVE and CLAIMING vaults), not the circulating supply (ycash6 #59; D-MP-4)."""
+    return V.halt2_global_ratio(collateral_zat, x_mint, open_debt_cents, int(global_ratio_halt_bps))
 
 
 # ---------------------------------------------------------------------------------------------------
