@@ -2641,3 +2641,67 @@ grace are v3's, not the in-term set that `globalRatioHaltBps` 20,000 belongs to,
 nor refute 20,000. **Conclusion:** the denominator change gives G7 no reason to move the constant; whether 20,000
 stands is not established by this tool until the registry is re-pinned to the upgrade line and the book models the
 CLAIMING window (D-MP-1's T5). The constant is unchanged.
+
+## D-MP-4 (2026-11-19) — the simulator's HALT-2 divides by open vault debt
+
+**Decision (the Yellowback lead architect, 2026-11-19).** The simulator's HALT-2 uses the node's denominator: the
+collateral of the open vaults at pMint over their open debt, not over the YED supply. The node rule is ycash6
+`src/yellowback/state.cpp:1845-1855` @ `01ec39628e` (`s.openDebtCents = totals.openDebtCents`;
+`GlobalRatioBps(s.collateralZat, pMint, s.openDebtCents)`; `GLOBAL_RATIO` iff pMint is defined, `openDebtCents > 0` and
+the ratio is below `globalRatioHaltBps`), with `Totals.openDebtCents` (`view.h:422`) raised by a MINT's `mintedCents`
+(`state.cpp:518`) and lowered by the owner's redeem (`state.cpp:791`) and a claim's release (`state.cpp:965`). ycash6
+#59 made the change (`98603d146`), ycash-dd #137 (`b24334ebd`); the lines are identical on ycash-dd `688a372d39`.
+D-MP-3 moved G7's `R0` only; the model layer (`golden.py`, the vendored reference) already read open debt.
+
+**What changed.**
+- `sim/vaults.py`: `Totals.open_debt_cents` (+ `mintedCents` on an ACTIVE mint, − `mintedCents` when a spend the
+  block carries closes the vault, whatever it burned; a VOID vault never opens debt). The book's `Snapshots[R]`
+  HALT-2 reads it; MINT-6 still reads the live supply. `PathBook` and `VaultBookResult` carry the trajectory.
+- `sim/engine.py`: `BlockSeries.open_debt_cents`, filled by the `vaults` hook; `global_ratio_bps`, `halt_mask_series`
+  and `refresh_halt2` divide by it. The per-height export gains `openDebtCents`.
+- `devnet/vaultreplay.py`: the replayed book's HALT-2 reads the open debt.
+- `studies/g7_supply_halts.py`: `book.global_ratio_true` takes the book's own open-debt trajectory (the same value
+  D-MP-3 summed from the vault table).
+
+**Where it differs from the retained v3 reference.** The v3 book has no CLAIMING window, so open debt and supply
+part only when a block carries a failing spend (enforcement off: the vault closes, its debt leaves, its burn is
+short) or a spend burns more than the debt. `test_vault_book_replay` now compares the haltMask against the v3
+reference's with the GLOBAL_RATIO bit recomputed on the reference's ACTIVE vaults' debt, and the open debt per
+height; in the `enforcement-off` scenario the two denominators give a different HALT-2 at 59 of 640 heights and
+every verdict still matches. A devnet differential against a v3 binary (7702d22, supply denominator) would see
+the same difference at heights like those.
+
+**Not re-run.** No study or sweep was run for this change (the lead architect, 2026-11-19: no calibration now).
+
+
+## D-MP-5 (2026-11-19) — the beta4 registry re-pin is not a pin move; the live devnet test cannot take a beta4 binary yet
+
+**Request (the Yellowback lead architect, 2026-11-19).** Re-pin the parameter registry from the retired v3 pin
+`7702d22` to the beta4 node line (ycash6 `upgrade/vault` `01ec39628e`; `src/yellowback/` is identical to the vendored
+model's `d50e3b843`, and ycash-dd `688a372d39` carries the same values) so the live devnet test accepts beta4 binaries.
+
+**Not done in this change, and why (measured 2026-11-19).** Moving `PINNED_COMMIT` alone would claim a registry
+equal to `Params` at beta4 (D-MP-2) and would still not run a beta4 node:
+1. **Extraction.** `params/extract.py` cannot read beta4's `params.cpp`/`params.h`: `FeeBand feeBands[FEE_BANDS]`
+   (struct-array assignments), `uint256 attestorSetId`, the `pqAddressVersions` map, the `SetTestnet` helper, the
+   second constructor loop and the seven-argument `RegtestParams`. `params check` at the new pin fails closed.
+2. **Registry.** About 30 rows change: 12 v3 fields are gone (`enforceUntilHeight`, the six ACT-1..6 fields,
+   `valveBlocks`, `abandonBlocks`, `feeMin`, `feeBps`, `bondMin`), about 25 are new (`attestorSetId`, `claimDelay`,
+   `feeBands`, `feeFloorCents`, `earlyRedeemFeeBps`, MINT-6b, `issuedBeforeStart`, `residualMinCents`, the D-Q-30
+   bond and seat fields, the cancel and set fields, `pqFalconHeight`), and shared values move (θ 12,500, HALT-2
+   20,000, recap 50,000 no longer `2 × halt`, the class bounds and ratios, σ, `maxMint`, `attestArmMin` 7,
+   `attestFeeBps` 5,000, `bondMinLock` 0, `mintRequiresArmed` true). The retired simulator, the G1–G9 studies and
+   their exactness tests read the v3 fields and values from this registry (about 750 lines in 68 files of src and tests), so
+   the re-pin is the simulator port D-MP-1 describes, not a constant.
+3. **Devnet harness.** A beta4 `ycashd` refuses the v3 runtime flag the harness always passes
+   (`-yellowbackstartheight is retired: YED starts at the UPGRADE_VAULT activation height (-nuparams=6d5b7a31:<h> on
+   regtest)`, observed on a beta4 build, 2026-11-19), and on regtest YED stays off unless `-yellowbackattestorset`
+   names an on-chain vault-primitive set (ycash6 `src/yellowback/index.cpp:1152-1199` @ `01ec39628e`). The bootstrap
+   (funding, activation signalling) has no set ceremony.
+4. **Differential.** The live test compares the node with the v3 simulator (P2SH vault, VOID, FEE-1, activation);
+   a beta4 node's rules differ, so the comparison would fail even with a running harness.
+
+**State.** `PINNED_COMMIT` stays `7702d22`; HALT-2 follows the node (D-MP-4). The re-pin needs, in order: extraction
+of the beta4 struct, the beta4 registry with the v3-only rows kept as retired rows for the v3 simulator (or the
+simulator ported), a devnet backend for the vault upgrade (`-nuparams`, set ceremony, `-yellowbackattestorset`), and
+the differential on the upgrade rules.

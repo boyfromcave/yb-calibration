@@ -21,8 +21,8 @@ stage          built-in step (this module / WP-3)                  hooked by
 ``supply``     issuedZat (subsidy since start), MINT-6 cap         —
 ``halts``      haltMask: NOT_ACTIVE, NO_PRICE, HALT-2, HALT-3,     —
                PARTICIPATION, ENFORCEMENT
-``vaults``     after the hooks: globalRatio + HALT-2 recomputed    WP-4 (fills supply/collateral)
-               from ``supply_cents`` / ``collateral_zat``
+``vaults``     after the hooks: globalRatio + HALT-2 recomputed    WP-4 (fills supply/collateral/
+               from ``open_debt_cents`` / ``collateral_zat``       open debt)
 ``dormancy``   — (hook only, last in SNAP)                         WP-5
 =============  ==================================================  ====================================
 
@@ -247,6 +247,8 @@ class BlockSeries:
     supply_cap_cents: np.ndarray  # MINT-6 cap at the snapshot's xMint (UNDEF: none)
     supply_cents: np.ndarray  # placeholders, filled by the WP-4 "vaults" hook
     collateral_zat: np.ndarray
+    #: Totals.openDebtCents: mintedCents of the open (ACTIVE) vaults; HALT-2's denominator (D-MP-4)
+    open_debt_cents: np.ndarray
     global_ratio_bps: np.ndarray
     pin1_triggered: np.ndarray  # bool
     pinned_pools: np.ndarray  # uint64 bitmask of PIN-1 keys pinned at H
@@ -277,6 +279,7 @@ class BlockSeries:
         "supply_cap_cents",
         "supply_cents",
         "collateral_zat",
+        "open_debt_cents",
         "global_ratio_bps",
         "pin1_triggered",
         "pinned_pools",
@@ -482,15 +485,16 @@ def halt_mask_series(
     p_slow,
     participation,
     enforcement,
-    supply_cents=None,
+    open_debt_cents=None,
     collateral_zat=None,
 ) -> np.ndarray:
-    """haltMask (state.cpp:1232-1250) as uint16."""
+    """haltMask (state.cpp:1232-1250 @ 7702d22) as uint16. HALT-2 divides by ``open_debt_cents``
+    (``Totals.openDebtCents``), as the node does since ycash6 #59 (D-MP-4)."""
     mask = np.zeros(np.shape(x_mint), dtype=np.uint16)
     mask |= np.where(np.asarray(status) != ACTIVE, HALT_NOT_ACTIVE, 0).astype(np.uint16)
     mask |= np.where(np.asarray(x_mint) == UNDEF, HALT_NO_PRICE, 0).astype(np.uint16)
-    if supply_cents is not None and collateral_zat is not None and np.any(supply_cents):
-        h2 = SUP.halt2_mask(collateral_zat, x_mint, supply_cents, int(params["globalRatioHaltBps"]))
+    if open_debt_cents is not None and collateral_zat is not None and np.any(open_debt_cents):
+        h2 = SUP.halt2_mask(collateral_zat, x_mint, open_debt_cents, int(params["globalRatioHaltBps"]))
         mask |= np.where(h2, HALT_GLOBAL_RATIO, 0).astype(np.uint16)
     h3 = V.halt3_divergence(p_fast, p_mid, p_slow, int(params["divergenceBps"]))
     mask |= np.where(h3, HALT_DIVERGENCE, 0).astype(np.uint16)
@@ -500,11 +504,14 @@ def halt_mask_series(
 
 
 def refresh_halt2(params: Mapping, series: BlockSeries) -> None:
-    """Recompute ``global_ratio_bps`` and the HALT-2 bit from ``supply_cents`` / ``collateral_zat``
-    (run after the ``vaults`` hooks; idempotent)."""
-    series.global_ratio_bps = SUP.global_ratio_bps(series.collateral_zat, series.x_mint, series.supply_cents)
+    """Recompute ``global_ratio_bps`` and the HALT-2 bit from ``open_debt_cents`` / ``collateral_zat``
+    (run after the ``vaults`` hooks; idempotent). The denominator is the open vault debt, not
+    ``supply_cents``: ycash6 ``src/yellowback/state.cpp:1849-1855`` @ ``01ec39628e`` (D-MP-4)."""
+    series.global_ratio_bps = SUP.global_ratio_bps(
+        series.collateral_zat, series.x_mint, series.open_debt_cents
+    )
     h2 = SUP.halt2_mask(
-        series.collateral_zat, series.x_mint, series.supply_cents, int(params["globalRatioHaltBps"])
+        series.collateral_zat, series.x_mint, series.open_debt_cents, int(params["globalRatioHaltBps"])
     )
     m = series.halt_mask & np.uint16(~HALT_GLOBAL_RATIO & 0xFFFF)
     series.halt_mask = (m | np.where(h2, HALT_GLOBAL_RATIO, 0).astype(np.uint16)).astype(np.uint16)
@@ -682,6 +689,7 @@ def _simulate_chunk(
         supply_cap_cents=und.copy(),
         supply_cents=np.zeros(shape, np.int64),
         collateral_zat=np.zeros(shape, np.int64),
+        open_debt_cents=np.zeros(shape, np.int64),
         global_ratio_bps=und.copy(),
         pin1_triggered=np.zeros(shape, bool),
         pinned_pools=np.zeros(shape, np.uint64),
@@ -746,7 +754,7 @@ def _simulate_chunk(
     run_hooks("supply")
 
     # HALT-1..4, ACT-4/6
-    s.global_ratio_bps = SUP.global_ratio_bps(s.collateral_zat, s.x_mint, s.supply_cents)
+    s.global_ratio_bps = SUP.global_ratio_bps(s.collateral_zat, s.x_mint, s.open_debt_cents)
     s.halt_mask = halt_mask_series(
         params,
         s.activation_status,
@@ -756,13 +764,13 @@ def _simulate_chunk(
         s.p_slow,
         s.participation_halt,
         s.enforcement_halt,
-        s.supply_cents,
+        s.open_debt_cents,
         s.collateral_zat,
     )
     run_hooks("halts")
 
     run_hooks("vaults")
-    if np.any(s.supply_cents) or np.any(s.collateral_zat):
+    if np.any(s.supply_cents) or np.any(s.collateral_zat) or np.any(s.open_debt_cents):
         refresh_halt2(params, s)
     run_hooks("dormancy")
     return s
@@ -1246,6 +1254,7 @@ def series_records(series: BlockSeries, path: int = 0) -> list[dict]:
                 "issuedZat": int(series.issued_zat[path, j]),
                 "supplyCents": int(series.supply_cents[path, j]),
                 "collateralZat": int(series.collateral_zat[path, j]),
+                "openDebtCents": int(series.open_debt_cents[path, j]),
                 "globalRatioBps": None
                 if int(series.global_ratio_bps[path, j]) == UNDEF
                 else int(series.global_ratio_bps[path, j]),

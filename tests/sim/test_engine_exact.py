@@ -249,23 +249,32 @@ def test_halt2_from_vaults_hook_matches_kernel():
     rng = np.random.default_rng(1)
     price = np.rint(1_000_000 * (1 + rng.normal(0, 0.01, n))).astype(np.int64)
     inp = make_inputs(ps, np.ones(n, bool), price, np.zeros(n, np.int16), np.ones(n, bool))
-    supply = np.linspace(0, 50_000, n).astype(np.int64)[None, :]
-    coll = np.full((1, n), 3 * 10**8, dtype=np.int64)
+    debt = np.linspace(0, 50_000, n).astype(np.int64)[None, :]
+    # supply sits below the open debt (a burn outside a redemption leaves supply, never debt): HALT-2
+    # must read the debt (ycash6 state.cpp:1849-1855 @ 01ec39628e, D-MP-4), never the supply
+    supply = debt // 4
+    coll = np.full((1, n), 1_000 * 10**8, dtype=np.int64)  # $1,000 at $1: 250 % at $400 of debt
 
     def vaults(stage, params, inputs, series):
         if stage == "vaults":
             series.supply_cents = supply.copy()
+            series.open_debt_cents = debt.copy()
             series.collateral_zat = coll.copy()
 
     s = E.simulate_blocks(ps, inp, hooks=[vaults], activation_mode="always_active")
+    differs = 0
     for j in range(n):
         xm = int(s.x_mint[0, j])
         xm = xm if xm > 0 else None
-        want = K.halt2_global_ratio(int(coll[0, j]), xm, int(supply[0, j]), int(ps["globalRatioHaltBps"]))
+        want = K.halt2_global_ratio(int(coll[0, j]), xm, int(debt[0, j]), int(ps["globalRatioHaltBps"]))
+        halt = int(ps["globalRatioHaltBps"])
+        on_supply = K.halt2_global_ratio(int(coll[0, j]), xm, int(supply[0, j]), halt)
+        differs += want != on_supply
         assert bool(s.halt_mask[0, j] & E.HALT_GLOBAL_RATIO) == want
-        g = K.global_ratio_bps(int(coll[0, j]), xm, int(supply[0, j]))
+        g = K.global_ratio_bps(int(coll[0, j]), xm, int(debt[0, j]))
         assert (None if s.global_ratio_bps[0, j] == E.UNDEF else int(s.global_ratio_bps[0, j])) == g
     assert (s.halt_mask & E.HALT_GLOBAL_RATIO).any()
+    assert differs > 0  # the case tells the two denominators apart
 
 
 def test_hooks_see_every_stage_in_snap_order():

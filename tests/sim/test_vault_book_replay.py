@@ -5,6 +5,11 @@ turned into a real transaction and fed, block by block with the same coinbase ta
 ``YellowbackModel``. Per height the reference's Totals (supply, collateral, unbacked, counts) and
 haltMask must equal the engine's arrays (the HALT-2 the engine recomputes from the book's totals),
 every transaction's verdict must equal the book's, and the final vault statuses must agree.
+
+HALT-2 is the one rule taken from the node rather than the retired v3 reference: it divides by the
+open vault debt (the mintedCents of the reference's ACTIVE vaults), not by the supply (ycash6
+``src/yellowback/state.cpp:1849-1855`` @ ``01ec39628e``; D-MP-4). The expected haltMask is the
+reference's with its GLOBAL_RATIO bit recomputed that way.
 """
 
 from __future__ import annotations
@@ -12,6 +17,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from ybcal.model import kernels as K
 from ybcal.model import reference_v3 as R
 from ybcal.params.paramset import regtest
 from ybcal.sim import agents as AG
@@ -120,7 +126,10 @@ def replay(ps, inp, series, res, events):
         assert not (bv.block_invalid and bv.enforcement_on), f"BLK-1 at {h}: {bv.reason}"
         t = m.totals
         s = m.snapshot(h)
-        out_totals.append((t.supply_cents, t.collateral_zat, t.unbacked_cents, s.halt_mask))
+        debt = sum(v.minted_cents for v in m.vaults.values() if v.status == R.V_ACTIVE)
+        h2 = K.halt2_global_ratio(t.collateral_zat, s.p_mint, debt, int(ps["globalRatioHaltBps"]))
+        mask = (s.halt_mask & ~R.HALT_GLOBAL_RATIO) | (R.HALT_GLOBAL_RATIO if h2 else 0)
+        out_totals.append((t.supply_cents, t.collateral_zat, t.unbacked_cents, mask, debt))
     return m, out_totals, verdicts
 
 
@@ -157,10 +166,12 @@ def test_block_book_replays_exactly(name):
     events = res.meta["events"][0]
     kinds = {e["kind"] for e in events}
     m, tot, verdicts = replay(ps, inp, series, res, events)
-    for j, (sup, col, unb, mask) in enumerate(tot):
+    for j, (sup, col, unb, mask, debt) in enumerate(tot):
         assert int(series.supply_cents[0, j]) == sup, f"supply at {START + j}"
         assert int(series.collateral_zat[0, j]) == col, f"collateral at {START + j}"
         assert int(res.unbacked_cents[0, j]) == unb, f"unbacked at {START + j}"
+        got_debt = int(series.open_debt_cents[0, j])
+        assert got_debt == int(res.open_debt_cents[0, j]) == debt, f"open debt at {START + j}"
         assert int(series.halt_mask[0, j]) == mask, (
             f"haltMask at {START + j}: {series.halt_mask[0, j]} != {mask}"
         )

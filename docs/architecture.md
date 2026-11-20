@@ -564,7 +564,7 @@ Undefined prices and ratios are `-1` (`vkernels.UNDEF`). Stages run once each ov
 | `price` | PRICE-1/2 via `vkernels.RollingMedian`; heights with pinned keys are recomputed exactly without those pools' quote tags | |
 | `sigma` | `vkernels.sigma_mult_series` | |
 | `supply` | `issuedZat` = Σ `GetBlockSubsidy` since `startHeight`; MINT-6 cap at xMint | |
-| `halts` | haltMask (all six bits; HALT-2 from `supply_cents`/`collateral_zat`) | |
+| `halts` | haltMask (all six bits; HALT-2 from `open_debt_cents`/`collateral_zat`, D-MP-4) | |
 | `vaults` | after the hooks, `global_ratio_bps` and HALT-2 recomputed from the arrays the hook filled | WP-4 |
 | `dormancy` | none (last in SNAP) | hook only (WP-5) |
 
@@ -834,7 +834,9 @@ p_bad_debt_fast(params, hourly_true, *, hour_series=None, kernel=None, rng=None,
 2. **Timeline.** One path's snapshot fields per step plus `conf[t]`, the confirmation height of a
    transaction at step `t`, whose refHeight candidates are steps `[t − ref_steps, t − 1]`. The book
    adds HALT-2 to `base_halt` from its own totals (`Snapshots[R]` holds the totals after block R's
-   transactions), exactly as `ComputeSnapshot` does.
+   transactions), exactly as `ComputeSnapshot` does: collateral at pMint over the open debt
+   (`Totals.open_debt_cents`, the ACTIVE vaults' `mintedCents`), not over the supply (ycash6
+   `src/yellowback/state.cpp:1849-1855` @ `01ec39628e`; D-MP-4).
 3. **Planning (vectorised).** For every mint attempt: the candidate snapshots ordered by the
    persona (adversarial: admissible ones by descending pMint, newest first on ties; wallet:
    `tip − REF_LAG`), the wallet collateral at the preferred one, and the vault's lifecycle, which
@@ -857,8 +859,8 @@ p_bad_debt_fast(params, hourly_true, *, hour_series=None, kernel=None, rng=None,
    `counters["plan_mismatch"]` (0 in every test and benchmark).
 5. **Block mode** (`VaultHook`): the timeline is the engine's `BlockSeries` (HALT-2 stripped, E(R)
    from the tags and PIN-1 bitmask, ACT-5 and abandonment from `activation_status` /
-   `enforcement_halt`, `enforceUntilHeight`); the hook writes `supply_cents` / `collateral_zat` and
-   the engine's `refresh_halt2` then equals the book's HALT-2 at every height (replay-tested).
+   `enforcement_halt`, `enforceUntilHeight`); the hook writes `supply_cents` / `collateral_zat` /
+   `open_debt_cents` and the engine's `refresh_halt2` then equals the book's HALT-2 at every height (replay-tested).
    `attempts=` overrides sampling per path index — use it only with unchunked runs.
 6. **Hour mode** (`simulate_vault_book_hours`): step `t` = the snapshot at the last block of hour
    `t` (`start + offset + 48t + 47`); a transaction at step `t` reads `R = heights[t − 1]` and
