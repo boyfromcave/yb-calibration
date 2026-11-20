@@ -1,8 +1,8 @@
 # ==== ybcal vendored file -- do not edit; re-vendor with `ybcal verify --revendor` ====
 # source: boyfromcave/ycash6 qa/rpc-tests/test_framework/vault.py
-# commit: 4129f22cd7a9732b5a15dd2b1893dd09b7f4471c
-# sha256: 96817339b151fd91927ae4994c59ab7ec9977e16d493463a01924c798b24d039
-# body-sha256: acc9c1458ca2b633c8dc1b25a7bfec167018dafa3686b0db7824d473484d7d7b
+# commit: d50e3b843122b46010326a4ea0bbf8cb5bd14ab1
+# sha256: 1d3d5876c9f94cc01d43d16a40e24dc81e71bc25994428a888a5fbe330d505eb
+# body-sha256: ac303c72b0c158d912804efb3d843a92cdbc9db4a50aa65a79b53c460beef79e
 # mode: verbatim top-level definitions (transitive closure of the roots in vendor.SPECS)
 # ruff: noqa
 # ==== end of ybcal header; the vendored source follows unchanged ====
@@ -62,6 +62,8 @@ SETSIG_DOMAIN = b'YcashSetSig'           # 11 ASCII bytes
 SET_SIG_SIZE = 65
 
 MAX_SEATS = 15
+
+MAX_ACT_SIGS = 1 + MAX_SEATS          # joiner + slashThreshold <= seats (§15.5)
 
 MAX_WINDOW = 1048576
 
@@ -462,10 +464,17 @@ def parse_act_script(spk):
     if act_script(vals[0], vals[1:]) != spk:
         raise VaultError('bad-vault-act-script', 'non-canonical push')
     p, sigs = vals[0], vals[1:]
+    act = decode_act(p)
+    kept = []
     for s in sigs:
         if len(s) != SET_SIG_SIZE:
             raise VaultError('bad-vault-act-sig', 'signature size')
-    return p, decode_act(p), sigs
+        # The decoder stops at the 17th signature (MAX_ACT_SIGS). More is bad-vault-act-sigs
+        # and no further push is read.
+        if len(kept) >= MAX_ACT_SIGS:
+            raise VaultError('bad-vault-act-sigs')
+        kept.append(s)
+    return p, act, kept
 
 def act_set_join(set_id32, member_key, bond_locktime, bond_vout=0):
     return {'type': ACT_SET_JOIN, 'setId': bytes(set_id32).hex(), 'memberKey': bytes(member_key).hex(),

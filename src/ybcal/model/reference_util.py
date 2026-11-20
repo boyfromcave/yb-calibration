@@ -1,7 +1,7 @@
 # ==== ybcal vendored file -- do not edit; re-vendor with `ybcal verify --revendor` ====
 # source: boyfromcave/ycash6 qa/rpc-tests/test_framework/yellowback_util.py + qa/rpc-tests/test_framework/util.py
-# commit: 4129f22cd7a9732b5a15dd2b1893dd09b7f4471c
-# sha256: 8a54c1aee233d97b69b4a3d65b4fe52d3f289f5634a9bdc23066c100e643cf52 6638003e025727d5ce0047a0bae78f71946d4f4d1b0bf30f9e2fa16b65e9c023
+# commit: d50e3b843122b46010326a4ea0bbf8cb5bd14ab1
+# sha256: 5a5597c79029bd9f6160bb13bdab6d423a72a231e351daa2bf378446f0be50df f7372f847faefc897e48fb1a652d39b2ebe45226935747d0f5626773a83868f2
 # body-sha256: 340873bdcf32b1549e397e1c2110b9249b19264b19c23d1925e6e5dca1469778
 # mode: verbatim top-level definitions (transitive closure of the roots in vendor.SPECS)
 # ruff: noqa

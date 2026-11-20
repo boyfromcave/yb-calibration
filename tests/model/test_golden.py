@@ -37,6 +37,7 @@ def test_golden_chain_exercises_the_rules():
 def test_golden_rejected_entries_are_not_applied():
     doc = golden.load_golden_doc()
     # one rejected entry per consensus verdict the vector covers (audit 03/T-1; 20 since SCHEMA 14,
-    # the cancel limit; 22 since ycash6 4129f22cd, RED-5a/5b: red5-residual twice, red5-claimant-short)
-    assert sum(1 for b in doc["blocks"] if b.get("invalid")) == 22
+    # the cancel limit; 22 since ycash6 4129f22cd, RED-5a/5b: red5-residual twice, red5-claimant-short;
+    # 23 since ycash6 d50e3b843, tag v2: a mint paying P2PKH where only a v2 payee is eligible)
+    assert sum(1 for b in doc["blocks"] if b.get("invalid")) == 23
     assert len(golden._golden_txs(doc)) > 0
